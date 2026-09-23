@@ -92,3 +92,15 @@ Figure defaults (`dpi=150`) live in `fb.config`.
 uv sync
 uv run pytest
 ```
+
+## Documentation
+
+The docs are built with MkDocs (Material theme, API reference via mkdocstrings) from `docs/`:
+
+```sh
+uv sync --group docs
+uv run mkdocs serve      # live preview at http://127.0.0.1:8000
+```
+
+Every push to `main` rebuilds the site and pushes it to the `gh-pages` branch
+(`.github/workflows/docs.yml`).
