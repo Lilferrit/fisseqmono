@@ -14,6 +14,7 @@ from .correlation import CorrelationPlot
 from .embedding import EmbeddingPlot
 from .heatmap import Heatmap
 from .roc import RocPlot
+from .volcano import VolcanoPlot
 
 __all__ = [
     "BoxPlot",
@@ -27,6 +28,7 @@ __all__ = [
     "Heatmap",
     "Plot",
     "RocPlot",
+    "VolcanoPlot",
     "config",
     "fisseq",
 ]

@@ -10,6 +10,8 @@
 
 ::: fisseqborn.RocPlot
 
+::: fisseqborn.VolcanoPlot
+
 ::: fisseqborn.Heatmap
 
 ::: fisseqborn.ClusterMap

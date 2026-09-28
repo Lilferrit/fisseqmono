@@ -1,3 +1,4 @@
+import numpy as np
 import polars as pl
 import pytest
 from matplotlib.collections import PolyCollection
@@ -185,3 +186,90 @@ def test_embedding_draws_largest_group_first(profiles):
     # Single Missense (grey, the largest class) is drawn first, Frameshift (purple) last
     assert tuple(colors[0][:3]) == pytest.approx((0.5, 0.5, 0.5), abs=0.01)
     assert tuple(colors[-1][:3]) == pytest.approx((0.5, 0.0, 0.5), abs=0.01)
+
+
+# ----- VolcanoPlot ---------------------------------------------------------------------
+
+
+@pytest.fixture
+def volcano_rows(profiles) -> pl.DataFrame:
+    """Long-form (variant, feature) rows: one median value and -log10 p per pair."""
+    return (
+        profiles.unpivot(
+            on=[f"feature_{i}" for i in range(8)],
+            index=["meta_aa_changes", "meta_variant_type"],
+            variable_name="feature",
+            value_name="median",
+        )
+        .with_columns((pl.col("median").abs() * 3).alias("negLogP"))
+    )
+
+
+def test_volcano_layers_draw_in_call_order(volcano_rows):
+    types = ["Single Missense", "Frameshift", "Synonymous"]
+    plot = fb.VolcanoPlot(volcano_rows, x="median", y="negLogP")
+    for t in types:
+        plot = plot.layer(pl.col("meta_variant_type") == t, label=t)
+    _, ax = plot.plot()
+    counts = volcano_rows.get_column("meta_variant_type").value_counts(name="n")
+    n = dict(counts.iter_rows())
+    labels = [t.get_text() for t in ax.get_legend().get_texts()]
+    assert labels == [f"{t} (n={n[t]:,})" for t in types] + ["Bonferroni p = 0.05"]
+    # layers stack bottom to top in call order, colored from the fisseq palette
+    assert [c.get_zorder() for c in ax.collections] == [1, 2, 3]
+    assert tuple(ax.collections[2].get_facecolors()[0][:3]) == pytest.approx(
+        (0.0, 100 / 255, 0.0), abs=0.01
+    )
+
+
+def test_volcano_bonferroni_threshold_counts_drawn_points(volcano_rows):
+    df = volcano_rows.with_columns(
+        pl.when(pl.col("feature") == "feature_0").then(None).otherwise(pl.col("median"))
+        .alias("median")
+    )
+    plot = fb.VolcanoPlot(df, x="median", y="negLogP").layer(
+        pl.col("meta_variant_type") != "Frameshift"
+    )
+    n = df.filter(
+        pl.col("median").is_not_null(), pl.col("meta_variant_type") != "Frameshift"
+    ).height
+    assert plot.significance_threshold() == pytest.approx(-np.log10(0.05 / n))
+    _, ax = plot.plot()
+    assert ax.lines[0].get_ydata()[0] == pytest.approx(plot.significance_threshold())
+    # the unlabelled layer is left out of the legend
+    assert [t.get_text() for t in ax.get_legend().get_texts()] == ["Bonferroni p = 0.05"]
+
+
+def test_volcano_defaults_and_options(volcano_rows):
+    _, ax = fb.VolcanoPlot(volcano_rows, x="median", y="negLogP", alpha=None,
+                           x_quantiles=None).plot()
+    assert len(ax.collections) == 1 and not ax.lines and ax.get_legend() is None
+    assert len(ax.collections[0].get_offsets()) == volcano_rows.height
+    assert fb.VolcanoPlot(volcano_rows, x="median", y="negLogP", bonferroni=False) \
+        .significance_threshold() == pytest.approx(-np.log10(0.05))
+    lo, hi = fb.VolcanoPlot(volcano_rows, x="median", y="negLogP").plot()[1].get_xlim()
+    assert lo > volcano_rows["median"].min() and hi < volcano_rows["median"].max()
+
+
+def test_volcano_from_wide_matches_long_form(profiles):
+    wide = profiles.select(
+        "meta_aa_changes",
+        "meta_variant_type",
+        *[pl.col(f"feature_{i}").alias(f"feature_{i}_median") for i in range(3)],
+        *[(pl.col(f"feature_{i}").abs() * 3).alias(f"feature_{i}_KSnegLogP") for i in range(3)],
+        pl.col("feature_3").alias("feature_3_median"),  # no p-value column: skipped
+    )
+    plot = fb.VolcanoPlot.from_wide(wide, alpha=None)
+    assert (plot.x, plot.y) == ("median", "KSnegLogP")
+    assert set(plot.data.columns) == {
+        "meta_aa_changes", "meta_variant_type", "feature", "median", "KSnegLogP"
+    }
+    assert plot.data.height == 3 * profiles.height
+    row = plot.data.filter(
+        pl.col("meta_aa_changes") == "A5V", pl.col("feature") == "feature_2"
+    )
+    expected = profiles.filter(pl.col("meta_aa_changes") == "A5V")["feature_2"][0]
+    assert row["median"][0] == pytest.approx(expected)
+    assert row["KSnegLogP"][0] == pytest.approx(abs(expected) * 3)
+    with pytest.raises(ValueError, match="No feature"):
+        fb.VolcanoPlot.from_wide(wide, y_suffix="_AUROCnegLogP")

@@ -30,8 +30,9 @@ Extra elements are added with chained methods, called *layers*. Every plot has t
 | `.set(**kwargs)` | `ax.set(...)` after drawing, e.g. `.set(ylim=(0, 1), title="…")` |
 | `.legend(outside=True, **kwargs)` | Restyle the legend, or move it to the right of the axes |
 
-Some plots add their own layers, such as `BoxPlot.annotate_pairs()` for significance stars and
-`EmbeddingPlot.highlight()` to overlay a subset of points.
+Some plots add their own layers, such as `BoxPlot.annotate_pairs()` for significance stars,
+`EmbeddingPlot.highlight()` to overlay a subset of points and `VolcanoPlot.layer()` to add a group of
+points selected by a polars expression.
 
 Each layer call returns a **new** plot and leaves the original alone. You can build a base plot once
 and branch off variants without layers piling up:

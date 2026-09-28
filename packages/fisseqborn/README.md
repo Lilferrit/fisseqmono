@@ -32,6 +32,7 @@ from fisseqborn import fisseq
 | `EmbeddingPlot(df, x, y, hue=None, kind="scatter"/"hexbin")` | UMAP / PCA; categorical or numeric hue, `center=0` for z-scores; `.highlight(expr, ...)` overlays a subset |
 | `CorrelationPlot(df, x, y, stat="pearson", fit=None/"linear"/"lowess", identity=False)` | replicate vs replicate, score vs cell count; `kind="kde"`, `count_sides=True` |
 | `RocPlot(df, label, positive, score, negative="Synonymous", group=None)` | one curve per score column or per group; `.aucs()` returns the AUC table |
+| `VolcanoPlot(df, x, y, alpha=0.05, bonferroni=True)` | long-form effect size vs −log10 p; `.layer(expr, label=...)` adds a group of points, drawn in call order; `VolcanoPlot.from_wide(df)` takes one row per variant with `_median` / `_KSnegLogP` column pairs |
 | `Heatmap(df, index, columns, values=None)` / `Heatmap.correlation(df, cols)` | pairwise matrices (long or wide form), correlation matrices |
 | `ClusterMap(df, groups=None, row_colors=None, row_labels=None)` | clustered heatmaps with per-group color scales (figure-level, see below) |
 
