@@ -46,3 +46,55 @@ def profiles() -> pl.DataFrame:
             **{f"feature_{i}": rng.normal(shift * i, 1, n) for i in range(8)},
         }
     )
+
+
+PIPELINE_VARIANTS = ["A1A", "C2C", "G6G", "D3V", "E4K", "F5fs", "H7*"]
+PIPELINE_FEATURES = ["AreaShape_Area", "Mean_Nuclei_Intensity_MeanIntensity_CH1", "Constant"]
+# Written out of order to check that batches come back in natural order.
+PIPELINE_BATCHES = ["T2_R1", "T10_R1", "T1_R1"]
+
+
+@pytest.fixture
+def pipeline_dir(tmp_path):
+    """A tiny pipeline output directory with the layout of the real runs."""
+    rng = np.random.default_rng(0)
+    root = tmp_path / "run"
+    n = len(PIPELINE_VARIANTS)
+    for b, batch in enumerate(PIPELINE_BATCHES):
+        fs = root / "feature_select_batchwise" / batch
+        tables = {
+            ("aggregates", "median"): lambda f, b=b: (
+                np.full(n, 3.0) if f == "Constant" else rng.normal(b, 1 + b, n)
+            ),
+            ("aggregates", "KS"): lambda f: rng.uniform(0, 1, n),
+            ("passthrough_aggregates", "KSnegLogP"): lambda f: rng.uniform(0, 10, n),
+        }
+        for (folder, stat), values in tables.items():
+            (fs / folder).mkdir(parents=True, exist_ok=True)
+            pl.DataFrame(
+                {"meta_aa_changes": PIPELINE_VARIANTS}
+                | {f"{f}_{stat}": values(f) for f in PIPELINE_FEATURES}
+            ).write_parquet(fs / folder / f"{stat}.parquet")
+        (fs / "blocklists").mkdir()
+        for stat in ("median", "KS"):
+            names = [f"{f}_{stat}" for f in PIPELINE_FEATURES]
+            median_r = [0.9, 0.8 if b else 0.6, 0.1]
+            pl.DataFrame(
+                {"feature": names, "median_r": median_r, "feature_ok": [r > 0.5 for r in median_r]}
+            ).write_parquet(fs / "blocklists" / f"{stat}.parquet")
+
+        ovwt = root / "ovwt_batchwise" / batch
+        ovwt.mkdir(parents=True)
+        auroc = np.clip(0.5 + 0.1 * b + rng.normal(0, 0.1, n), 0, 1)
+        pl.DataFrame(
+            {
+                "meta_aa_changes": PIPELINE_VARIANTS,
+                "auroc_pooled": auroc,
+                "auroc_median_barcode": auroc - 0.01,
+                "auroc_folds": [[a, a] for a in auroc],
+                "auroc_median_fold": auroc,
+                "meta_n_barcodes": rng.integers(1, 5, n),
+                "meta_n_cells": rng.integers(10, 100, n),
+            }
+        ).write_parquet(ovwt / "results.parquet")
+    return root

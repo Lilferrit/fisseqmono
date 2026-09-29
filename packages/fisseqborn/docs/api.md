@@ -20,6 +20,16 @@
 
 ::: fisseqborn.ClusterMapAxes
 
+## Data
+
+::: fisseqborn.Profiles
+
+::: fisseqborn.OvwtScores
+
+::: fisseqborn.Blocklists
+
+::: fisseqborn.Dataset
+
 ## Base classes and configuration
 
 ::: fisseqborn.Plot

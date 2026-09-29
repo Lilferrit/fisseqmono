@@ -14,6 +14,18 @@ from matplotlib.colors import Normalize
 from . import fisseq
 
 
+def as_frame(data: Any) -> pl.DataFrame:
+    """The polars DataFrame behind ``data``: a `Dataset` is collected, a DataFrame passes
+    through, and anything else raises `TypeError`."""
+    from .dataset import Dataset
+
+    if isinstance(data, Dataset):
+        return data.df
+    if not isinstance(data, pl.DataFrame):
+        raise TypeError(f"data must be a polars DataFrame, got {type(data).__name__}")
+    return data
+
+
 def require_columns(df: pl.DataFrame, *columns: str | None) -> None:
     """Raise a helpful `ValueError` if any (non-``None``) column is missing from ``df``."""
     missing = [c for c in columns if c is not None and c not in df.columns]

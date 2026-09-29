@@ -20,9 +20,19 @@ dependencies = [
     "statsmodels",
 ]
 
+[project.optional-dependencies]
+cluster = [
+    "leidenalg>=0.12",
+    "python-igraph>=1.0",
+]
+umap = [
+    "umap-learn>=0.5.12",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8",
+    "fisseqborn[cluster,umap]",
 ]
 docs = [
     "mkdocs>=1.6,<2",

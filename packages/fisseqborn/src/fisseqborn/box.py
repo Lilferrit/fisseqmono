@@ -65,6 +65,7 @@ class BoxPlot(Plot):
         dpi: int | None = None,
         **box_kw: Any,
     ) -> None:
+        data = _data.as_frame(data)
         super().__init__(data, title=title, figsize=figsize, dpi=dpi)
         _data.require_columns(data, x, y, hue)
         if points not in (None, "strip", "density"):

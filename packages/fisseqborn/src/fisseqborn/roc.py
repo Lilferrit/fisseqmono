@@ -60,6 +60,7 @@ class RocPlot(Plot):
         dpi: int | None = None,
         **line_kw: Any,
     ) -> None:
+        data = _data.as_frame(data)
         super().__init__(data, title=title, figsize=figsize, dpi=dpi)
         self.scores = _as_list(score)
         _data.require_columns(data, label, group, *self.scores)

@@ -34,7 +34,8 @@ Some plots add their own layers, such as `BoxPlot.annotate_pairs()` for signific
 `EmbeddingPlot.highlight()` to overlay a subset of points and `VolcanoPlot.layer()` to add a group of
 points selected by a polars expression.
 
-Each layer call returns a **new** plot and leaves the original alone. You can build a base plot once
+Each layer call returns a **new** plot and leaves the original alone. The
+[data classes](data.md) that load pipeline outputs chain the same way. You can build a base plot once
 and branch off variants without layers piling up:
 
 ```python

@@ -73,6 +73,7 @@ class Heatmap(Plot):
         dpi: int | None = None,
         **kw: Any,
     ) -> None:
+        data = _data.as_frame(data)
         super().__init__(data, title=title, figsize=figsize, dpi=dpi)
         if values is not None:
             if not isinstance(columns, str):
@@ -105,6 +106,7 @@ class Heatmap(Plot):
 
         Defaults to ``cmap="vlag", vmin=-1, vmax=1, center=0, annot=True``.
         """
+        data = _data.as_frame(data)
         if columns is None:
             columns = [c for c in data.columns if _data.is_numeric(data, c)]
         _data.require_columns(data, *columns)

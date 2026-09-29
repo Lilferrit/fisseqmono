@@ -20,6 +20,8 @@ import polars as pl
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
+from . import _data
+
 
 @dataclasses.dataclass
 class Config:
@@ -48,9 +50,7 @@ class Plot(ABC):
         figsize: tuple[float, float] | None = None,
         dpi: int | None = None,
     ) -> None:
-        if not isinstance(data, pl.DataFrame):
-            raise TypeError(f"data must be a polars DataFrame, got {type(data).__name__}")
-        self.data = data
+        self.data = _data.as_frame(data)
         self.title = title
         self.figsize = figsize
         self.dpi = dpi

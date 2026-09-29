@@ -36,6 +36,34 @@ from fisseqborn import fisseq
 | `Heatmap(df, index, columns, values=None)` / `Heatmap.correlation(df, cols)` | pairwise matrices (long or wide form), correlation matrices |
 | `ClusterMap(df, groups=None, row_colors=None, row_labels=None)` | clustered heatmaps with per-group color scales (figure-level, see below) |
 
+## Loading pipeline outputs
+
+The data classes read a fisseq-data-pipeline output directory and chain the same way plots do. Each
+method returns a new object, and plots accept the result directly.
+
+```python
+profiles = (
+    fb.Profiles.from_pipeline(run_dir, types=["median"], passthrough=["KSnegLogP"])
+      .variant_type()                                  # meta_variant_type + meta_is_control
+      .normalize(by="meta_experiment")                 # z-score each batch vs its synonymous
+      .median_across_batches(paired={"_median": "_KSnegLogP"})
+      .keep_features(fb.Blocklists.from_pipeline(run_dir).consensus())
+      .clinvar("clinvar_converted.parquet")
+      .distinguishability(fb.OvwtScores.from_pipeline(run_dir))
+)
+fb.VolcanoPlot.from_wide(profiles).save("vis/volcano.png")
+profiles.drop_nonfinite().umap().cluster(n_neighbors=30).save("profiles.parquet")
+```
+
+| Class | For |
+|---|---|
+| `Profiles` | per-variant feature profiles: `normalize`, `median_across_batches`, `keep_features`, `impact_score`, `pca`, `umap`, `cluster`, `distinguishability` |
+| `OvwtScores` | OvWT AUROCs: `correct` (per-batch rescale against synonymous variants) and `per_variant` |
+| `Blocklists` | per-batch feature reproducibility: `rethreshold`, `consensus` |
+| `Dataset` | the base class: `filter`/`with_columns`/`join`/`pipe`, `variant_type`, `position`, `domain`, `tile`, `clinvar`, `save` |
+
+`umap()` needs `fisseqborn[umap]` and Leiden clustering needs `fisseqborn[cluster]`.
+
 ## Clustermaps with feature groups
 
 `ClusterMap` splits the features into `FeatureGroup` blocks. Each block has its own colormap and colorbar.
@@ -80,7 +108,7 @@ Each layer call returns a **new** plot, so you can reuse a base plot in a loop w
 
 - `VARIANT_TYPE_PALETTE`, `CLINVAR_PALETTE` and `PATHOGENIC`
 - the canonical category orders
-- `LMNA_DOMAIN_REGIONS` and `LMNA_LANDMARK_FEATURES`
+- `LMNA_DOMAIN_REGIONS`, `LMNA_TILES` and `LMNA_LANDMARK_FEATURES`
 - `batch_palette(experiments)`, which gives replicates of the same tile the same hue
 
 When every level of a hue column is known to the theme, its palette and order are used automatically.

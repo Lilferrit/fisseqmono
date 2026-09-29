@@ -28,6 +28,7 @@ nav:
   - User guide:
       - Concepts: concepts.md
       - The fisseq theme: theme.md
+      - Loading pipeline outputs: data.md
   - Plots:
       - Boxplots: plots/box.md
       - Embeddings (UMAP / PCA): plots/embedding.md

@@ -52,5 +52,6 @@ call that makes that kind of figure.
 
 - [Concepts](concepts.md): how plots, layers, `plot()` and `save()` fit together.
 - [The fisseq theme](theme.md): palettes, orders and LMNA reference data.
+- [Loading pipeline outputs](data.md): chainable `Profiles`, `OvwtScores` and `Blocklists`.
 - One page per plot type in the navigation, with examples.
 - [API reference](api.md): every parameter.

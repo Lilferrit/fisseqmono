@@ -33,6 +33,7 @@ fisseq.CLINVAR_PALETTE          # ClinVar significance -> color
 fisseq.PALETTE                  # both merged
 fisseq.VARIANT_TYPE_ORDER, fisseq.CLINVAR_ORDER
 fisseq.LMNA_DOMAIN_REGIONS      # domain -> (start, end) amino-acid positions
+fisseq.LMNA_TILES               # [(tile, start, end)] library tiles (neighbors overlap)
 fisseq.LMNA_LANDMARK_FEATURES   # CellProfiler feature -> readable name
 ```
 

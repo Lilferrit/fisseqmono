@@ -72,6 +72,7 @@ class CorrelationPlot(Plot):
         dpi: int | None = None,
         **kw: Any,
     ) -> None:
+        data = _data.as_frame(data)
         super().__init__(data, title=title, figsize=figsize, dpi=dpi)
         _data.require_columns(data, x, y, hue)
         if kind not in ("scatter", "kde"):

@@ -188,6 +188,7 @@ class ClusterMap(FigurePlot):
         figsize: tuple[float, float] | None = None,
         dpi: int | None = None,
     ) -> None:
+        data = _data.as_frame(data)
         super().__init__(data, title=title, figsize=figsize, dpi=dpi)
         if groups is None:
             groups = [

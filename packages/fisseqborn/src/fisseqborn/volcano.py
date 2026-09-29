@@ -75,6 +75,7 @@ class VolcanoPlot(Plot):
         dpi: int | None = None,
         **scatter_kw: Any,
     ) -> None:
+        data = _data.as_frame(data)
         super().__init__(data, title=title, figsize=figsize, dpi=dpi)
         _data.require_columns(data, x, y)
         self.x, self.y = x, y
@@ -102,6 +103,7 @@ class VolcanoPlot(Plot):
         underscore (by default ``"median"`` and ``"KSnegLogP"``). ``metadata`` defaults to
         every ``meta_`` column. ``kw`` is passed to the constructor.
         """
+        data = _data.as_frame(data)
         x, y = x_suffix.lstrip("_"), y_suffix.lstrip("_")
         features = [
             c.removesuffix(x_suffix)
