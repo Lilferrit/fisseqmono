@@ -14,6 +14,8 @@
 
 ::: fisseqborn.Heatmap
 
+::: fisseqborn.BatchCorrelationHeatmap
+
 ::: fisseqborn.ClusterMap
 
 ::: fisseqborn.FeatureGroup

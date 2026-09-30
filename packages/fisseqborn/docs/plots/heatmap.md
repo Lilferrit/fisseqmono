@@ -30,6 +30,24 @@ import fisseqborn as fb
 
 *From `notebooks/2026-07-29/ovwt_rep_correlation`.*
 
+## Batch correlation matrices
+
+`BatchCorrelationHeatmap` computes that replicate matrix from the raw scores. You pass long-form
+data with a `batch` column, a `label` column and a `score` column. Each cell is the correlation
+(Spearman by default) of `score` between two batches, using one point per label the two batches
+share. Pairs of batches that share no labels, or fewer than `min_shared` (default 3), are drawn
+black:
+
+```python
+# one row per (experiment, variant): experiment, variant, test_auroc
+(fb.BatchCorrelationHeatmap(ovwt, batch="experiment", label="variant", score="test_auroc",
+                            title="Replicate Spearman Correlation")
+   .save("vis/replicate_spearman_correlation_heatmap.png"))
+```
+
+`.pairs()` returns the numbers behind the plot: `batch_a, batch_b, r, n_shared`. Duplicate
+`(batch, label)` rows are an error unless you pass `aggregate="mean"` (or similar).
+
 `fill_value=` fills whatever is still missing, for example `fill_value=0.5` for barcode-pair AUROC
 matrices. Duplicate `(index, columns)` pairs are an error unless you pass `aggregate="mean"` (or
 `"median"`, `"first"`, …).

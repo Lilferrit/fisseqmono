@@ -11,6 +11,7 @@ plus chainable datasets that load and prepare the fisseq pipeline's outputs.
 
 from . import fisseq
 from ._base import Config, FigurePlot, Plot, config
+from .batch_correlation import BatchCorrelationHeatmap
 from .blocklist import Blocklists
 from .box import BoxPlot
 from .clustermap import ClusterMap, ClusterMapAxes, FeatureGroup
@@ -24,6 +25,7 @@ from .roc import RocPlot
 from .volcano import VolcanoPlot
 
 __all__ = [
+    "BatchCorrelationHeatmap",
     "Blocklists",
     "BoxPlot",
     "ClusterMap",

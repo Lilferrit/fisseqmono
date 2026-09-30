@@ -179,6 +179,57 @@ def test_heatmap_correlation(profiles):
     plot.plot()
 
 
+@pytest.fixture
+def replicate_scores() -> pl.DataFrame:
+    """T1_R1 and T1_R2 share variants v0-v9; T2_R1 has disjoint variants."""
+    rng = np.random.default_rng(1)
+    base = rng.uniform(0, 1, 10)
+    rows = (
+        [("T1_R1", f"v{i}", s) for i, s in enumerate(base)]
+        + [("T1_R2", f"v{i}", s + rng.normal(0, 0.1)) for i, s in enumerate(base)]
+        + [("T2_R1", f"w{i}", rng.uniform()) for i in range(10)]
+    )
+    return pl.DataFrame(rows, schema=["experiment", "variant", "test_auroc"], orient="row")
+
+
+def test_batch_correlation_matrix(replicate_scores):
+    from scipy.stats import spearmanr
+
+    plot = fb.BatchCorrelationHeatmap(replicate_scores, batch="experiment", label="variant",
+                                      score="test_auroc")
+    pairs = plot.pairs().filter(pl.col("batch_a") != pl.col("batch_b"))
+    t1 = pairs.filter((pl.col("batch_a") == "T1_R1") & (pl.col("batch_b") == "T1_R2"))
+    r1 = replicate_scores.filter(pl.col("experiment") == "T1_R1").sort("variant")
+    r2 = replicate_scores.filter(pl.col("experiment") == "T1_R2").sort("variant")
+    assert t1["r"][0] == pytest.approx(spearmanr(r1["test_auroc"], r2["test_auroc"]).statistic)
+    assert t1["n_shared"][0] == 10
+
+    mat = plot.matrix()
+    assert list(mat.index) == ["T1_R1", "T1_R2", "T2_R1"] == list(mat.columns)
+    assert np.allclose(np.diag(mat), 1.0)
+    assert np.isnan(mat.loc["T1_R1", "T2_R1"]) and np.isnan(mat.loc["T2_R1", "T1_R2"])
+    assert mat.loc["T1_R2", "T1_R1"] == mat.loc["T1_R1", "T1_R2"]
+
+    _, ax = plot.plot()
+    assert ax.get_facecolor()[:3] == (0.0, 0.0, 0.0)
+    assert len(ax.texts) == int(np.isfinite(mat.to_numpy()).sum())
+
+
+def test_batch_correlation_duplicates_and_min_shared(replicate_scores):
+    dup = pl.concat([replicate_scores, replicate_scores.head(1)])
+    with pytest.raises(ValueError, match="Duplicate"):
+        fb.BatchCorrelationHeatmap(dup, batch="experiment", label="variant", score="test_auroc")
+    fb.BatchCorrelationHeatmap(dup, batch="experiment", label="variant", score="test_auroc",
+                               aggregate="mean")
+
+    thin = replicate_scores.filter(
+        (pl.col("experiment") != "T1_R2") | pl.col("variant").is_in(["v0", "v1"])
+    )
+    mat = fb.BatchCorrelationHeatmap(thin, batch="experiment", label="variant",
+                                     score="test_auroc").matrix()
+    assert np.isnan(mat.loc["T1_R1", "T1_R2"]) and np.isnan(mat.loc["T1_R2", "T1_R2"])
+    assert mat.loc["T1_R1", "T1_R1"] == 1.0
+
 
 def test_embedding_draws_largest_group_first(profiles):
     _, ax = fb.EmbeddingPlot(profiles, **UMAP, hue="meta_variant_type").plot()
