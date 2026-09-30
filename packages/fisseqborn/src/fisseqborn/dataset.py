@@ -11,11 +11,14 @@ import copy
 import pathlib
 from collections.abc import Callable, Mapping, Sequence
 from os import PathLike
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
 
 import polars as pl
 
 from . import _data, _variants, fisseq
+
+if TYPE_CHECKING:
+    from .summary import ClusterSummary
 
 _META = "meta_"
 
@@ -232,6 +235,81 @@ class Dataset:
                 .otherwise(annotation)
                 .alias(output_col)
             )
+        )
+
+    # ----- summaries ------------------------------------------------------------------
+
+    def cluster_summary(
+        self,
+        by: str = "meta_cluster_idx",
+        *,
+        medians: Sequence[str] | Mapping[str, str] = (),
+        zscore: bool | Sequence[str] = False,
+        shares: "Mapping[str, str | Mapping[str, pl.Expr]] | None" = None,
+        levels: Mapping[str, Sequence[Any]] | None = None,
+        control_col: str = "meta_is_control",
+        count_col: str = "n",
+        label_col: str = "label",
+    ) -> "ClusterSummary":
+        """Summarize the rows (one per variant) per cluster, for a `ClusterMap`.
+
+        >>> summary = spatial.cluster_summary(
+        ...     medians=[*landmark_cols, "meta_distinguishability_score"],
+        ...     zscore=landmark_cols,
+        ...     shares={
+        ...         "class": {fisseq.PATHOGENIC: is_pathogenic, "Synonymous": is_synonymous},
+        ...         "domain": "meta_domain",
+        ...     },
+        ... )
+        >>> summary.group("domain", "Share of domain", palette="tab10")  # a FeatureGroup
+
+        Parameters
+        ----------
+        by : str, default "meta_cluster_idx"
+            Cluster id column. Rows come out in natural order of it (``"2"`` before
+            ``"10"``).
+        medians : Sequence[str] | Mapping[str, str]
+            Columns to take the per-cluster median of. A mapping renames them
+            (column -> output name).
+        zscore : bool | Sequence[str]
+            Z-score these ``medians`` columns (``True``: all of them) against the control
+            rows (``control_col``, see `variant_type`) over every row before taking the
+            medians.
+        shares : Mapping[str, str | Mapping[str, pl.Expr]] | None
+            Share blocks by name. A column name gives one share per level of that column
+            (null ignored; levels in the fisseq order, e.g. domains N- to C-terminal, else
+            natural order). A mapping of level name -> boolean expression gives one share
+            per expression, e.g. variant classes. Each share is the fraction of that
+            level's variants that fall in the cluster, so every level column sums to 1
+            (normalized per level, not per cluster). The level names become the columns.
+        levels : Mapping[str, Sequence] | None
+            For column share blocks, fix the levels (and their order) instead of reading
+            them from the data; levels with no variants are kept (their share is NaN).
+        control_col : str, default "meta_is_control"
+        count_col : str, default "n"
+            Number of rows per cluster.
+        label_col : str, default "label"
+            ``"<id> (n=<count>)"``, for ``ClusterMap(row_labels=...)``.
+
+        Returns
+        -------
+        ClusterSummary
+            Lazy like any dataset (only the levels of column share blocks are read up
+            front, unless ``levels`` gives them). Its ``totals`` give each level's variant
+            count and ``group(key, ...)`` builds a `FeatureGroup` labelled with them.
+        """
+        from .summary import cluster_summary
+
+        return cluster_summary(
+            self,
+            by,
+            medians=medians,
+            zscore=zscore,
+            shares=shares,
+            levels=levels,
+            control_col=control_col,
+            count_col=count_col,
+            label_col=label_col,
         )
 
     # ----- materializing --------------------------------------------------------------

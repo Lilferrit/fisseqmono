@@ -9,7 +9,8 @@ Whenever a categorical column is used for color (`hue`, or `x` in a boxplot), fi
 1. uses the fisseq palette **if every level of the column appears in it**. Otherwise it uses seaborn's
    default palette for up to 10 levels, `tab20` for 11–20 and `husl` beyond that, so colors never
    repeat;
-2. puts known levels in canonical order (Synonymous, Single Missense, Frameshift, …) and sorts
+2. puts known levels in canonical order (Synonymous, Single Missense, Frameshift, …; LMNA domains
+   N- to C-terminal) and sorts
    everything else *naturally*, so cluster `"2"` comes before `"10"`.
 
 An explicit `palette=`, `order=` or `hue_order=` always wins.

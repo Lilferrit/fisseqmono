@@ -2,6 +2,7 @@ import numpy as np
 import polars as pl
 import pytest
 from matplotlib.collections import PolyCollection
+from matplotlib.colors import to_rgba
 
 import fisseqborn as fb
 from fisseqborn import fisseq
@@ -440,3 +441,92 @@ def test_correlation_colorbar_label_can_be_overridden(profiles):
     _, ax = fb.Heatmap.correlation(profiles, ["feature_0", "feature_1"],
                                    cbar_kws={"label": "custom", "shrink": 0.5}).plot()
     assert _cbar_label(ax) == "custom"
+
+
+def _last_scatter(ax):
+    return ax.collections[-1]
+
+
+def test_highlight_hue_uses_base_palette(profiles):
+    # old cluster ids stored as integers still pick up the base plot's string-keyed colors
+    df = profiles.with_columns(
+        pl.when(pl.col("meta_variant_type") == "Synonymous")
+        .then(pl.col("meta_cluster_idx").cast(pl.Int32))
+        .alias("meta_old_cluster_idx")
+    )
+    base = fb.EmbeddingPlot(
+        df, x="meta_notebook_umap_1", y="meta_notebook_umap_2", hue="meta_cluster_idx",
+        kind="hexbin", palette="tab20",
+    )
+    plot = base.highlight(
+        pl.col("meta_old_cluster_idx").is_not_null(), hue="meta_old_cluster_idx", label="Synonymous"
+    )
+    _, ax = plot.plot()
+    subset = df.filter(pl.col("meta_old_cluster_idx").is_not_null())
+    expected = [to_rgba(base.palette[str(c)]) for c in subset["meta_old_cluster_idx"]]
+    np.testing.assert_allclose(_last_scatter(ax).get_facecolors(), expected)
+    assert [t.get_text() for t in ax.get_legend().get_texts()] == ["Synonymous"]
+
+
+def test_highlight_hue_explicit_palette_and_missing(profiles):
+    plot = fb.EmbeddingPlot(profiles, x="meta_notebook_umap_1", y="meta_notebook_umap_2").highlight(
+        pl.col("meta_variant_type") != "Single Missense",
+        hue="meta_variant_type",
+        palette={"Synonymous": "green"},
+    )
+    _, ax = plot.plot()
+    subset = profiles.filter(pl.col("meta_variant_type") != "Single Missense")
+    expected = [
+        to_rgba("green" if v == "Synonymous" else "white") for v in subset["meta_variant_type"]
+    ]
+    np.testing.assert_allclose(_last_scatter(ax).get_facecolors(), expected)
+
+
+def test_highlight_hue_defaults_to_fisseq_palette(profiles):
+    _, ax = (
+        fb.EmbeddingPlot(profiles, x="meta_notebook_umap_1", y="meta_notebook_umap_2")
+        .highlight(pl.col("meta_variant_type") == "Frameshift", hue="meta_variant_type")
+        .plot()
+    )
+    colors = _last_scatter(ax).get_facecolors()
+    np.testing.assert_allclose(colors, [to_rgba(fisseq.PALETTE["Frameshift"])] * len(colors))
+
+
+def test_highlight_hue_rejects_float_column(profiles):
+    plot = fb.EmbeddingPlot(profiles, x="meta_notebook_umap_1", y="meta_notebook_umap_2")
+    with pytest.raises(TypeError, match="categorical"):
+        plot.highlight(pl.lit(True), hue="meta_impact_score").plot()
+
+
+# ----- PairPlot -----------------------------------------------------------------------
+
+
+def test_pairplot_uses_fisseq_palette(profiles):
+    plot = fb.PairPlot(profiles, vars=["feature_0", "feature_1", "feature_2"],
+                       hue="meta_variant_type", title="PCs")
+    fig, grid = plot.plot()
+    assert grid.axes.shape == (3, 3)
+    assert plot.hue_order == ["Synonymous", "Single Missense", "Frameshift"]
+    assert plot.palette == {k: fisseq.VARIANT_TYPE_PALETTE[k] for k in plot.hue_order}
+    legend = [t.get_text() for t in grid.legend.get_texts()]
+    assert legend == plot.hue_order
+    assert fig._suptitle.get_text() == "PCs"
+
+
+def test_pairplot_natural_cluster_order_and_selector(profiles):
+    import polars.selectors as cs
+
+    plot = fb.PairPlot(profiles, vars=cs.starts_with("feature_") & cs.matches("[01]$"),
+                       hue="meta_cluster_idx", corner=True)
+    assert plot.vars == ["feature_0", "feature_1"]
+    assert plot.hue_order == [str(i) for i in range(12)]
+    _, grid = plot.plot()
+    assert grid.axes[0, 1] is None  # corner=True
+
+
+def test_pairplot_is_figure_level(profiles):
+    import matplotlib.pyplot as plt
+
+    _, ax = plt.subplots()
+    with pytest.raises(TypeError, match="figure-level"):
+        fb.PairPlot(profiles, vars=["feature_0"]).plot(ax=ax)

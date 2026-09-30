@@ -90,6 +90,14 @@ class Profiles(Dataset):
         #: Loadings from the last `pca` / `pca_reduce` call: a ``component`` and an
         #: ``explained_variance_ratio`` column, then one column per input feature.
         self.pca_loadings: pl.DataFrame | None = None
+        #: Explained variance of every fitted component from the last `pca` /
+        #: `pca_reduce` / `impact_scores` call: ``component``, ``explained_variance_ratio``,
+        #: ``cumulative_explained_variance`` and ``retained`` (kept as a feature). Pass it to
+        #: `ExplainedVariancePlot`.
+        self.pca_explained_variance: pl.DataFrame | None = None
+        #: With ``pca_reduce(noise_floor=True)``: the variance ratio of the first component
+        #: of the column-shuffled data.
+        self.pca_noise_floor: float | None = None
 
     # ----- constructors ---------------------------------------------------------------
 
@@ -147,6 +155,8 @@ class Profiles(Dataset):
     def _replace(self, data: pl.LazyFrame | pl.DataFrame) -> Self:
         new = super()._replace(data)
         new.pca_loadings = None
+        new.pca_explained_variance = None
+        new.pca_noise_floor = None
         return new
 
     # ----- helpers --------------------------------------------------------------------
@@ -298,6 +308,9 @@ class Profiles(Dataset):
             )
         )
         new.pca_loadings = _loadings(model, names, self.values)
+        new.pca_explained_variance = _explained_variance(
+            model.explained_variance_ratio_, len(names), prefix, start=1
+        )
         return new
 
     def pca_reduce(
@@ -313,21 +326,23 @@ class Profiles(Dataset):
         ``k`` is the fewest components that together explain ``variance`` of the total
         variance, or with ``noise_floor=True``, the number of components explaining more
         variance than the first component of the data with each column shuffled
-        independently (seeded by ``seed``). Loadings are kept on `pca_loadings`.
-        """
-        from sklearn.decomposition import PCA
+        independently (seeded by ``seed``). Loadings of the kept components are stored on
+        `pca_loadings`, the explained variance of every component on
+        `pca_explained_variance` and, with ``noise_floor=True``, the floor ratio on
+        `pca_noise_floor`:
 
+        >>> reduced = profiles.pca_reduce(variance=0.9)
+        >>> fb.ExplainedVariancePlot(reduced.pca_explained_variance, thresholds=[0.9])
+        """
         df, x = self._matrix()
-        model = PCA(n_components=None).fit(x)
+        model, scores = _fit_pca(x)
         ratios = model.explained_variance_ratio_
+        floor = None
         if noise_floor:
-            k = _transforms.pca_noise_floor(x, ratios, seed)
+            k, floor = _transforms.pca_noise_floor(x, ratios, seed)
+            k = max(1, min(k, len(ratios)))
         else:
-            if not 0 < variance <= 1:
-                raise ValueError(f"variance must be in (0, 1], got {variance}")
-            k = int(np.searchsorted(np.cumsum(ratios), variance - 1e-12)) + 1
-        k = max(1, min(k, len(ratios)))
-        scores = model.transform(x)[:, :k]
+            k = _n_components(ratios, variance)
         names = [f"{prefix}{i}" for i in range(k)]
         new = self._replace(
             df.drop(self.features).with_columns(
@@ -336,6 +351,52 @@ class Profiles(Dataset):
         )
         new.passthrough = ()
         new.pca_loadings = _loadings(model, names, self.values, k)
+        new.pca_explained_variance = _explained_variance(ratios, k, prefix)
+        new.pca_noise_floor = floor
+        return new
+
+    def impact_scores(
+        self,
+        variances: Sequence[float] = (0.7, 0.8, 0.9, 1.0),
+        *,
+        control_col: str = "meta_is_control",
+        prefix: str = "meta_impact_score_",
+    ) -> Self:
+        """Add the impact score computed on the principal components, once per
+        cumulative-variance threshold.
+
+        PCA is fitted once. For each ratio in ``variances``, the impact score (see
+        `impact_score`) is computed on the fewest components explaining that share of the
+        variance, as ``pca_reduce(variance=v).impact_score()`` would, and added as
+        ``<prefix><v>`` (e.g. ``meta_impact_score_0.9``). The features themselves are kept,
+        and `pca_explained_variance` is set (``retained`` marks the largest threshold's
+        components).
+
+        >>> scored = profiles.impact_scores([0.7, 0.9])
+        >>> fb.RocPlot(scored, label="meta_variant_type", positive="Single Missense",
+        ...            score=["meta_impact_score_0.7", "meta_impact_score_0.9"])
+        """
+        if control_col not in self.columns:
+            raise ValueError(
+                f"Column {control_col!r} not found; chain .variant_type() before .impact_scores()"
+            )
+        if not variances:
+            raise ValueError("Pass at least one variance ratio")
+        df, x = self._matrix()
+        model, scores = _fit_pca(x)
+        ratios = model.explained_variance_ratio_
+        ks = {v: _n_components(ratios, v) for v in variances}
+        pcs = [f"__pc_{i}" for i in range(max(ks.values()))]
+        tmp = df.select(control_col).with_columns(
+            pl.Series(name, scores[:, i]) for i, name in enumerate(pcs)
+        )
+        outputs = [f"{prefix}{v}" for v in variances]
+        impact = tmp.select(
+            _transforms.impact_score_expr(pcs[: ks[v]], control_col=control_col).alias(out)
+            for v, out in zip(variances, outputs)
+        )
+        new = self._replace(df.drop(outputs, strict=False).hstack(impact))
+        new.pca_explained_variance = _explained_variance(ratios, max(ks.values()), "X_")
         return new
 
     def umap(
@@ -409,6 +470,11 @@ class Profiles(Dataset):
         `OvwtScores.from_global`, or after `OvwtScores.per_variant`) are joined as they
         are, reading ``score``.
         """
+        if score not in ovwt.columns and "test_auroc" in ovwt.columns:
+            raise ValueError(
+                f"Score column {score!r} not found; these look like legacy OvWT results, "
+                "pass score='test_auroc'"
+            )
         per_variant = ovwt
         if ovwt.batch_col in ovwt.columns:
             if reference is not None:
@@ -465,6 +531,35 @@ def feature_info(columns: Iterable[str]) -> pl.DataFrame:
         for k in ("feature", "base", "statistic", "compartment", "category", "channels")
     }
     return pl.DataFrame(rows, schema=schema)
+
+
+def _fit_pca(x: np.ndarray) -> tuple[Any, np.ndarray]:
+    """Every principal component of ``x``: the fitted model and the scores."""
+    from sklearn.decomposition import PCA
+
+    model = PCA(n_components=None)
+    return model, model.fit_transform(x)
+
+
+def _n_components(ratios: np.ndarray, variance: float) -> int:
+    """The fewest components that together explain ``variance`` of the total."""
+    if not 0 < variance <= 1:
+        raise ValueError(f"variance must be in (0, 1], got {variance}")
+    k = int(np.searchsorted(np.cumsum(ratios), variance - 1e-12)) + 1
+    return max(1, min(k, len(ratios)))
+
+
+def _explained_variance(
+    ratios: np.ndarray, k: int, prefix: str, *, start: int = 0
+) -> pl.DataFrame:
+    return pl.DataFrame(
+        {
+            "component": [f"{prefix}{i + start}" for i in range(len(ratios))],
+            "explained_variance_ratio": ratios,
+            "cumulative_explained_variance": np.cumsum(ratios),
+            "retained": np.arange(len(ratios)) < k,
+        }
+    )
 
 
 def _loadings(

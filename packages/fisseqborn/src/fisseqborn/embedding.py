@@ -9,6 +9,7 @@ import seaborn as sns
 from matplotlib.axes import Axes
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import ListedColormap, Normalize
+from matplotlib.lines import Line2D
 
 from . import _data
 from ._base import Plot
@@ -124,16 +125,42 @@ class EmbeddingPlot(Plot):
         label: str | None = None,
         color: Any = "red",
         marker: str = "o",
+        hue: str | None = None,
+        palette: Mapping[Any, Any] | str | Sequence[Any] | None = None,
+        missing_color: Any = "white",
         **scatter_kw: Any,
     ) -> Self:
         """Overlay the rows matching ``where`` on top of the plot.
 
         E.g. ``.highlight(pl.col("meta_clinvar_annotation") == fisseq.PATHOGENIC,
         label=fisseq.PATHOGENIC, color="red", marker="^")``.
+
+        Parameters
+        ----------
+        where : pl.Expr
+            Rows to overlay.
+        label : str | None
+            Legend entry for the overlay (one entry, even when colored by ``hue``).
+        color : color
+            Point color, without ``hue``.
+        marker : str
+        hue : str | None
+            Categorical column to color the points by instead of ``color``. By default the
+            colors are the base plot's palette when it has a color for every highlighted
+            level (levels are also matched as strings, so integer cluster ids match string
+            ones), so e.g. an overlay matches a hexbin's cluster colors; otherwise the
+            fisseq / seaborn default palette for the highlighted levels.
+        palette : mapping | str | list | None
+            Explicit colors for ``hue``'s levels.
+        missing_color : color, default "white"
+            Color of points whose ``hue`` level has no color in ``palette``.
+        **scatter_kw
+            Passed to ``ax.scatter``.
         """
         zorder = 3 + len(self._layers)  # later highlights draw on top of earlier ones
 
         def layer(plot: EmbeddingPlot, ax: Axes) -> None:
+            _data.require_columns(plot.data, hue)
             subset = plot.data.filter(where)
             kw = {
                 "edgecolors": "black",
@@ -141,18 +168,51 @@ class EmbeddingPlot(Plot):
                 "zorder": zorder,
                 **scatter_kw,
             }
+            if hue is None:
+                colors: Any = color
+            else:
+                colors = plot._highlight_colors(subset, hue, palette, missing_color)
             handle = ax.scatter(
                 subset.get_column(plot.x).to_numpy(),
                 subset.get_column(plot.y).to_numpy(),
-                color=color,
+                color=colors,
                 marker=marker,
-                label=label,
+                label=label if hue is None else None,  # a proxy legend entry is added below
                 **kw,
             )
             if label is not None:
+                if hue is not None:
+                    handle = Line2D(
+                        [], [], linestyle="", marker=marker, markerfacecolor="lightgrey",
+                        markeredgecolor="black", markeredgewidth=0.5, markersize=7,
+                    )
                 add_legend_entry(ax, handle, label)
 
         return self._with_layer(layer)
+
+    def _highlight_colors(
+        self, subset: pl.DataFrame, hue: str, palette: Any, missing_color: Any
+    ) -> list[Any]:
+        if _data.is_numeric(subset, hue) and not subset.schema[hue].is_integer():
+            raise TypeError(f"highlight hue must be categorical, got numeric column {hue!r}")
+        values = subset.get_column(hue).to_list()
+        levels = [v for v in dict.fromkeys(values) if v is not None]
+
+        def lookup(colors: Mapping[Any, Any], value: Any) -> Any:
+            if value in colors:
+                return colors[value]
+            return colors.get(str(value))
+
+        if palette is not None:
+            colors = _data.resolve_palette(levels, palette)
+        elif self.palette is not None and all(lookup(self.palette, v) is not None for v in levels):
+            colors = self.palette
+        else:
+            colors = _data.resolve_palette(_data.resolve_order(subset, hue), None)
+        return [
+            missing_color if v is None or lookup(colors, v) is None else lookup(colors, v)
+            for v in values
+        ]
 
     # ----- drawing --------------------------------------------------------------------
 

@@ -1,5 +1,6 @@
 """Variant-vs-wild-type (OvWT) distinguishability scores from the pipeline."""
 
+import logging
 import pathlib
 from collections.abc import Sequence
 from os import PathLike
@@ -10,8 +11,32 @@ import polars as pl
 from . import _pipeline, _variants
 from .dataset import Dataset
 
+logger = logging.getLogger(__name__)
+
 #: Score columns in ``ovwt_batchwise/<batch>/results.parquet``.
 SCORES: tuple[str, ...] = ("auroc_pooled", "auroc_median_barcode", "auroc_median_fold")
+
+#: Renames applied to the older ``results.parquet`` schema (``variant``, ``test_auroc``, ...).
+#: The variant column is renamed to the ``variant_col`` passed to `OvwtScores.from_pipeline`.
+#: Score columns (``train_auroc``, ``val_auroc``, ``test_auroc`` and the accuracies) keep
+#: their names, so pass e.g. ``score="test_auroc"``.
+LEGACY_RENAMES: dict[str, str] = {
+    "meta_num_cells": "meta_n_cells",
+    "meta_barcode_num_unique": "meta_n_barcodes",
+}
+_LEGACY_VARIANT_COL = "variant"
+
+
+def _read_results(path: pathlib.Path, variant_col: str) -> pl.LazyFrame:
+    """Scan one batch's results, mapping the legacy schema onto the current names."""
+    lf = _pipeline.scan(path)
+    names = lf.collect_schema().names()
+    if _LEGACY_VARIANT_COL in names and variant_col not in names:
+        logger.info("Reading %s with the legacy OvWT results schema", path)
+        renames = {_LEGACY_VARIANT_COL: variant_col}
+        renames |= {old: new for old, new in LEGACY_RENAMES.items() if old in names}
+        lf = lf.rename(renames)
+    return lf
 
 
 class OvwtScores(Dataset):
@@ -62,9 +87,15 @@ class OvwtScores(Dataset):
         Columns are those the pipeline writes: ``auroc_pooled``,
         ``auroc_median_barcode``, ``auroc_median_fold``, the per-fold ``auroc_folds``
         list, ``meta_n_barcodes`` and ``meta_n_cells``.
+
+        Older runs (e.g. 2026-08-10) wrote ``variant``, ``train_auroc`` / ``val_auroc`` /
+        ``test_auroc``, ``meta_num_cells`` and ``meta_barcode_num_unique``. They are
+        detected per batch: ``variant`` becomes ``variant_col`` and the counts are renamed
+        by `LEGACY_RENAMES`, while the score columns keep their names, e.g.
+        ``profiles.distinguishability(ovwt, score="test_auroc")``.
         """
         frames = [
-            _pipeline.tag(_pipeline.scan(d / "results.parquet"), d.name, batch_col)
+            _pipeline.tag(_read_results(d / "results.parquet", variant_col), d.name, batch_col)
             for d in _pipeline.batch_dirs(pipeline_dir, _pipeline.OVWT, batches)
         ]
         return cls(

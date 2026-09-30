@@ -18,10 +18,13 @@ from .clustermap import ClusterMap, ClusterMapAxes, FeatureGroup
 from .correlation import CorrelationPlot
 from .dataset import Dataset
 from .embedding import EmbeddingPlot
+from .explained_variance import ExplainedVariancePlot
 from .heatmap import Heatmap
 from .ovwt import OvwtScores
+from .pairplot import PairPlot
 from .profiles import Profiles
 from .roc import RocPlot
+from .summary import ClusterSummary
 from .volcano import VolcanoPlot
 
 __all__ = [
@@ -30,14 +33,17 @@ __all__ = [
     "BoxPlot",
     "ClusterMap",
     "ClusterMapAxes",
+    "ClusterSummary",
     "Config",
     "CorrelationPlot",
     "Dataset",
     "EmbeddingPlot",
+    "ExplainedVariancePlot",
     "FeatureGroup",
     "FigurePlot",
     "Heatmap",
     "OvwtScores",
+    "PairPlot",
     "Plot",
     "Profiles",
     "RocPlot",

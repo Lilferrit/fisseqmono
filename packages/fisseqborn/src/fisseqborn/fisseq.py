@@ -48,8 +48,6 @@ CLINVAR_ORDER: list[str] = [
     "Pathogenic",
 ]
 
-# Every known level, in the order it should appear on an axis / legend.
-ORDERS: list[list[str]] = [VARIANT_TYPE_ORDER, CLINVAR_ORDER]
 
 LMNA_LANDMARK_FEATURES: dict[str, str] = {
     "Mean_NucleiExpanded_Intensity_MeanIntensity_CH1": "Lamin A intensity in the nucleus",
@@ -71,6 +69,9 @@ LMNA_DOMAIN_REGIONS: dict[str, tuple[int, int]] = {
     "Ig-fold": (421, 544),
     "Unfolded": (545, 664),
 }
+
+# Every known level, in the order it should appear on an axis / legend.
+ORDERS: list[list[str]] = [VARIANT_TYPE_ORDER, CLINVAR_ORDER, list(LMNA_DOMAIN_REGIONS)]
 
 #: Library tiles as ``(name, first, last)`` inclusive amino-acid ranges; neighbors overlap.
 LMNA_TILES: list[tuple[str, int, int]] = [

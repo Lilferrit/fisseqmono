@@ -6,6 +6,8 @@
 
 ::: fisseqborn.EmbeddingPlot
 
+::: fisseqborn.ExplainedVariancePlot
+
 ::: fisseqborn.CorrelationPlot
 
 ::: fisseqborn.RocPlot
@@ -15,6 +17,8 @@
 ::: fisseqborn.Heatmap
 
 ::: fisseqborn.BatchCorrelationHeatmap
+
+::: fisseqborn.PairPlot
 
 ::: fisseqborn.ClusterMap
 
@@ -31,6 +35,8 @@
 ::: fisseqborn.Blocklists
 
 ::: fisseqborn.Dataset
+
+::: fisseqborn.ClusterSummary
 
 ## Base classes and configuration
 

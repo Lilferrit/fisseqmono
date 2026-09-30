@@ -91,3 +91,22 @@ for feature, name in fisseq.LMNA_LANDMARK_FEATURES.items():
 ![UMAP hexbin of a landmark z-score](../images/umap-hexbin-landmark.png){ width="520" }
 
 *From `notebooks/2026-09-22/pca`.*
+
+## Highlights colored by a column
+
+`highlight(..., hue=col)` colors each overlaid point by its level of `col` instead of one color.
+When the base plot's palette has a color for every highlighted level, that palette is used, so an
+overlay of variants from an earlier clustering matches the hexbin's cluster colors. Levels are also
+matched as strings, so integer cluster ids match string ones. Pass `palette=` to choose the colors
+yourself; levels without a color are drawn in `missing_color` (white by default).
+
+```python
+old = fb.Dataset.read("profiles_with_clusters.parquet").select(
+    "meta_aa_changes", pl.col("meta_cluster_idx").alias("meta_old_cluster_idx")
+)
+(fb.EmbeddingPlot(df.join(old, how="left"), **UMAP, hue="meta_cluster_idx", kind="hexbin",
+                  palette="tab20")
+   .highlight(pl.col("meta_old_cluster_idx").is_not_null(), hue="meta_old_cluster_idx",
+              label="Synonymous")
+   .save("vis/umap_old_clusters.png"))
+```

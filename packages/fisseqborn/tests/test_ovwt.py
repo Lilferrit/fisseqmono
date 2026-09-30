@@ -115,3 +115,34 @@ def test_blocklists(pipeline_dir):
     assert len(strict.consensus(min_batches=2)) == 4
     only_median = fb.Blocklists.from_pipeline(pipeline_dir, types=["median"])
     assert set(only_median.df["meta_feature_type"]) == {"median"}
+
+
+def test_from_pipeline_reads_legacy_schema(tmp_path):
+    root = tmp_path / "old_run"
+    for b, batch in enumerate(["T1_R1", "T2_R1"]):
+        d = root / "ovwt_batchwise" / batch
+        d.mkdir(parents=True)
+        pl.DataFrame(
+            {
+                "variant": ["A1A", "C2C", "D3V"],
+                "train_auroc": [0.9, 0.9, 0.9],
+                "test_auroc": [0.5 + b / 10, 0.6, 0.9],
+                "meta_num_cells": pl.Series([10, 20, 30], dtype=pl.UInt32),
+                "meta_barcode_num_unique": pl.Series([1, 2, 3], dtype=pl.UInt32),
+            }
+        ).write_parquet(d / "results.parquet")
+    scores = fb.OvwtScores.from_pipeline(root)
+    assert {"meta_aa_changes", "test_auroc", "meta_n_cells", "meta_n_barcodes"} <= set(
+        scores.columns
+    )
+    assert "variant" not in scores.columns
+
+    per_variant = scores.per_variant("test_auroc").df.sort("meta_aa_changes")
+    assert per_variant["meta_n_cells"].to_list() == [20, 40, 60]
+    assert per_variant["test_auroc"].to_list() == pytest.approx([0.55, 0.6, 0.9])
+
+    profiles = fb.Profiles(pl.DataFrame({"meta_aa_changes": ["A1A", "D3V"], "f_median": [1.0, 2.0]}))
+    with pytest.raises(ValueError, match="test_auroc"):
+        profiles.distinguishability(scores)
+    joined = profiles.distinguishability(scores, score="test_auroc", reference=None).df
+    assert joined["meta_distinguishability_score"].to_list() == pytest.approx([0.55, 0.9])

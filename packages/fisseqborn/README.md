@@ -29,12 +29,14 @@ from fisseqborn import fisseq
 | Class | For |
 |---|---|
 | `BoxPlot(df, x, y, hue=None, points=None/"strip"/"density")` | score by variant class / experiment; `.annotate_pairs()` adds significance stars |
-| `EmbeddingPlot(df, x, y, hue=None, kind="scatter"/"hexbin")` | UMAP / PCA; categorical or numeric hue, `center=0` for z-scores; `.highlight(expr, ...)` overlays a subset |
+| `EmbeddingPlot(df, x, y, hue=None, kind="scatter"/"hexbin")` | UMAP / PCA; categorical or numeric hue, `center=0` for z-scores; `.highlight(expr, ...)` overlays a subset, `hue=` colors it by a column (the base palette when the levels match) |
 | `CorrelationPlot(df, x, y, stat="pearson", fit=None/"linear"/"lowess", identity=False)` | replicate vs replicate, score vs cell count; `kind="kde"`, `count_sides=True` |
 | `RocPlot(df, label, positive, score, negative="Synonymous", group=None)` | one curve per score column or per group; `.aucs()` returns the AUC table |
 | `VolcanoPlot(df, x, y, alpha=0.05, bonferroni=True)` | long-form effect size vs −log10 p; `.layer(expr, label=...)` adds a group of points, drawn in call order; `VolcanoPlot.from_wide(df)` takes one row per variant with `_median` / `_KSnegLogP` column pairs |
 | `Heatmap(df, index, columns, values=None)` / `Heatmap.correlation(df, cols)` | pairwise matrices (long or wide form), correlation matrices |
-| `ClusterMap(df, groups=None, row_colors=None, row_labels=None)` | clustered heatmaps with per-group color scales (figure-level, see below) |
+| `ExplainedVariancePlot(profiles.pca_reduce(...), kind="cumulative"/"scree"/"both", thresholds=[...])` | cumulative explained variance / scree plot, marking thresholds and the noise floor |
+| `PairPlot(df, vars, hue=None, diag_kind="kde")` | pairwise scatter grid (e.g. the first PCs) with the fisseq palettes / orders (figure-level) |
+| `ClusterMap(df, groups=None, orientation="horizontal"/"vertical", row_colors=None, row_labels=None)` | clustered heatmaps with per-group color scales (figure-level, see below) |
 
 ## Loading pipeline outputs
 
@@ -57,33 +59,42 @@ profiles.drop_nonfinite().umap().cluster(n_neighbors=30).save("profiles.parquet"
 
 | Class | For |
 |---|---|
-| `Profiles` | per-variant feature profiles: `normalize`, `median_across_batches`, `keep_features`, `impact_score`, `pca`, `umap`, `cluster`, `distinguishability` |
-| `OvwtScores` | OvWT AUROCs: `correct` (per-batch rescale against synonymous variants) and `per_variant` |
+| `Profiles` | per-variant feature profiles: `normalize`, `median_across_batches`, `keep_features`, `impact_score`, `impact_scores` (one column per PCA variance threshold, one fit), `pca`, `pca_reduce` (full `pca_explained_variance` table kept), `umap`, `cluster`, `distinguishability` |
+| `OvwtScores` | OvWT AUROCs: `correct` (per-batch rescale against synonymous variants) and `per_variant`; `from_pipeline` also reads the older `variant` / `test_auroc` results schema (pass `score="test_auroc"`) |
 | `Blocklists` | per-batch feature reproducibility: `rethreshold`, `consensus` |
-| `Dataset` | the base class: `filter`/`with_columns`/`join`/`pipe`, `variant_type`, `position`, `domain`, `tile`, `clinvar`, `save` |
+| `Dataset` | the base class: `filter`/`with_columns`/`join`/`pipe`, `variant_type`, `position`, `domain`, `tile`, `clinvar`, `save`, `cluster_summary` |
+| `ClusterSummary` | one row per cluster from `cluster_summary`: medians (optionally z-scored vs controls), per-level shares, `n` and a `"<id> (n=…)"` label; `.group(key)` gives a ready `FeatureGroup` |
 
 `umap()` needs `fisseqborn[umap]` and Leiden clustering needs `fisseqborn[cluster]`.
 
 ## Clustermaps with feature groups
 
 `ClusterMap` splits the features into `FeatureGroup` blocks. Each block has its own colormap and colorbar.
-`cluster=True/False` sets whether a block's features are used when clustering the rows. Blocks with
+`cluster=True/False` sets whether a block's features are used when clustering the rows. `palette=` (or a `cmap` / limit mapping) gives each feature of a block its own color scale and a small colorbar aligned with it. Blocks with
 `cluster=False` are only drawn, in the row order that the other blocks produce. `standardize=True` z-scores the
 clustering features first, so blocks on different scales count about equally.
 
 ```python
 from fisseqborn import FeatureGroup, fisseq
 
+summary = profiles.cluster_summary(         # one row per cluster, from per-variant profiles
+    medians=[*landmark_cols, "meta_distinguishability_score"],
+    zscore=landmark_cols,                   # z-scored vs the synonymous controls first
+    shares={"class": {"Synonymous": pl.col("meta_variant_type") == "Synonymous",
+                      fisseq.PATHOGENIC: pl.col("meta_clinvar_annotation") == fisseq.PATHOGENIC},
+            "domain": "meta_domain"},       # share of each level falling in each cluster
+)
 fb.ClusterMap(
-    cluster_df,                      # one row per cluster
-    row_labels="label",
+    summary,
+    row_labels="label",                     # "6 (n=737)"
     standardize=True,
+    orientation="vertical",                 # clusters as columns, groups stacked
     groups=[
         FeatureGroup("Landmark z-score", landmark_cols, cmap="RdBu_r", center=0, clip=3,
                      labels=landmark_names),
-        FeatureGroup("Share of class", ["Synonymous", "Frameshift", fisseq.PATHOGENIC],
-                     cmap="Greens", vmin=0, annot=True),
-        FeatureGroup("Median distinguishability", "median_distinguishability", cluster=False,
+        summary.group("domain", "Share of domain", palette="tab10"),  # one hue + colorbar per domain
+        summary.group("class", "Share of class", palette=True, annot=True),
+        FeatureGroup("Median distinguishability", "meta_distinguishability_score", cluster=False,
                      cmap="Reds", vmin=0.5, vmax=1, annot=True),
     ],
 ).save("vis/cluster_summary.png")
