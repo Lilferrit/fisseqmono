@@ -45,7 +45,9 @@ black:
    .save("vis/replicate_spearman_correlation_heatmap.png"))
 ```
 
-`.pairs()` returns the numbers behind the plot: `batch_a, batch_b, r, n_shared`. Duplicate
+`method=` can be `"spearman"`, `"pearson"` or `"cosine"`, and `squared=True` shows the
+squared correlation (for example ρ²). `.pairs()` returns the numbers behind the plot:
+`batch_a, batch_b, r, r_squared, n_shared`. Duplicate
 `(batch, label)` rows are an error unless you pass `aggregate="mean"` (or similar).
 
 `fill_value=` fills whatever is still missing, for example `fill_value=0.5` for barcode-pair AUROC
@@ -66,7 +68,7 @@ Each cell is computed over the rows where both of its columns are finite, so spa
 For example, you can pass one column per batch where each batch covers a single tile. Spearman
 ranks within each pair's shared rows. Cells with fewer than `min_shared` shared rows (default 10)
 are NaN, so pass `nan_color="black"` to show them. The shared-row counts are on the plot's
-`n_shared` attribute:
+`n_shared` attribute. Pass `squared=True` to show r² (or ρ²) on a 0–1 `Blues` scale instead:
 
 ```python
 by_batch = scores.df.pivot(on="meta_experiment", index="meta_aa_changes",

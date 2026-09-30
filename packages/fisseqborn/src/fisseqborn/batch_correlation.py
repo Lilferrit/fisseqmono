@@ -30,7 +30,10 @@ class BatchCorrelationHeatmap(Heatmap):
         Column matched between batches, e.g. the variant.
     score : str
         Numeric column that is correlated.
-    method : {"spearman", "pearson"}
+    method : {"spearman", "pearson", "cosine"}
+        Cosine is the cosine similarity of the (uncentered) scores.
+    squared : bool
+        Show the squared correlation (e.g. Spearman ρ²) instead of the correlation.
     min_shared : int
         Minimum number of shared labels (with finite scores in both batches) for a pair to
         get a correlation.
@@ -50,7 +53,8 @@ class BatchCorrelationHeatmap(Heatmap):
         batch: str,
         label: str,
         score: str,
-        method: Literal["spearman", "pearson"] = "spearman",
+        method: Literal["spearman", "pearson", "cosine"] = "spearman",
+        squared: bool = False,
         min_shared: int = 10,
         aggregate: str | None = None,
         order: Sequence[Any] | None = None,
@@ -59,14 +63,16 @@ class BatchCorrelationHeatmap(Heatmap):
     ) -> None:
         data = _data.as_frame(data)
         _data.require_columns(data, batch, label, score)
-        if method not in ("spearman", "pearson"):
-            raise ValueError(f"method must be 'spearman' or 'pearson', got {method!r}")
+        if method not in ("spearman", "pearson", "cosine"):
+            raise ValueError(
+                f"method must be 'spearman', 'pearson' or 'cosine', got {method!r}"
+            )
         if aggregate is None and data.select(batch, label).is_duplicated().any():
             raise ValueError(
                 f"Duplicate ({batch!r}, {label!r}) rows; pass aggregate='mean' (or similar)"
             )
         self.batch, self.label, self.score = batch, label, score
-        self.method, self.min_shared = method, min_shared
+        self.method, self.squared, self.min_shared = method, squared, min_shared
         self.batch_aggregate = aggregate
 
         wide = data.select(
@@ -78,7 +84,8 @@ class BatchCorrelationHeatmap(Heatmap):
         batches = self._scores.columns
         mat = np.full((len(batches), len(batches)), np.nan)
         pos = {b: i for i, b in enumerate(batches)}
-        for a, b, r in self._pairs.select("batch_a", "batch_b", "r").iter_rows():
+        value = "r_squared" if squared else "r"
+        for a, b, r in self._pairs.select("batch_a", "batch_b", value).iter_rows():
             mat[pos[a], pos[b]] = mat[pos[b], pos[a]] = r
         matrix = pl.DataFrame({"batch": batches}).with_columns(
             pl.Series(b, mat[:, i]) for i, b in enumerate(batches)
@@ -105,11 +112,13 @@ class BatchCorrelationHeatmap(Heatmap):
             rows, schema={"batch_a": pl.String, "batch_b": pl.String, "r": pl.Float64,
                           "n_shared": pl.Int64},
             orient="row",
+        ).with_columns(r_squared=pl.col("r") ** 2).select(
+            "batch_a", "batch_b", "r", "r_squared", "n_shared"
         )
 
     def pairs(self) -> pl.DataFrame:
         """One row per unordered batch pair (including each batch with itself):
-        ``batch_a, batch_b, r, n_shared``."""
+        ``batch_a, batch_b, r, r_squared, n_shared``."""
         return self._pairs
 
     def _draw(self, ax: Axes) -> None:

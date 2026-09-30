@@ -386,3 +386,33 @@ def test_volcano_from_wide_matches_long_form(profiles):
     assert row["KSnegLogP"][0] == pytest.approx(abs(expected) * 3)
     with pytest.raises(ValueError, match="No feature"):
         fb.VolcanoPlot.from_wide(wide, y_suffix="_AUROCnegLogP")
+
+
+def test_heatmap_correlation_squared(profiles):
+    cols = ["feature_0", "feature_1", "feature_2"]
+    r = fb.Heatmap.correlation(profiles, cols).matrix()
+    plot = fb.Heatmap.correlation(profiles, cols, squared=True)
+    assert np.allclose(plot.matrix().to_numpy(), r.to_numpy() ** 2)
+    assert plot.heatmap_kw["vmin"] == 0 and plot.heatmap_kw["cmap"] == "Blues"
+
+
+@pytest.mark.parametrize("method", ["pearson", "spearman", "cosine"])
+def test_batch_correlation_methods_and_squared(replicate_scores, method):
+    kw = {"batch": "experiment", "label": "variant", "score": "test_auroc", "method": method}
+    plain = fb.BatchCorrelationHeatmap(replicate_scores, **kw)
+    squared = fb.BatchCorrelationHeatmap(replicate_scores, squared=True, **kw)
+    expected = fb.Heatmap.correlation(
+        replicate_scores.pivot(on="experiment", index="variant", values="test_auroc"),
+        ["T1_R1", "T1_R2", "T2_R1"], method=method,
+    ).matrix()
+    assert np.allclose(plain.matrix().to_numpy(), expected.to_numpy(), equal_nan=True)
+    assert np.allclose(squared.matrix().to_numpy(), expected.to_numpy() ** 2, equal_nan=True)
+    pairs = squared.pairs().drop_nans("r")
+    assert np.allclose(pairs["r_squared"], pairs["r"] ** 2)
+    squared.plot()
+
+
+def test_batch_correlation_rejects_unknown_method(replicate_scores):
+    with pytest.raises(ValueError, match="cosine"):
+        fb.BatchCorrelationHeatmap(replicate_scores, batch="experiment", label="variant",
+                                   score="test_auroc", method="kendall")

@@ -135,6 +135,7 @@ class Heatmap(Plot):
         columns: Sequence[str] | None = None,
         *,
         method: Literal["pearson", "spearman", "cosine"] = "pearson",
+        squared: bool = False,
         min_shared: int = 10,
         **kw: Any,
     ) -> Self:
@@ -145,8 +146,10 @@ class Heatmap(Plot):
 
         Cells with fewer than ``min_shared`` shared rows are NaN, drawn in ``nan_color``.
         The shared-row counts are available as the plot's ``n_shared`` (a pandas DataFrame).
+        ``squared=True`` shows the squared correlation (e.g. Pearson r²) instead.
 
-        Defaults to ``cmap="vlag", vmin=-1, vmax=1, center=0, annot=True``.
+        Defaults to ``cmap="vlag", vmin=-1, vmax=1, center=0, annot=True``, or
+        ``cmap="Blues", vmin=0, vmax=1, annot=True`` when ``squared``.
         """
         data = _data.as_frame(data)
         if columns is None:
@@ -155,11 +158,14 @@ class Heatmap(Plot):
         columns = list(columns)
         mat = data.select(columns).cast(pl.Float64).fill_null(np.nan).to_numpy()
         corr, n_shared = pairwise_correlation(mat, method, min_shared)
+        if squared:
+            corr = corr**2
         wide = pl.DataFrame({"column": columns}).with_columns(
             pl.Series(c, corr[:, i]) for i, c in enumerate(columns)
         )
-        kw = {"cmap": "vlag", "vmin": -1, "vmax": 1, "center": 0, "annot": True,
-              "row_order": columns, "col_order": columns, **kw}
+        scale = ({"cmap": "Blues", "vmin": 0, "vmax": 1} if squared
+                 else {"cmap": "vlag", "vmin": -1, "vmax": 1, "center": 0})
+        kw = {**scale, "annot": True, "row_order": columns, "col_order": columns, **kw}
         plot = cls(wide, index="column", columns=columns, **kw).set(ylabel="")
         plot.n_shared = pd.DataFrame(n_shared, index=columns, columns=columns)
         return plot
