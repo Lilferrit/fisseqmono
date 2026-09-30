@@ -18,6 +18,19 @@ def _natural_sorted(values: Sequence[Any]) -> list[Any]:
     return sorted(values, key=_data._natural_key)
 
 
+_CORR_LABELS = {"pearson": "Pearson r", "spearman": "Spearman ρ", "cosine": "Cosine similarity"}
+
+
+def correlation_label(method: str, squared: bool = False) -> str:
+    """Colorbar label for a correlation ``method``, e.g. ``"Spearman ρ²"``."""
+    return _CORR_LABELS[method] + ("²" if squared else "")
+
+
+def with_cbar_label(kw: dict[str, Any], label: str) -> dict[str, Any]:
+    """``kw`` with ``label`` as the default colorbar label; a caller's ``cbar_kws`` wins."""
+    return {**kw, "cbar_kws": {"label": label, **(kw.get("cbar_kws") or {})}}
+
+
 def pairwise_correlation(
     mat: np.ndarray,
     method: Literal["pearson", "spearman", "cosine"] = "pearson",
@@ -149,7 +162,8 @@ class Heatmap(Plot):
         ``squared=True`` shows the squared correlation (e.g. Pearson r²) instead.
 
         Defaults to ``cmap="vlag", vmin=-1, vmax=1, center=0, annot=True``, or
-        ``cmap="Blues", vmin=0, vmax=1, annot=True`` when ``squared``.
+        ``cmap="Blues", vmin=0, vmax=1, annot=True`` when ``squared``. The colorbar is
+        labeled with the quantity, e.g. ``"Pearson r²"``.
         """
         data = _data.as_frame(data)
         if columns is None:
@@ -165,7 +179,10 @@ class Heatmap(Plot):
         )
         scale = ({"cmap": "Blues", "vmin": 0, "vmax": 1} if squared
                  else {"cmap": "vlag", "vmin": -1, "vmax": 1, "center": 0})
-        kw = {**scale, "annot": True, "row_order": columns, "col_order": columns, **kw}
+        kw = with_cbar_label(
+            {**scale, "annot": True, "row_order": columns, "col_order": columns, **kw},
+            correlation_label(method, squared),
+        )
         plot = cls(wide, index="column", columns=columns, **kw).set(ylabel="")
         plot.n_shared = pd.DataFrame(n_shared, index=columns, columns=columns)
         return plot

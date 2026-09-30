@@ -416,3 +416,27 @@ def test_batch_correlation_rejects_unknown_method(replicate_scores):
     with pytest.raises(ValueError, match="cosine"):
         fb.BatchCorrelationHeatmap(replicate_scores, batch="experiment", label="variant",
                                    score="test_auroc", method="kendall")
+
+
+def _cbar_label(ax):
+    return ax.collections[0].colorbar.ax.get_ylabel()
+
+
+@pytest.mark.parametrize(("method", "squared", "label"), [
+    ("pearson", False, "Pearson r"), ("spearman", True, "Spearman ρ²"),
+    ("cosine", False, "Cosine similarity"),
+])
+def test_correlation_heatmaps_label_colorbar(profiles, replicate_scores, method, squared, label):
+    _, ax = fb.Heatmap.correlation(profiles, ["feature_0", "feature_1"], method=method,
+                                   squared=squared).plot()
+    assert _cbar_label(ax) == label
+    _, ax = fb.BatchCorrelationHeatmap(replicate_scores, batch="experiment", label="variant",
+                                       score="test_auroc", method=method,
+                                       squared=squared).plot()
+    assert _cbar_label(ax) == label
+
+
+def test_correlation_colorbar_label_can_be_overridden(profiles):
+    _, ax = fb.Heatmap.correlation(profiles, ["feature_0", "feature_1"],
+                                   cbar_kws={"label": "custom", "shrink": 0.5}).plot()
+    assert _cbar_label(ax) == "custom"
