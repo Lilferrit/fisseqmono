@@ -8,6 +8,7 @@ import pandas as pd
 import polars as pl
 import seaborn as sns
 from matplotlib.axes import Axes
+from scipy import stats
 
 from . import _data
 from ._base import Plot
@@ -15,6 +16,39 @@ from ._base import Plot
 
 def _natural_sorted(values: Sequence[Any]) -> list[Any]:
     return sorted(values, key=_data._natural_key)
+
+
+def pairwise_correlation(
+    mat: np.ndarray,
+    method: Literal["pearson", "spearman", "cosine"] = "pearson",
+    min_shared: int = 10,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Correlation (or cosine similarity) between the columns of ``mat``, each pair computed
+    over the rows where both columns are finite.
+
+    Spearman ranks within each pair's shared rows, matching `scipy.stats.spearmanr` on that
+    pair. Cells with fewer than ``min_shared`` shared rows, or zero variance, are NaN.
+
+    Returns ``(corr, n_shared)``, both ``(n_cols, n_cols)``.
+    """
+    finite = np.isfinite(mat)
+    n_cols = mat.shape[1]
+    corr = np.full((n_cols, n_cols), np.nan)
+    n_shared = (finite.T.astype(int) @ finite.astype(int)).astype(int)
+    for i in range(n_cols):
+        for j in range(i, n_cols):
+            if n_shared[i, j] < min_shared:
+                continue
+            ok = finite[:, i] & finite[:, j]
+            x, y = mat[ok, i], mat[ok, j]
+            if method == "spearman":
+                x, y = stats.rankdata(x), stats.rankdata(y)
+            if method != "cosine":
+                x, y = x - x.mean(), y - y.mean()
+            denom = np.sqrt((x @ x) * (y @ y))
+            if denom > 0:
+                corr[i, j] = corr[j, i] = np.clip((x @ y) / denom, -1.0, 1.0)
+    return corr, n_shared
 
 
 class Heatmap(Plot):
@@ -88,6 +122,8 @@ class Heatmap(Plot):
         self.index, self.columns, self.values = index, columns, values
         self.aggregate, self.symmetric, self.fill_value = aggregate, symmetric, fill_value
         self.nan_color = nan_color
+        #: Shared-row counts per cell, set by `Heatmap.correlation`.
+        self.n_shared: pd.DataFrame | None = None
         self.row_order, self.col_order = row_order, col_order
         self.heatmap_kw = {"cmap": cmap, "vmin": vmin, "vmax": vmax, "center": center,
                            "annot": annot, "fmt": fmt, **kw}
@@ -99,10 +135,16 @@ class Heatmap(Plot):
         columns: Sequence[str] | None = None,
         *,
         method: Literal["pearson", "spearman", "cosine"] = "pearson",
+        min_shared: int = 10,
         **kw: Any,
     ) -> Self:
         """Heatmap of the pairwise correlation (or cosine similarity) between ``columns``
-        (default: all numeric columns), computed over rows where all are finite.
+        (default: all numeric columns). Each cell is computed over the rows where both of
+        its columns are finite, so sparse inputs (e.g. one column per batch, with batches
+        covering different tiles) still work; see `pairwise_correlation`.
+
+        Cells with fewer than ``min_shared`` shared rows are NaN, drawn in ``nan_color``.
+        The shared-row counts are available as the plot's ``n_shared`` (a pandas DataFrame).
 
         Defaults to ``cmap="vlag", vmin=-1, vmax=1, center=0, annot=True``.
         """
@@ -111,23 +153,16 @@ class Heatmap(Plot):
             columns = [c for c in data.columns if _data.is_numeric(data, c)]
         _data.require_columns(data, *columns)
         columns = list(columns)
-        clean = data.select(columns).cast(pl.Float64).filter(
-            pl.all_horizontal(pl.all().is_finite())
-        )
-        if method == "spearman":
-            clean = clean.select(pl.all().rank())
-        mat = clean.to_numpy()
-        if method == "cosine":
-            unit = mat / np.linalg.norm(mat, axis=0, keepdims=True)
-            corr = unit.T @ unit
-        else:
-            corr = np.corrcoef(mat, rowvar=False)
+        mat = data.select(columns).cast(pl.Float64).fill_null(np.nan).to_numpy()
+        corr, n_shared = pairwise_correlation(mat, method, min_shared)
         wide = pl.DataFrame({"column": columns}).with_columns(
             pl.Series(c, corr[:, i]) for i, c in enumerate(columns)
         )
         kw = {"cmap": "vlag", "vmin": -1, "vmax": 1, "center": 0, "annot": True,
               "row_order": columns, "col_order": columns, **kw}
-        return cls(wide, index="column", columns=columns, **kw).set(ylabel="")
+        plot = cls(wide, index="column", columns=columns, **kw).set(ylabel="")
+        plot.n_shared = pd.DataFrame(n_shared, index=columns, columns=columns)
+        return plot
 
     def matrix(self) -> pd.DataFrame:
         """The matrix that will be drawn, as a pandas DataFrame."""

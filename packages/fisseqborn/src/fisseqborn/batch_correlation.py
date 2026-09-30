@@ -7,10 +7,9 @@ from typing import Any, Literal
 import numpy as np
 import polars as pl
 from matplotlib.axes import Axes
-from scipy import stats
 
 from . import _data
-from .heatmap import Heatmap
+from .heatmap import Heatmap, pairwise_correlation
 
 
 class BatchCorrelationHeatmap(Heatmap):
@@ -52,7 +51,7 @@ class BatchCorrelationHeatmap(Heatmap):
         label: str,
         score: str,
         method: Literal["spearman", "pearson"] = "spearman",
-        min_shared: int = 3,
+        min_shared: int = 10,
         aggregate: str | None = None,
         order: Sequence[Any] | None = None,
         figsize: tuple[float, float] | None = None,
@@ -94,20 +93,14 @@ class BatchCorrelationHeatmap(Heatmap):
         super().__init__(matrix, index="batch", columns=list(batches), figsize=figsize, **kw)
 
     def _compute_pairs(self) -> pl.DataFrame:
-        fn = stats.spearmanr if self.method == "spearman" else stats.pearsonr
-        rows = []
-        for a, b in combinations_with_replacement(self._scores.columns, 2):
-            xs = self._scores.get_column(a).to_numpy()
-            ys = self._scores.get_column(b).to_numpy()
-            ok = np.isfinite(xs) & np.isfinite(ys)
-            n = int(ok.sum())
-            if n < self.min_shared:
-                r = float("nan")
-            elif a == b:
-                r = 1.0
-            else:
-                r = float(fn(xs[ok], ys[ok]).statistic)
-            rows.append((a, b, r, n))
+        batches = self._scores.columns
+        corr, n_shared = pairwise_correlation(
+            self._scores.fill_null(np.nan).to_numpy(), self.method, self.min_shared
+        )
+        rows = [
+            (batches[i], batches[j], float(corr[i, j]), int(n_shared[i, j]))
+            for i, j in combinations_with_replacement(range(len(batches)), 2)
+        ]
         return pl.DataFrame(
             rows, schema={"batch_a": pl.String, "batch_b": pl.String, "r": pl.Float64,
                           "n_shared": pl.Int64},

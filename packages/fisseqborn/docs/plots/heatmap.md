@@ -35,7 +35,7 @@ import fisseqborn as fb
 `BatchCorrelationHeatmap` computes that replicate matrix from the raw scores. You pass long-form
 data with a `batch` column, a `label` column and a `score` column. Each cell is the correlation
 (Spearman by default) of `score` between two batches, using one point per label the two batches
-share. Pairs of batches that share no labels, or fewer than `min_shared` (default 3), are drawn
+share. Pairs of batches that share no labels, or fewer than `min_shared` (default 10), are drawn
 black:
 
 ```python
@@ -60,6 +60,20 @@ columns. It defaults to a diverging `vlag` scale from -1 to 1 with annotations:
 ```python
 pcs = [f"meta_pc_{i}" for i in range(1, 6)]
 fb.Heatmap.correlation(df, pcs, method="cosine").save("vis/pc_similarity.png")
+```
+
+Each cell is computed over the rows where both of its columns are finite, so sparse inputs work.
+For example, you can pass one column per batch where each batch covers a single tile. Spearman
+ranks within each pair's shared rows. Cells with fewer than `min_shared` shared rows (default 10)
+are NaN, so pass `nan_color="black"` to show them. The shared-row counts are on the plot's
+`n_shared` attribute:
+
+```python
+by_batch = scores.df.pivot(on="meta_experiment", index="meta_aa_changes",
+                           values="auroc_median_fold")
+plot = fb.Heatmap.correlation(by_batch, [c for c in by_batch.columns if c != "meta_aa_changes"],
+                              nan_color="black")
+plot.n_shared  # pandas DataFrame of shared variants per batch pair
 ```
 
 Use `Heatmap(...).matrix()` to get the drawn matrix as a pandas DataFrame.

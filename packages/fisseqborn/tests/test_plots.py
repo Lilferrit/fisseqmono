@@ -179,6 +179,68 @@ def test_heatmap_correlation(profiles):
     plot.plot()
 
 
+@pytest.mark.parametrize("method", ["pearson", "spearman", "cosine"])
+def test_heatmap_correlation_dense_matches_complete_rows(profiles, method):
+    cols = ["feature_0", "feature_1", "feature_2", "feature_3"]
+    clean = profiles.select(cols).cast(pl.Float64)
+    if method == "spearman":
+        clean = clean.select(pl.all().rank())
+    mat = clean.to_numpy()
+    if method == "cosine":
+        unit = mat / np.linalg.norm(mat, axis=0, keepdims=True)
+        expected = unit.T @ unit
+    else:
+        expected = np.corrcoef(mat, rowvar=False)
+    plot = fb.Heatmap.correlation(profiles, cols, method=method)
+    assert np.allclose(plot.matrix().to_numpy(), expected)
+    assert (plot.n_shared.to_numpy() == profiles.height).all()
+
+
+@pytest.fixture
+def block_sparse() -> pl.DataFrame:
+    """Columns a1/a2 are scored on rows 0-19, b1/b2 on rows 20-39, c1 on rows 0-1 only."""
+    rng = np.random.default_rng(3)
+    base = rng.normal(size=40)
+
+    def col(rows):
+        out = np.full(40, None, dtype=object)
+        out[rows] = base[rows] + rng.normal(0, 0.3, 40)[rows]
+        return pl.Series(out.tolist(), dtype=pl.Float64)
+
+    a, b = slice(0, 20), slice(20, 40)
+    return pl.DataFrame({"a1": col(a), "a2": col(a), "b1": col(b), "b2": col(b),
+                         "c1": col(slice(0, 2))})
+
+
+def test_heatmap_correlation_block_sparse(block_sparse):
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        plot = fb.Heatmap.correlation(block_sparse, method="spearman", nan_color="black")
+        mat = plot.matrix()
+    for i, j in [("a1", "a2"), ("b1", "b2"), ("a1", "a1")]:
+        assert np.isfinite(mat.loc[i, j]) and mat.loc[i, j] == mat.loc[j, i]
+    assert np.isnan(mat.loc["a1", "b2"]) and np.isnan(mat.loc["b1", "a2"])
+    # c1 shares only 2 rows with a1 (and with itself): below min_shared=10.
+    assert plot.n_shared.loc["a1", "c1"] == 2 and plot.n_shared.loc["a1", "b1"] == 0
+    assert mat["c1"].isna().all()
+    assert np.isfinite(
+        fb.Heatmap.correlation(block_sparse, min_shared=2).matrix().loc["a1", "c1"]
+    )
+    plot.plot()
+
+
+def test_heatmap_correlation_spearman_matches_scipy_on_shared_rows(block_sparse):
+    from scipy.stats import spearmanr
+
+    df = block_sparse.with_columns(pl.col("a2").fill_null(pl.col("b1")))  # a2 spans both blocks
+    shared = df.select("a2", "b2").drop_nulls()
+    expected = spearmanr(shared["a2"], shared["b2"]).statistic
+    mat = fb.Heatmap.correlation(df, ["a2", "b2"], method="spearman").matrix()
+    assert mat.loc["a2", "b2"] == pytest.approx(expected)
+
+
 @pytest.fixture
 def replicate_scores() -> pl.DataFrame:
     """T1_R1 and T1_R2 share variants v0-v9; T2_R1 has disjoint variants."""
