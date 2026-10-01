@@ -45,6 +45,12 @@ black:
    .save("vis/replicate_spearman_correlation_heatmap.png"))
 ```
 
+![Batch Pearson correlation](../images/heatmap-batch-pearson.png){ width="520" }
+
+*`method="pearson"` on the 2026-09-29 OvWT scores (`batch="meta_experiment",
+label="meta_aa_changes", score="auroc_median_fold"`). Batches on different tiles share no
+variants, so only the block diagonal is filled.*
+
 `method=` can be `"spearman"`, `"pearson"` or `"cosine"`, and `squared=True` shows the
 squared correlation (for example ρ²). `.pairs()` returns the numbers behind the plot:
 `batch_a, batch_b, r, r_squared, n_shared`. Duplicate
@@ -77,5 +83,20 @@ plot = fb.Heatmap.correlation(by_batch, [c for c in by_batch.columns if c != "me
                               nan_color="black")
 plot.n_shared  # pandas DataFrame of shared variants per batch pair
 ```
+
+<div class="grid" markdown>
+
+![Spearman between batches](../images/heatmap-correlation-spearman.png)
+
+![Squared correlation between batches](../images/heatmap-correlation-squared.png)
+
+</div>
+
+*From `notebooks/2026-09-29/ovwtcv`, with `nan_color="black", min_shared=10,
+annot_kws={"fontsize": 6}`: `method="spearman"` (left) and `squared=True` (right).*
+
+!!! tip
+    Cosine similarity doesn't center the data. On AUROC-like scores, which all sit near 0.5, every
+    pair comes out at about 0.99. Use Pearson or Spearman for those.
 
 Use `Heatmap(...).matrix()` to get the drawn matrix as a pandas DataFrame.

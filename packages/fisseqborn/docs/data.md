@@ -119,11 +119,35 @@ lamin = info.filter(pl.col("channels") == "CH1", pl.col("statistic") == "median"
 | Method | Adds |
 |---|---|
 | `impact_score()` | `meta_impact_score`: the cosine distance to the median control profile, halved to run from 0 to 1 |
+| `impact_scores([0.7, 0.9])` | `meta_impact_score_0.7`, `meta_impact_score_0.9`: the impact score on the fewest PCs explaining each share of the variance (PCA is fitted once; the features are kept) |
 | `pca(n_components=5)` | `meta_pc_1 … meta_pc_5`, with the loadings on `.pca_loadings` |
 | `pca_reduce(variance=0.9)` / `pca_reduce(noise_floor=True)` | replaces the features with `X_0 … X_k` |
 | `umap(n_neighbors=30)` | `meta_notebook_umap_1/2`; needs `fisseqborn[umap]` |
 | `cluster("leiden", n_neighbors=15)` / `cluster("kmeans", n_clusters=8)` | `meta_cluster_idx`; Leiden needs `fisseqborn[cluster]` |
 | `distinguishability(ovwt)` | `meta_distinguishability_score` |
+
+For example, this pipeline from `notebooks/2026-10-01/dist-vs-impact` computes the two scores
+that the [correlation](plots/correlation.md#distinguishability-vs-impact-score) and
+[ROC](plots/roc.md) pages compare:
+
+```python
+ok_features = fb.Blocklists.from_pipeline(PIPELINE_DIR).rethreshold(0.8).consensus()
+scored = (
+    fb.Profiles.from_pipeline(PIPELINE_DIR, types=["median", "KS", "AUROC"])
+    .variant_type()
+    .normalize(by="meta_experiment")       # z-score each batch against its synonymous controls
+    .median_across_batches()
+    .keep_features(ok_features)
+    .drop_nonfinite()
+    .impact_scores([1.0])                  # -> meta_impact_score_1.0
+    .distinguishability(fb.OvwtScores.from_pipeline(OVWT_PIPELINE_DIR),
+                        score="auroc_median_fold")   # -> meta_distinguishability_score
+    .clinvar(CLINVAR_PATH)
+)
+```
+
+`ExplainedVariancePlot(scored)` then shows the PCA fit behind the impact scores (see
+[Explained variance](plots/explained-variance.md)).
 
 ## Variant annotations
 

@@ -45,4 +45,74 @@ trend:
 *From `notebooks/2026-07-30/ovwt_scores_cell_count`. Without `hue`, fisseqborn's KDE uses viridis
 with a density colorbar. Pass `cmap=` or `cbar=False` to change that.*
 
+## Distinguishability vs. impact score
+
+With `hue`, sort the rows first to choose what is drawn on top. Here the Synonymous controls are
+drawn last, over the missense cloud:
+
+```python
+import polars as pl
+
+hue_order = ["Synonymous", "Frameshift", "Single Missense"]
+scored = (profiles.impact_scores([1.0])
+          .distinguishability(ovwt, score="auroc_median_fold"))
+
+(fb.CorrelationPlot(
+    scored.filter(pl.col("meta_variant_type").is_in(hue_order)).sort(
+        pl.col("meta_variant_type").replace_strict({t: i for i, t in enumerate(hue_order)}),
+        descending=True,
+    ),
+    x="meta_distinguishability_score", y="meta_impact_score_1.0",
+    hue="meta_variant_type", hue_order=hue_order,
+    stat="spearman", stat_loc="upper left", figsize=(6, 6),
+    title="OvWT distinguishability vs. impact score",
+ )
+ .set(xlabel="Distinguishability score (auroc_median_fold)", ylabel="Impact score (all PCs)")
+ .save("vis/distinguishability_vs_impact.png"))
+```
+
+![Distinguishability vs. impact](../images/correlation-dist-vs-impact.png){ width="420" }
+
+*From `notebooks/2026-10-01/dist-vs-impact`. `stat_loc` moves the statistics box away from the
+legend.*
+
+The same data as a density with a LOWESS trend (`kind="kde", fit="lowess"`), and the single
+missense variants alone with a linear fit (`fit="linear"`, `stat="pearson"`). Extra keywords such
+as `s=6, alpha=0.4` go to the scatter:
+
+<div class="grid" markdown>
+
+![KDE with LOWESS](../images/correlation-dist-vs-impact-kde.png)
+
+![Linear fit](../images/correlation-dist-vs-impact-linear.png)
+
+</div>
+
+## Pooled vs. median-fold AUROC
+
+`identity=True` with `lims=(0, 1)` draws the `y = x` line on square axes. `stat=None` drops the
+statistics box:
+
+```python
+scores = fb.OvwtScores.from_pipeline(OVWT_PIPELINE_DIR).pipe(pl.LazyFrame.drop_nulls).variant_type()
+
+(fb.CorrelationPlot(scores, x="auroc_pooled", y="auroc_median_fold",
+                    hue="meta_variant_type", hue_order=hue_order,
+                    stat=None, identity=True, lims=(0, 1), figsize=(6, 6))
+   .save("vis/pooled_vs_median_fold.png"))
+```
+
+`count_sides=True` writes how many points fall above and below that line. For synonymous variants
+alone, the median-fold score sits above the pooled one for 1118 of 1253 variants:
+
+<div class="grid" markdown>
+
+![Pooled vs median-fold](../images/correlation-pooled-vs-median-fold.png)
+
+![Side counts](../images/correlation-count-sides.png)
+
+</div>
+
+*From `notebooks/2026-09-29/ovwtcv`.*
+
 Use `CorrelationPlot(...).correlation()` to get `(statistic, p_value, n)` without drawing anything.

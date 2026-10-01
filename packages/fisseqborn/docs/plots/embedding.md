@@ -36,6 +36,26 @@ UMAP = dict(x="meta_notebook_umap_1", y="meta_notebook_umap_2")
 Categories are drawn largest first, so rare classes stay visible on top of the Single Missense cloud.
 Pass `draw_order=[…]` to control the order yourself.
 
+A numeric `hue` with `kind="scatter"` uses a colormap. Extra keywords such as
+`edgecolors="black"` go to `ax.scatter`. Any categorical column works as `hue`, for example the
+LMNA domain from `.domain()`:
+
+<div class="grid" markdown>
+
+![Scatter colored by a score](../images/umap-distinguishability-scatter.png)
+
+![Scatter colored by domain](../images/umap-domain.png)
+
+</div>
+
+```python
+fb.EmbeddingPlot(df, **UMAP, hue="meta_distinguishability_score", cmap="Reds",
+                 edgecolors="black")
+fb.EmbeddingPlot(df, **UMAP, hue="meta_domain")
+```
+
+*From `notebooks/2026-09-30/pca`.*
+
 ## Hexbin of a continuous score
 
 ```python
@@ -51,6 +71,13 @@ Pass `draw_order=[…]` to control the order yourself.
 ![UMAP hexbin of distinguishability](../images/umap-hexbin-score.png){ width="520" }
 
 *From `notebooks/2026-09-22/pca`.*
+
+`gridsize` (default 50) sets the number of hexagons across. Fewer, larger hexagons smooth the map:
+
+![Hexbin with gridsize=30](../images/umap-hexbin-gridsize.png){ width="520" }
+
+*`gridsize=30` on the 2026-09-30 embedding. The distinguishability score here is batch-corrected,
+so some hexagons average above 1.*
 
 ## Hexbin of cluster assignment
 

@@ -212,7 +212,7 @@ class BoxPlot(Plot):
         valid = self._valid()
         hue_levels = self.hue_order or [None]
         n_hue = len(hue_levels)
-        width = _BOX_WIDTH / n_hue
+        width = _BOX_WIDTH / n_hue / 2
         kw = {"cmap": "viridis", "s": 8, "linewidths": 0, "zorder": 3, **self.point_kw}
         for xi, xl in enumerate(self.order):
             for hi, hl in enumerate(hue_levels):

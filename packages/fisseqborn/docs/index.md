@@ -44,7 +44,10 @@ call that makes that kind of figure.
 [![Replicate correlation](images/correlation-replicates.png){ width="240" }](plots/correlation.md)
 [![ROC curves](images/roc-pathogenic.png){ width="240" }](plots/roc.md)
 [![Replicate correlation heatmap](images/heatmap-replicates.png){ width="240" }](plots/heatmap.md)
-[![Cluster summary clustermap](images/clustermap-summary.png){ width="240" }](plots/clustermap.md)
+[![Cluster summary clustermap](images/cm-groups-full.png){ width="240" }](plots/clustermap.md)
+[![Explained variance](images/explained-variance-both.png){ width="240" }](plots/explained-variance.md)
+[![Pair plot](images/pairplot-cluster-corner.png){ width="240" }](plots/pairplot.md)
+[![Volcano plot](images/volcano-layers.png){ width="240" }](plots/volcano.md)
 
 </div>
 

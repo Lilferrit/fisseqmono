@@ -36,6 +36,9 @@ nav:
       - ROC curves: plots/roc.md
       - Heatmaps: plots/heatmap.md
       - Clustermaps: plots/clustermap.md
+      - Explained variance: plots/explained-variance.md
+      - Pair plots: plots/pairplot.md
+      - Volcano plots: plots/volcano.md
   - API reference: api.md
 
 plugins:
