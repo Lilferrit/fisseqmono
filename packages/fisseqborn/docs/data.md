@@ -67,7 +67,8 @@ the data:
 - `.save(path)`
 - passing the dataset to a plot
 
-The methods that have to see the numbers run the query themselves: `drop_nonfinite`, the PCA,
+The methods that have to see the numbers run the query themselves: `drop_nonfinite`,
+`feature_select`, the PCA,
 UMAP and clustering methods, and `Blocklists.consensus`. Because every step returns a copy, a base
 dataset can be branched without recomputing or mutating it:
 
@@ -105,6 +106,24 @@ profiles = profiles.keep_features(ok)          # p-value columns follow their fe
 profiles = profiles.drop_features("*CH2*")     # names or fnmatch globs
 profiles = profiles.drop_nonfinite()           # drop columns with any null / NaN / inf
 ```
+
+`feature_select()` runs `pycytominer.feature_select` over the profile values. It needs
+`fisseqborn[select]`. The default operations are the pipeline's: drop near-zero-variance features,
+apply the blocklist, then drop one of every pair of features correlated above `corr_threshold`.
+
+```python
+selected = (profiles
+    .drop_nonfinite()
+    .feature_select(corr_threshold=0.8))         # or operations=[...], blocklist_file=..., ...
+selected.feature_selection                       # feature / kept, one row per input feature
+```
+
+- Every pycytominer knob is a keyword argument (`freq_cut`, `unique_cut`, `na_cutoff`,
+  `outlier_cutoff`, ...). You can also pass other operations: `"drop_na_columns"`,
+  `"drop_outliers"` and `"noise_removal"`.
+- The `"blocklist"` operation uses pycytominer's built-in Cell Painting blocklist unless you give
+  `blocklist_file`.
+- P-value (passthrough) columns aren't used as inputs. They are kept whenever their feature is.
 
 `profiles.feature_info()` parses feature names into a table with these columns: `statistic`,
 `compartment`, `category` and `channels`. Use it to build `FeatureGroup`s or volcano selections:
@@ -192,6 +211,7 @@ profiles.distinguishability(fb.OvwtScores.from_global(run, "main"), score="meta_
 | `median_with_p(feature)` | `.median_across_batches(paired={"_median": "_KSnegLogP"})` |
 | per-batch blocklists → `n_ok == 15` | `Blocklists.from_pipeline(run).consensus()` |
 | `bad_mask = ... is_null() \| is_nan() \| is_infinite()` | `.drop_nonfinite()` |
+| `pycytominer.feature_select(profiles=..., operation=[...])` | `.feature_select(operations=[...])` |
 | `map_elements(variant_classification, ...)` | `.variant_type()` |
 | `add_clinvar_annotation(df, path)` / `add_domain(df, LMNA_DOMAIN_REGIONS)` / `get_tile` | `.clinvar(path)` / `.domain()` / `.tile()` |
 | `add_distinguishability_score(df, ovwt_dir)` | `.distinguishability(fb.OvwtScores.from_pipeline(run))` |

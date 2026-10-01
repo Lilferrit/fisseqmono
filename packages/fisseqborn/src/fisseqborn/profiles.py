@@ -98,6 +98,9 @@ class Profiles(Dataset):
         #: With ``pca_reduce(noise_floor=True)``: the variance ratio of the first component
         #: of the column-shuffled data.
         self.pca_noise_floor: float | None = None
+        #: From the last `feature_select` call: one row per input feature, with
+        #: ``feature`` and ``kept``.
+        self.feature_selection: pl.DataFrame | None = None
 
     # ----- constructors ---------------------------------------------------------------
 
@@ -157,6 +160,7 @@ class Profiles(Dataset):
         new.pca_loadings = None
         new.pca_explained_variance = None
         new.pca_noise_floor = None
+        new.feature_selection = None
         return new
 
     # ----- helpers --------------------------------------------------------------------
@@ -245,14 +249,19 @@ class Profiles(Dataset):
         statistics than these profiles can be passed directly. Passthrough columns (e.g.
         ``X_KSnegLogP``) are kept whenever their feature (``X_median``) is.
         """
-        keep = set(self._match(patterns))
+        return self.select(self._keep_columns(self._match(patterns)))
+
+    def _keep_columns(self, features: Iterable[str]) -> list[str]:
+        """Every ``meta_`` column, ``features``, and the passthrough columns of those
+        features, in their current order."""
+        keep = set(features)
         bases = {c.rsplit("_", 1)[0] for c in keep}
         for col in self.features:
             if self._is_passthrough(col) and any(
                 col.removesuffix(f"_{s}") in bases for s in self.passthrough
             ):
                 keep.add(col)
-        return self.select([c for c in self.columns if c.startswith("meta_") or c in keep])
+        return [c for c in self.columns if c.startswith("meta_") or c in keep]
 
     def drop_features(self, patterns: str | Iterable[str]) -> Self:
         """Drop the features matching ``patterns`` (names or ``fnmatch`` globs such as
@@ -274,6 +283,69 @@ class Profiles(Dataset):
             (~_transforms.finite(pl.col(c)).is_not_null().all()).alias(c) for c in self.features
         )
         return self._replace(df.drop([c for c in bad.columns if bad[0, c]]))
+
+    def feature_select(
+        self,
+        operations: Sequence[str] = ("variance_threshold", "blocklist", "correlation_threshold"),
+        *,
+        corr_threshold: float = 0.9,
+        corr_method: Literal["pearson", "spearman", "kendall"] = "pearson",
+        freq_cut: float = 0.05,
+        unique_cut: float = 0.01,
+        na_cutoff: float = 0.05,
+        blocklist_file: str | PathLike | None = None,
+        outlier_cutoff: float = 500.0,
+        min_variance: float = 1e-6,
+        **pycytominer_kw: Any,
+    ) -> Self:
+        """Drop redundant and uninformative features with `pycytominer.feature_select`.
+
+        The ``operations`` run in order over the profile values (passthrough columns are
+        not inputs, and are kept whenever their feature is). The defaults are the
+        pipeline's: near-zero variance (``freq_cut``, ``unique_cut``, ``min_variance``),
+        the blocklist, then one of every pair of features correlated above
+        ``corr_threshold``. Other pycytominer operations are ``"drop_na_columns"``
+        (``na_cutoff``), ``"drop_outliers"`` (``outlier_cutoff``) and ``"noise_removal"``
+        (pass ``noise_removal_perturb_groups`` and ``noise_removal_stdev_cutoff`` through
+        ``pycytominer_kw``). ``"blocklist"`` uses pycytominer's built-in Cell Painting
+        blocklist unless ``blocklist_file`` is given.
+
+        Which features were kept is stored on `feature_selection` (``feature``, ``kept``).
+        Needs ``fisseqborn[select]``.
+
+        >>> selected = (profiles.median_across_batches()
+        ...                     .drop_nonfinite()
+        ...                     .feature_select(corr_threshold=0.8)
+        ...                     .pca_reduce(variance=0.9))
+        """
+        pycytominer = _transforms.require_extra("pycytominer", "select")
+        df = self.df
+        values = self.values
+        if not values:
+            raise ValueError("No feature columns to select from")
+        selected = pycytominer.feature_select(
+            profiles=df.select(values).to_pandas(),
+            features=values,
+            image_features=False,
+            samples="all",
+            operation=list(operations),
+            corr_threshold=corr_threshold,
+            corr_method=corr_method,
+            freq_cut=freq_cut,
+            unique_cut=unique_cut,
+            na_cutoff=na_cutoff,
+            blocklist_file=None if blocklist_file is None else str(blocklist_file),
+            outlier_cutoff=outlier_cutoff,
+            min_variance=min_variance,
+            **pycytominer_kw,
+        )
+        kept = set(selected.columns)
+        new = self._replace(df.select(self._keep_columns(kept)))
+        new.feature_selection = pl.DataFrame(
+            {"feature": values, "kept": [c in kept for c in values]},
+            schema={"feature": pl.String, "kept": pl.Boolean},
+        )
+        return new
 
     def impact_score(
         self, *, control_col: str = "meta_is_control", output_col: str = "meta_impact_score"

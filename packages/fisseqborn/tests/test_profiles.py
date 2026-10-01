@@ -146,6 +146,50 @@ def test_drop_nonfinite():
     assert fb.Profiles(df).drop_nonfinite().features == ["ok"]
 
 
+def _selectable() -> fb.Profiles:
+    rng = np.random.default_rng(0)
+    a, b = rng.normal(size=(2, 40))
+    df = pl.DataFrame(
+        {
+            "meta_aa_changes": [f"A{i}V" for i in range(40)],
+            "A_median": a,
+            "A_KSnegLogP": rng.uniform(size=40),
+            "Twin_median": 2 * a + 1 + 0.2 * rng.normal(size=40),
+            "Twin_KSnegLogP": rng.uniform(size=40),
+            "B_median": b,
+            "Constant_median": np.ones(40),
+        }
+    )
+    return fb.Profiles(df, passthrough=["KSnegLogP"])
+
+
+def test_feature_select_drops_correlated_and_constant_features():
+    profiles = _selectable()
+    selected = profiles.feature_select()
+    assert selected.values == ["A_median", "B_median"]
+    assert selected.features == ["A_median", "A_KSnegLogP", "B_median"]
+    assert selected.meta == profiles.meta
+    assert selected.df["A_median"].equals(profiles.df["A_median"])
+    assert selected.feature_selection.to_dict(as_series=False) == {
+        "feature": ["A_median", "Twin_median", "B_median", "Constant_median"],
+        "kept": [True, False, True, False],
+    }
+    assert selected.filter(pl.lit(True)).feature_selection is None
+    assert profiles.feature_selection is None
+
+
+def test_feature_select_operations_and_thresholds():
+    profiles = _selectable()
+    only_variance = profiles.feature_select(["variance_threshold"])
+    assert only_variance.values == ["A_median", "Twin_median", "B_median"]
+    varying = profiles.drop_features("Constant_median")
+    assert "Twin_median" not in varying.feature_select(["correlation_threshold"]).values
+    loose = varying.feature_select(["correlation_threshold"], corr_threshold=0.999)
+    assert "Twin_median" in loose.values
+    with pytest.raises(ValueError, match="not supported"):
+        profiles.feature_select(["no_such_operation"])
+
+
 def test_impact_score_matches_numpy():
     rng = np.random.default_rng(1)
     x = rng.normal(size=(6, 4))
