@@ -1,6 +1,7 @@
 """Polars / numpy implementations behind the `Profiles` methods."""
 
 import importlib
+import logging
 from collections.abc import Mapping, Sequence
 from types import ModuleType
 from typing import Literal
@@ -8,6 +9,8 @@ from typing import Literal
 import numpy as np
 import polars as pl
 import polars.selectors as cs
+
+logger = logging.getLogger(__name__)
 
 #: Standard deviations below this are treated as zero (matches the pipeline's Normalizer).
 EPS = float(np.finfo(np.float32).eps)
@@ -52,6 +55,46 @@ def normalize_exprs(
     return [zscore(f) for f in features]
 
 
+def intersect_features(present: Mapping[str, Sequence[str]]) -> list[str]:
+    """The features present in every batch of ``present`` (batch -> its features), in the
+    order of the first batch.
+
+    Logs one warning per batch that loses features, naming them, and raises `ValueError`
+    when no feature is shared by every batch.
+    """
+    sets = [set(cols) for cols in present.values()]
+    common = set.intersection(*sets) if sets else set()
+    for batch, cols in present.items():
+        dropped = [c for c in cols if c not in common]
+        if dropped:
+            logger.warning(
+                "features='intersection': dropping %d feature(s) of batch %s missing from "
+                "another batch: %s",
+                len(dropped),
+                batch,
+                ", ".join(dropped),
+            )
+    if not common:
+        raise ValueError("features='intersection': no feature is present in every batch")
+    first = next(iter(present.values()))
+    return [c for c in first if c in common]
+
+
+def features_by_batch(
+    lf: pl.LazyFrame, features: Sequence[str], *, batch_col: str
+) -> dict[str, list[str]]:
+    """For each batch (in order of appearance), the ``features`` with at least one
+    non-null, non-NaN value in it."""
+    counts = (
+        lf.group_by(batch_col, maintain_order=True)
+        .agg(pl.col(f).cast(pl.Float64).fill_nan(None).count() for f in features)
+        .collect()
+    )
+    return {
+        row[batch_col]: [f for f in features if row[f] > 0] for row in counts.iter_rows(named=True)
+    }
+
+
 def median_across_batches(
     lf: pl.LazyFrame,
     features: Sequence[str],
@@ -60,6 +103,7 @@ def median_across_batches(
     batch_col: str,
     paired: Mapping[str, str] | None,
     n_col: str,
+    sum_cols: Sequence[str] = (),
 ) -> pl.LazyFrame:
     """One row per variant: the median of each feature across batches.
 
@@ -67,7 +111,8 @@ def median_across_batches(
     "_KSnegLogP"}``). For each feature with both columns, the batch holding the (lower)
     middle value is picked and both columns come from that same batch, so a p-value
     always belongs to the median it is shown with. Other ``meta_`` columns keep their
-    first value and ``n_col`` counts the batches each variant was measured in.
+    first value (``sum_cols`` are summed instead) and ``n_col`` counts the batches each
+    variant was measured in.
     """
     feature_set = set(features)
     paired_exprs: list[pl.Expr] = []
@@ -93,9 +138,10 @@ def median_across_batches(
             handled.update((col, companion))
 
     plain = [c for c in features if c not in handled]
-    meta = cs.starts_with("meta_") - cs.by_name(variant_col, batch_col)
+    meta = cs.starts_with("meta_") - cs.by_name(variant_col, batch_col, *sum_cols)
     return lf.group_by(variant_col, maintain_order=True).agg(
         meta.first(),
+        *[pl.col(c).sum() for c in sum_cols],
         pl.col(batch_col).n_unique().cast(pl.UInt32).alias(n_col),
         *[pl.col(c).median() for c in plain],
         *paired_exprs,

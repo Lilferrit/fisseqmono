@@ -2,7 +2,7 @@
 plus chainable datasets that load and prepare the fisseq pipeline's outputs.
 
 >>> import fisseqborn as fb
->>> profiles = fb.Profiles.from_pipeline(run_dir).variant_type().normalize(by="meta_experiment")
+>>> profiles = fb.Profiles.from_pipeline(run_dir).variant_type()  # already z-scored per batch
 >>> (fb.BoxPlot(profiles.median_across_batches().impact_score(),
 ...             x="meta_variant_type", y="meta_impact_score")
 ...    .annotate_pairs()
@@ -19,6 +19,7 @@ from .correlation import CorrelationPlot
 from .dataset import Dataset
 from .embedding import EmbeddingPlot
 from .explained_variance import ExplainedVariancePlot
+from .global_aggregate import write_global
 from .heatmap import Heatmap
 from .ovwt import OvwtScores
 from .pairplot import PairPlot
@@ -50,4 +51,5 @@ __all__ = [
     "VolcanoPlot",
     "config",
     "fisseq",
+    "write_global",
 ]

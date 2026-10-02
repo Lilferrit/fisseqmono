@@ -75,6 +75,15 @@ def pipeline_dir(tmp_path):
                 {"meta_aa_changes": PIPELINE_VARIANTS}
                 | {f"{f}_{stat}": values(f) for f in PIPELINE_FEATURES}
             ).write_parquet(fs / folder / f"{stat}.parquet")
+        pl.DataFrame(
+            {
+                "meta_aa_changes": PIPELINE_VARIANTS,
+                "meta_num_cells": pl.Series([10 * (b + 1)] * n, dtype=pl.UInt32),
+                "meta_barcode_num_unique": pl.Series([b + 1] * n, dtype=pl.UInt32),
+                "meta_label": [batch] * n,
+                "AreaShape_Area_median": rng.normal(0, 1, n),
+            }
+        ).write_parquet(fs / "output.parquet")
         (fs / "blocklists").mkdir()
         for stat in ("median", "KS"):
             names = [f"{f}_{stat}" for f in PIPELINE_FEATURES]

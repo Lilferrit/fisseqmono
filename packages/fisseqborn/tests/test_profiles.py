@@ -1,3 +1,5 @@
+import re
+
 import numpy as np
 import polars as pl
 import pytest
@@ -301,10 +303,137 @@ def test_volcano_from_profiles(raw):
     assert set(plot.data["feature"]) == set(PIPELINE_FEATURES)
 
 
-def test_from_global(tmp_path):
+def test_from_global_is_deprecated(tmp_path):
     path = tmp_path / "global" / "main" / "feature_select"
     path.mkdir(parents=True)
     pl.DataFrame({"meta_aa_changes": ["A1A"], "f_median": [1.0]}).write_parquet(
         path / "aggregate.parquet"
     )
-    assert fb.Profiles.from_global(tmp_path, "main").features == ["f_median"]
+    with pytest.warns(DeprecationWarning, match="fisseqborn-global"):
+        assert fb.Profiles.from_global(tmp_path, "main").features == ["f_median"]
+
+
+def _batches(profiles: fb.Profiles) -> list[str]:
+    return profiles.df["meta_experiment"].unique(maintain_order=True).to_list()
+
+
+def test_from_pipeline_exclude_globs_and_regexes(pipeline_dir):
+    # "T1*" matches T1_R1 and T10_R1 but not T2_R1
+    assert _batches(fb.Profiles.from_pipeline(pipeline_dir, exclude="T1*")) == ["T2_R1"]
+    assert _batches(
+        fb.Profiles.from_pipeline(pipeline_dir, exclude=[re.compile(r"^T10_")])
+    ) == ["T1_R1", "T2_R1"]
+    assert _batches(
+        fb.Profiles.from_pipeline(pipeline_dir, batches=["T2_R1", "T10_R1"], exclude="T2_*")
+    ) == ["T10_R1"]
+    with pytest.raises(ValueError, match="excludes every batch"):
+        fb.Profiles.from_pipeline(pipeline_dir, exclude="*")
+    assert _batches(fb.OvwtScores.from_pipeline(pipeline_dir, exclude="T1_*")) == [
+        "T2_R1",
+        "T10_R1",
+    ]
+    blocklists = fb.Blocklists.from_pipeline(pipeline_dir, exclude=re.compile("T2"))
+    assert set(blocklists.df["meta_experiment"]) == {"T1_R1", "T10_R1"}
+
+
+def _drop_from_batch(pipeline_dir, batch, stat, column):
+    path = pipeline_dir / "feature_select_batchwise" / batch / "aggregates" / f"{stat}.parquet"
+    pl.read_parquet(path).drop(column).write_parquet(path)
+
+
+CONSTANT = "Constant_median"
+
+
+def test_from_pipeline_feature_intersection(pipeline_dir, caplog):
+    _drop_from_batch(pipeline_dir, "T10_R1", "median", CONSTANT)
+    union = fb.Profiles.from_pipeline(pipeline_dir)
+    assert CONSTANT in union.features
+    assert union.filter(pl.col("meta_experiment") == "T10_R1").df[CONSTANT].is_null().all()
+
+    with caplog.at_level("WARNING"):
+        common = fb.Profiles.from_pipeline(pipeline_dir, features="intersection")
+    assert common.features == [AREA, "Mean_Nuclei_Intensity_MeanIntensity_CH1_median"]
+    assert common.df.height == len(PIPELINE_VARIANTS) * len(PIPELINE_BATCHES)
+    warned = [r.getMessage() for r in caplog.records]
+    assert len(warned) == 2
+    assert all(CONSTANT in m for m in warned)
+    assert any("T1_R1" in m for m in warned) and any("T2_R1" in m for m in warned)
+
+    with pytest.raises(ValueError, match="features"):
+        fb.Profiles.from_pipeline(pipeline_dir, features="all")
+
+
+def test_from_pipeline_empty_intersection_raises(pipeline_dir):
+    for feature in PIPELINE_FEATURES:
+        _drop_from_batch(pipeline_dir, "T1_R1", "median", f"{feature}_median")
+    with pytest.raises(ValueError, match="no feature is present in every batch"):
+        fb.Profiles.from_pipeline(pipeline_dir, ["median"], features="intersection")
+
+
+def test_median_across_batches_intersection(pipeline_dir, caplog):
+    _drop_from_batch(pipeline_dir, "T10_R1", "median", CONSTANT)
+    union = fb.Profiles.from_pipeline(pipeline_dir)
+    assert CONSTANT in union.median_across_batches().features
+    with caplog.at_level("WARNING"):
+        common = union.median_across_batches(features="intersection")
+    assert CONSTANT not in common.features
+    assert AREA in common.features
+    assert len(caplog.records) == 2
+
+    nothing = fb.Profiles(
+        pl.DataFrame(
+            {
+                "meta_aa_changes": ["A1A", "A1A"],
+                "meta_experiment": ["b0", "b1"],
+                "x": [1.0, None],
+                "y": [None, 2.0],
+            }
+        )
+    )
+    with pytest.raises(ValueError, match="no feature"):
+        nothing.median_across_batches(features="intersection")
+
+
+def test_from_pipeline_metadata(pipeline_dir):
+    with_meta = fb.Profiles.from_pipeline(pipeline_dir, metadata=True)
+    assert {"meta_num_cells", "meta_barcode_num_unique", "meta_label"} <= set(with_meta.meta)
+    # output.parquet's feature columns are not joined
+    assert with_meta.features == fb.Profiles.from_pipeline(pipeline_dir).features
+    df = with_meta.df
+    assert (df["meta_label"] == df["meta_experiment"]).all()
+
+    counts = fb.Profiles.from_pipeline(pipeline_dir, metadata=["meta_num_cells"])
+    assert counts.meta == ["meta_aa_changes", "meta_num_cells", "meta_experiment"]
+    med = counts.median_across_batches(sum_cols=["meta_num_cells"]).df
+    # 10, 20 and 30 cells in the three batches
+    assert med["meta_num_cells"].to_list() == [60] * len(PIPELINE_VARIANTS)
+    first = counts.median_across_batches().df
+    assert first["meta_num_cells"].to_list() == [30] * len(PIPELINE_VARIANTS)  # T1_R1 first
+
+    with pytest.raises(ValueError, match="meta_nope"):
+        fb.Profiles.from_pipeline(pipeline_dir, metadata=["meta_nope"]).collect()
+
+
+def test_umap_n_components(profiles):
+    pytest.importorskip("umap")
+    base = fb.Profiles(profiles.drop("meta_notebook_umap_1", "meta_notebook_umap_2"))
+    embedded = base.umap(n_components=3, n_neighbors=10)
+    assert [c for c in embedded.meta if "umap" in c] == [
+        "meta_notebook_umap_1",
+        "meta_notebook_umap_2",
+        "meta_notebook_umap_3",
+    ]
+    named = base.umap(n_components=1, n_neighbors=10, output_cols=["meta_u"])
+    assert "meta_u" in named.columns
+    with pytest.raises(ValueError, match="n_components"):
+        base.umap(n_components=3, output_cols=["a", "b"])
+
+
+def test_save_pca_loadings(raw, tmp_path):
+    finite = raw.normalize(by="meta_experiment").median_across_batches().drop_nonfinite()
+    with pytest.raises(ValueError, match="pca"):
+        finite.save_pca_loadings(tmp_path / "x.parquet")
+    fitted = finite.pca(2)
+    path = tmp_path / "out" / "loadings.parquet"
+    assert fitted.save_pca_loadings(path) is fitted
+    assert pl.read_parquet(path).equals(fitted.pca_loadings)

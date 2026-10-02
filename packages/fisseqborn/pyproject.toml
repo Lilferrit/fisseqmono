@@ -20,6 +20,9 @@ dependencies = [
     "statsmodels",
 ]
 
+[project.scripts]
+fisseqborn-global = "fisseqborn.global_aggregate:main"
+
 [project.optional-dependencies]
 cluster = [
     "leidenalg>=0.12",

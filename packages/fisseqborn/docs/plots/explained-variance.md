@@ -17,7 +17,6 @@ ok_features = fb.Blocklists.from_pipeline(PIPELINE_DIR).rethreshold(0.8).consens
 profiles = (
     fb.Profiles.from_pipeline(PIPELINE_DIR, types=["median", "KS", "AUROC"])
     .variant_type()
-    .normalize(by="meta_experiment")
     .median_across_batches()
     .keep_features(ok_features)
     .drop_nonfinite()

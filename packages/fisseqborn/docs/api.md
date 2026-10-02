@@ -38,6 +38,10 @@
 
 ::: fisseqborn.ClusterSummary
 
+## Cross-experiment aggregation
+
+::: fisseqborn.write_global
+
 ## Base classes and configuration
 
 ::: fisseqborn.Plot

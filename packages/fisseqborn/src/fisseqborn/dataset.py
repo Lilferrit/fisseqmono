@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, Self
 
 import polars as pl
 
-from . import _data, _variants, fisseq
+from . import _data, _remote, _variants, fisseq
 
 if TYPE_CHECKING:
     from .summary import ClusterSummary
@@ -59,9 +59,36 @@ class Dataset:
         self.variant_col = variant_col
 
     @classmethod
-    def read(cls, path: str | PathLike, **kw: Any) -> Self:
-        """Lazily read a parquet file (or glob). ``kw`` is passed to the constructor."""
-        return cls(pl.scan_parquet(path), **kw)
+    def read(
+        cls,
+        path: str | PathLike,
+        *,
+        download_dir: str | PathLike | None = None,
+        refresh: bool = False,
+        **kw: Any,
+    ) -> Self:
+        """Lazily read a parquet file (or glob). ``kw`` is passed to the constructor.
+
+        ``path`` can also be a single remote file, ``"user@host:/path/file.parquet"``. It is
+        copied with scp into ``download_dir`` (default: a temporary directory kept for the
+        session) unless it is already there and ``refresh`` is false.
+        """
+        spec = _remote.parse(path)
+        if spec is None:
+            if download_dir is not None:
+                raise ValueError(f"download_dir is only used for remote files, but {path} is local")
+            return cls(pl.scan_parquet(path), **kw)
+        host, remote_path = spec
+        if any(ch in remote_path for ch in "*?["):
+            raise ValueError("Remote paths can't be globs; pass a single file")
+        remote_file = pathlib.PurePosixPath(remote_path)
+        root = str(remote_file.parent)
+        if download_dir is None:
+            local = _remote.temp_dir(host, root)
+        else:
+            local = pathlib.Path(download_dir)
+        [file] = _remote.Remote(host, root, local, refresh=refresh).fetch([remote_file.name])
+        return cls(pl.scan_parquet(file), **kw)
 
     # ----- chaining -------------------------------------------------------------------
 

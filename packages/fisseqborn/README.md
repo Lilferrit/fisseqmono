@@ -47,8 +47,7 @@ method returns a new object, and plots accept the result directly.
 profiles = (
     fb.Profiles.from_pipeline(run_dir, types=["median"], passthrough=["KSnegLogP"])
       .variant_type()                                  # meta_variant_type + meta_is_control
-      .normalize(by="meta_experiment")                 # z-score each batch vs its synonymous
-      .median_across_batches(paired={"_median": "_KSnegLogP"})
+      .median_across_batches(paired={"_median": "_KSnegLogP"})  # already z-scored per batch
       .keep_features(fb.Blocklists.from_pipeline(run_dir).consensus())
       .clinvar("clinvar_converted.parquet")
       .distinguishability(fb.OvwtScores.from_pipeline(run_dir))
@@ -57,11 +56,19 @@ fb.VolcanoPlot.from_wide(profiles).save("vis/volcano.png")
 profiles.drop_nonfinite().umap().cluster(n_neighbors=30).save("profiles.parquet")
 ```
 
+A remote run can be loaded in place: `from_pipeline("me@cluster:/path/to/run", download_dir="data")`
+copies only the files that call reads, over scp.
+
+The pipeline no longer writes `global/`. `fisseqborn-global <pipeline_dir> --out <dir>` rebuilds
+`feature_select/aggregate.parquet`, `feature_select/blocklist.parquet` and
+`ovwt_distinguishability/global_scores.parquet` from the per-batch outputs (see
+[Loading pipeline outputs](docs/data.md#reproduce-the-old-global-feature-select)).
+
 | Class | For |
 |---|---|
 | `Profiles` | per-variant feature profiles: `normalize`, `median_across_batches`, `keep_features`, `impact_score`, `impact_scores` (one column per PCA variance threshold, one fit), `pca`, `pca_reduce` (full `pca_explained_variance` table kept), `umap`, `cluster`, `distinguishability` |
-| `OvwtScores` | OvWT AUROCs: `correct` (per-batch rescale against synonymous variants) and `per_variant`; `from_pipeline` also reads the older `variant` / `test_auroc` results schema (pass `score="test_auroc"`) |
-| `Blocklists` | per-batch feature reproducibility: `rethreshold`, `consensus` |
+| `OvwtScores` | OvWT AUROCs: `correct` (per-batch rescale, or with `rescale=False` a z-score, against synonymous variants) and `per_variant`; `from_pipeline` also reads the older `variant` / `test_auroc` results schema (pass `score="test_auroc"`) |
+| `Blocklists` | per-batch feature reproducibility: `rethreshold`, `consensus`, `table` |
 | `Dataset` | the base class: `filter`/`with_columns`/`join`/`pipe`, `variant_type`, `position`, `domain`, `tile`, `clinvar`, `save`, `cluster_summary` |
 | `ClusterSummary` | one row per cluster from `cluster_summary`: medians (optionally z-scored vs controls), per-level shares, `n` and a `"<id> (n=…)"` label; `.group(key)` gives a ready `FeatureGroup` |
 

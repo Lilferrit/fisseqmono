@@ -3,6 +3,7 @@
 import fnmatch
 import pathlib
 import re
+import warnings
 from collections.abc import Iterable, Mapping, Sequence
 from os import PathLike
 from typing import TYPE_CHECKING, Any, Literal, Self
@@ -11,7 +12,7 @@ import numpy as np
 import polars as pl
 import polars.selectors as cs
 
-from . import _pipeline, _transforms
+from . import _data, _pipeline, _transforms
 from .dataset import Dataset
 
 if TYPE_CHECKING:
@@ -55,9 +56,8 @@ class Profiles(Dataset):
 
     >>> profiles = (
     ...     fb.Profiles.from_pipeline(run_dir, types=["median"], passthrough=["KSnegLogP"])
-    ...       .variant_type()
-    ...       .normalize(by="meta_experiment")
     ...       .median_across_batches(paired={"_median": "_KSnegLogP"})
+    ...       .variant_type()
     ...       .clinvar("clinvar_converted.parquet")
     ... )
     >>> fb.VolcanoPlot.from_wide(profiles).save("vis/volcano.png")
@@ -107,39 +107,94 @@ class Profiles(Dataset):
     @classmethod
     def from_pipeline(
         cls,
-        pipeline_dir: str | PathLike,
+        pipeline_dir: "str | PathLike | _pipeline.Source",
         types: Sequence[str] = ("median",),
         passthrough: Sequence[str] = (),
         *,
         batches: Sequence[str] | None = None,
+        exclude: "_pipeline.Patterns | None" = None,
+        features: Literal["union", "intersection"] = "union",
+        metadata: bool | Sequence[str] = False,
+        download_dir: str | PathLike | None = None,
+        refresh: bool = False,
         variant_col: str = "meta_aa_changes",
         batch_col: str = "meta_experiment",
     ) -> Self:
         """Read ``feature_select_batchwise`` aggregates, one row per (variant, batch).
+
+        ``pipeline_dir`` is a local run directory or a remote one, ``"user@host:/path"``.
+        A remote run is listed over ssh and only the files read here are copied with scp,
+        into ``download_dir`` (default: a temporary directory kept for the session), where
+        later calls reuse them unless ``refresh=True``.
 
         For each batch, the ``aggregates/<type>.parquet`` files for ``types`` and the
         ``passthrough_aggregates/<type>.parquet`` files for ``passthrough`` (e.g.
         ``"KSnegLogP"``) are joined on the variant; variants missing from any of them are
         dropped. Each batch is tagged in ``batch_col`` with its directory name, and batches
         are stacked in natural order (``T2_R1`` before ``T10_R1``). ``batches`` selects a
-        subset.
+        subset, and ``exclude`` drops the batches matching any of its patterns
+        (``fnmatch`` globs such as ``"T10_*"``, or compiled regexes such as
+        ``re.compile(r"_R3$")``).
 
-        The values are raw; chain `variant_type` and `normalize` to z-score them against
-        each batch's synonymous controls.
+        ``features="union"`` keeps every feature of any batch (null where a batch lacks
+        it). ``"intersection"`` keeps only the features present in every batch, logs a
+        warning per batch naming the columns it dropped, and raises if none is shared.
+
+        ``metadata`` left-joins per-variant ``meta_`` columns (such as
+        ``meta_num_cells``) from each batch's ``output.parquet``: ``True`` joins all of
+        them, a list joins those named. Sum them across batches with
+        ``median_across_batches(sum_cols=[...])``.
+
+        The pipeline writes the aggregates already z-scored against each batch's
+        synonymous controls, so `normalize` is not needed (and, up to rounding, does
+        nothing). The passthrough values are raw.
         """
         if not types and not passthrough:
             raise ValueError("Pass at least one aggregate type or passthrough type")
-        frames = []
-        for batch_dir in _pipeline.batch_dirs(pipeline_dir, _pipeline.FEATURE_SELECT, batches):
-            paths = [batch_dir / "aggregates" / f"{t}.parquet" for t in types]
-            paths += [batch_dir / "passthrough_aggregates" / f"{t}.parquet" for t in passthrough]
-            parts = [_pipeline.scan(p).select(variant_col, ~cs.starts_with("meta_")) for p in paths]
+        if features not in ("union", "intersection"):
+            raise ValueError(f"features must be 'union' or 'intersection', got {features!r}")
+        src = _pipeline.source(pipeline_dir, download_dir, refresh)
+        stage = _pipeline.FEATURE_SELECT
+        names = src.batches(stage, batches, exclude)
+        files = [f"aggregates/{t}.parquet" for t in types]
+        files += [f"passthrough_aggregates/{t}.parquet" for t in passthrough]
+        if metadata is not False:
+            files.append("output.parquet")
+        local = iter(src.files([f"{stage}/{b}/{f}" for b in names for f in files]))
+        paths = {b: dict(zip(files, local)) for b in names}
+        frames: dict[str, pl.LazyFrame] = {}
+        for b in names:
+            parts = [
+                _pipeline.scan(paths[b][f]).select(variant_col, ~cs.starts_with("meta_"))
+                for f in files
+                if f != "output.parquet"
+            ]
             batch_lf = parts[0]
             for part in parts[1:]:
                 batch_lf = batch_lf.join(part, on=variant_col)
-            frames.append(_pipeline.tag(batch_lf, batch_dir.name, batch_col))
+            frames[b] = batch_lf
+        if features == "intersection":
+            present = {
+                b: [c for c in lf.collect_schema().names() if c != variant_col]
+                for b, lf in frames.items()
+            }
+            common = _transforms.intersect_features(present)
+            frames = {b: lf.select(variant_col, *common) for b, lf in frames.items()}
+        if metadata is not False:
+            frames = {
+                b: lf.join(
+                    _output_metadata(paths[b]["output.parquet"], metadata, variant_col),
+                    on=variant_col,
+                    how="left",
+                    maintain_order="left",
+                )
+                for b, lf in frames.items()
+            }
         return cls(
-            pl.concat(frames, how="diagonal_relaxed"),
+            pl.concat(
+                [_pipeline.tag(lf, b, batch_col) for b, lf in frames.items()],
+                how="diagonal_relaxed",
+            ),
             variant_col=variant_col,
             batch_col=batch_col,
             passthrough=passthrough,
@@ -147,9 +202,22 @@ class Profiles(Dataset):
 
     @classmethod
     def from_global(cls, pipeline_dir: str | PathLike, channel: str, **kw: Any) -> Self:
-        """Read the global feature-selected profiles,
-        ``global/<channel>/feature_select/aggregate.parquet`` (one row per variant,
-        already normalized and aggregated across batches by the pipeline)."""
+        """Read ``global/<channel>/feature_select/aggregate.parquet`` from an older
+        pipeline run (one row per variant, aggregated across batches).
+
+        .. deprecated::
+            The pipeline no longer writes ``global/``. Build the same table with the
+            ``fisseqborn-global`` command (or `fisseqborn.write_global`) and read its
+            ``<out>/feature_select/aggregate.parquet`` with `Profiles.read`.
+        """
+        warnings.warn(
+            "Profiles.from_global reads the pipeline's global/ directory, which it no longer "
+            "writes. Run `fisseqborn-global <pipeline_dir> --out <dir>` (or "
+            "fisseqborn.write_global) and use "
+            "Profiles.read('<dir>/feature_select/aggregate.parquet') instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         path = (
             pathlib.Path(pipeline_dir) / "global" / channel / "feature_select" / "aggregate.parquet"
         )
@@ -220,24 +288,43 @@ class Profiles(Dataset):
         *,
         paired: Mapping[str, str] | None = None,
         n_col: str = "meta_n_experiments",
+        features: Literal["union", "intersection"] = "union",
+        sum_cols: Sequence[str] = (),
     ) -> Self:
         """Collapse to one row per variant: each feature's median across batches.
 
         ``paired`` maps a value suffix to a companion suffix, e.g. ``{"_median":
         "_KSnegLogP"}``: for each feature with both columns, both values come from the
         same batch (the one holding the lower-middle value), so every p-value belongs to
-        the median it is shown with. Other ``meta_`` columns keep their first value, and
-        ``n_col`` counts the batches each variant was measured in.
+        the median it is shown with. Other ``meta_`` columns keep their first value, except
+        ``sum_cols`` (e.g. ``["meta_num_cells"]``), which are summed. ``n_col`` counts the
+        batches each variant was measured in.
+
+        ``features="intersection"`` first drops every feature that has no value at all in
+        some batch (as stacking batches with different features leaves it), logging a
+        warning per batch naming what it dropped; it raises if nothing is left. This runs
+        the query once to see which features each batch has.
         """
-        self._require(self.variant_col, self.batch_col)
+        self._require(self.variant_col, self.batch_col, *sum_cols)
+        if features not in ("union", "intersection"):
+            raise ValueError(f"features must be 'union' or 'intersection', got {features!r}")
+        kept = self.features
+        lf = self._lf
+        if features == "intersection":
+            present = _transforms.features_by_batch(lf, kept, batch_col=self.batch_col)
+            common = set(_transforms.intersect_features(present))
+            dropped = [c for c in kept if c not in common]
+            kept = [c for c in kept if c in common]
+            lf = lf.drop(dropped)
         return self._replace(
             _transforms.median_across_batches(
-                self._lf,
-                self.features,
+                lf,
+                kept,
                 variant_col=self.variant_col,
                 batch_col=self.batch_col,
                 paired=paired,
                 n_col=n_col,
+                sum_cols=sum_cols,
             )
         )
 
@@ -471,21 +558,41 @@ class Profiles(Dataset):
         new.pca_explained_variance = _explained_variance(ratios, max(ks.values()), "X_")
         return new
 
+    def save_pca_loadings(self, path: str | PathLike, **write_kw: Any) -> Self:
+        """Write `pca_loadings` (from the last `pca` / `pca_reduce` call) to a parquet
+        file, creating parent directories. Returns the profiles unchanged, so it can sit
+        in a chain."""
+        if self.pca_loadings is None:
+            raise ValueError("No PCA loadings; chain .pca() or .pca_reduce() first")
+        path = pathlib.Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.pca_loadings.write_parquet(path, **write_kw)
+        return self
+
     def umap(
         self,
         *,
+        n_components: int = 2,
         n_neighbors: int = 30,
         min_dist: float = 0.1,
         metric: str = "cosine",
         seed: int = 42,
-        output_cols: tuple[str, str] = ("meta_notebook_umap_1", "meta_notebook_umap_2"),
+        output_cols: Sequence[str] | None = None,
         **umap_kw: Any,
     ) -> Self:
-        """Add a 2-D UMAP embedding of the features. Needs ``fisseqborn[umap]``."""
+        """Add an ``n_components``-dimensional UMAP embedding of the features, as
+        ``output_cols`` (default ``meta_notebook_umap_1 .. meta_notebook_umap_<n>``).
+        Needs ``fisseqborn[umap]``."""
+        if output_cols is None:
+            output_cols = [f"meta_notebook_umap_{i + 1}" for i in range(n_components)]
+        elif len(output_cols) != n_components:
+            raise ValueError(
+                f"output_cols has {len(output_cols)} names but n_components={n_components}"
+            )
         umap = _transforms.require_extra("umap", "umap")
         df, x = self._matrix()
         reducer = umap.UMAP(
-            n_components=2,
+            n_components=n_components,
             n_neighbors=n_neighbors,
             min_dist=min_dist,
             metric=metric,
@@ -532,15 +639,18 @@ class Profiles(Dataset):
         *,
         score: str = "auroc_pooled",
         reference: Literal["synonymous", "all"] | None = "synonymous",
+        rescale: bool = True,
         output_col: str = "meta_distinguishability_score",
     ) -> Self:
         """Join a per-variant distinguishability score from OvWT results.
 
         Per-batch results (`OvwtScores.from_pipeline`) are batch-corrected against
-        ``reference`` (see `OvwtScores.correct`; ``None`` skips the correction) and then
-        take the median across batches. Results that are already per variant (e.g.
-        `OvwtScores.from_global`, or after `OvwtScores.per_variant`) are joined as they
-        are, reading ``score``.
+        ``reference`` (see `OvwtScores.correct`; ``None`` skips the correction, and
+        ``rescale=False`` uses a plain z-score, as the old global stage did) and then
+        take the median across batches. Results that are already per variant (after
+        `OvwtScores.per_variant`, or the ``global_scores.parquet`` that
+        ``fisseqborn-global`` writes, e.g. ``score="meta_median_auroc_pooled"``) are
+        joined as they are, reading ``score``.
         """
         if score not in ovwt.columns and "test_auroc" in ovwt.columns:
             raise ValueError(
@@ -550,7 +660,7 @@ class Profiles(Dataset):
         per_variant = ovwt
         if ovwt.batch_col in ovwt.columns:
             if reference is not None:
-                per_variant = per_variant.correct(score, reference=reference)
+                per_variant = per_variant.correct(score, reference=reference, rescale=rescale)
                 score = f"{score}_corrected"
             per_variant = per_variant.per_variant(score)
         per_variant._require(per_variant.variant_col, score)
@@ -603,6 +713,20 @@ def feature_info(columns: Iterable[str]) -> pl.DataFrame:
         for k in ("feature", "base", "statistic", "compartment", "category", "channels")
     }
     return pl.DataFrame(rows, schema=schema)
+
+
+def _output_metadata(
+    path: pathlib.Path, metadata: bool | Sequence[str], variant_col: str
+) -> pl.LazyFrame:
+    """The per-variant ``meta_`` columns of a batch's ``output.parquet``."""
+    lf = _pipeline.scan(path)
+    if metadata is True:
+        columns = [c for c in lf.collect_schema().names() if c.startswith("meta_")]
+        columns = [c for c in columns if c != variant_col]
+    else:
+        columns = [metadata] if isinstance(metadata, str) else list(metadata)
+        _data.require_columns(pl.DataFrame(schema=lf.collect_schema()), variant_col, *columns)
+    return lf.select(variant_col, *columns).unique(variant_col, keep="first", maintain_order=True)
 
 
 def _fit_pca(x: np.ndarray) -> tuple[Any, np.ndarray]:
