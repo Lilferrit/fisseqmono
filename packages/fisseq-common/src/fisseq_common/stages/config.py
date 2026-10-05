@@ -1,8 +1,7 @@
-"""Base Hydra structured config shared by every pipeline entry point.
+"""Hydra structured-config base classes every stage config extends.
 
-Defines :class:`AppConfig`, supplying ``output_dir``, ``output_root``,
-``log_level``, and ``random_seed`` fields common to all Hydra CLIs in this
-package.
+:class:`AppConfig` supplies ``output_dir``, ``output_root``, ``log_level`` and ``random_seed``;
+:class:`InputConfig` adds ``input_file`` and :class:`LabeledInputConfig` adds ``label_column``.
 """
 
 import dataclasses
@@ -45,3 +44,32 @@ class AppConfig:
     output_root: Optional[str] = None
     log_level: str = "info"
     random_seed: int = 0
+
+
+@dataclasses.dataclass
+class InputConfig(AppConfig):
+    """
+    Extends AppConfig with a required input file path.
+
+    Attributes
+    ----------
+    input_file : str
+        Path to the input file. Required.
+    """
+
+    input_file: str = MISSING
+
+
+@dataclasses.dataclass
+class LabeledInputConfig(InputConfig):
+    """
+    Extends InputConfig for steps that operate on variant-labeled data.
+
+    Attributes
+    ----------
+    label_column : str
+        Name of the column identifying variant labels. Defaults to
+        ``"meta_aa_changes"``.
+    """
+
+    label_column: str = "meta_aa_changes"

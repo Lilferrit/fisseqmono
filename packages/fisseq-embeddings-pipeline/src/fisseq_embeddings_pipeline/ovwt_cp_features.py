@@ -1,26 +1,21 @@
 """OVWT_BATCHWISE_CP_FEATURES.
 
-Thin Hydra entry point reusing ovwt.py's
-:func:`~fisseq_embeddings_pipeline.ovwt.ovwt_batchwise` and
-:func:`~fisseq_embeddings_pipeline.filter.load_filtered_embeddings`
-directly, passing ``FEATURE_SELECTOR`` (CellProfiler-shaped: exclude
-``meta_*``) instead of OVWT_BATCHWISE's default ``EMBEDDING_SELECTOR`` --
-see ovwt.py's module docstring for why this requires no fork of the
-k-fold/XGBoost scoring logic.
+Thin Hydra entry point around the shared OvWT scoring
+(:mod:`fisseq_common.stages.ovwt`) and
+:func:`~fisseq_embeddings_pipeline.filter.load_filtered_embeddings`, scoring the
+CellProfiler features (``FEATURE_SELECTOR``: every non-``meta_*`` column) instead of
+OVWT_BATCHWISE's ``EMBEDDING_SELECTOR``.
 
 OVWT hyperparameters (``wt_label``, ``cv_mode``, ``n_folds``, ``calibrate``,
 ``min_cells``, ``downsample_wt``, ``xgboost``) are about scoring
-methodology, not feature type -- this stage's config mirrors
-``OvwtEmbeddingConfig`` field-for-field (see the
-``ovwt_batchwise_cp_features`` rule, which reuses the same ``params.yaml``
-OVWT values as OVWT_BATCHWISE rather than duplicating a parallel set).
+methodology, not feature type -- this stage's config shares
+:class:`~fisseq_common.stages.ovwt.OvwtParams` with OVWT_BATCHWISE, and its Nextflow
+module passes the same ``params.yaml`` OVWT values.
 """
 
 import dataclasses
 import logging
 import pathlib
-import pickle
-from typing import Optional
 
 import hydra
 import polars as pl
@@ -29,21 +24,18 @@ from omegaconf import MISSING, DictConfig, OmegaConf
 
 from fisseq_common.normalizer import Normalizer
 from fisseq_common.schema import FEATURE_SELECTOR
+from fisseq_common.stages.ovwt import OvwtParams, run_ovwt
 from fisseq_common.utils.log import setup_logging
 
-from .config import AppConfig
 from .filter import load_filtered_embeddings
-from .ovwt import CV_MODE_KFOLD, log_cv_plan, ovwt_batchwise
-from .utils.xgbparams import XGBoostConfig
 
 
 @dataclasses.dataclass
-class OvwtCpFeaturesConfig(AppConfig):
+class OvwtCpFeaturesConfig(OvwtParams):
     """
     Hydra structured configuration for OVWT_BATCHWISE_CP_FEATURES.
 
-    Extends AppConfig (output_dir, output_root, log_level, random_seed);
-    same shared-seed convention as ``OvwtEmbeddingConfig``.
+    The scoring settings are :class:`~fisseq_common.stages.ovwt.OvwtParams`'.
 
     Attributes
     ----------
@@ -53,43 +45,11 @@ class OvwtCpFeaturesConfig(AppConfig):
         Path to FILTER_CP_FEATURES' filtered_keys.parquet. Required.
     normalizer_file : str
         Path to FILTER_CP_FEATURES' normalizer.parquet. Required.
-    label_column : str
-        Name of the variant label column. Defaults to ``"meta_aa_changes"``.
-    wt_label : str
-        Label value identifying wildtype cells. Defaults to ``"WT"``.
-    cv_mode : str
-        Cross-validation scheme, ``"kfold"`` or ``"barcode_holdout"``.
-        Defaults to ``"kfold"``. See
-        :class:`~fisseq_embeddings_pipeline.ovwt.OvwtEmbeddingConfig`.
-    n_folds : int or None
-        Fold count under ``"kfold"``; cap on the barcode-group count under
-        ``"barcode_holdout"``, where ``None`` means one fold per barcode.
-        Defaults to ``5``.
-    calibrate : bool
-        If ``True``, fit a per-fold sigmoid (Platt) probability calibrator.
-        Defaults to ``True``.
-    min_cells : Optional[int]
-        Minimum number of cells a variant must have to be scored. Defaults
-        to ``250``.
-    downsample_wt : bool
-        If ``True``, downsample wildtype cells (barcode-proportionally)
-        before the per-variant loop. Defaults to ``True``.
-    xgboost : XGBoostConfig
-        Vendored XGBoost training-loop configuration. Defaults to
-        :class:`~fisseq_embeddings_pipeline.utils.xgbparams.XGBoostConfig`.
     """
 
     cp_features_file: str = MISSING
     filtered_keys_file: str = MISSING
     normalizer_file: str = MISSING
-    label_column: str = "meta_aa_changes"
-    wt_label: str = "WT"
-    cv_mode: str = CV_MODE_KFOLD
-    n_folds: Optional[int] = 5
-    calibrate: bool = True
-    min_cells: Optional[int] = 250
-    downsample_wt: bool = True
-    xgboost: XGBoostConfig = dataclasses.field(default_factory=XGBoostConfig)
 
 
 _cs = ConfigStore.instance()
@@ -106,19 +66,9 @@ def main(cfg: DictConfig) -> None:
     ``normalizer_file``, reconstructs the QC-passed, synonymous-corrected
     feature table via
     :func:`fisseq_embeddings_pipeline.filter.load_filtered_embeddings`,
-    calls :func:`fisseq_embeddings_pipeline.ovwt.ovwt_batchwise` with
-    ``feature_selector=FEATURE_SELECTOR``, and writes
-    ``{prefix}results.parquet``, ``{prefix}cell_scores.parquet``, and
-    ``{prefix}models.pkl`` to ``output_dir``.
-
-    Output files
-    ------------
-    - ``{prefix}results.parquet``
-    - ``{prefix}cell_scores.parquet``
-    - ``{prefix}models.pkl``
-
-    where ``prefix`` is ``{output_root}.`` when ``output_root`` is set,
-    otherwise empty.
+    and scores it with :func:`fisseq_common.stages.ovwt.run_ovwt` using
+    ``FEATURE_SELECTOR``, which writes ``{prefix}results.parquet``,
+    ``{prefix}cell_scores.parquet`` and ``{prefix}models.pkl`` to ``output_dir``.
 
     Configuration
     -------------
@@ -142,8 +92,6 @@ def main(cfg: DictConfig) -> None:
     ovwt_cfg.output_dir = str(output_dir)
     setup_logging(ovwt_cfg, "ovwt_cp_features")
 
-    prefix = f"{ovwt_cfg.output_root}." if ovwt_cfg.output_root is not None else ""
-
     logging.info("Reading CellProfiler features from %s", ovwt_cfg.cp_features_file)
     cp_features_lf = pl.scan_parquet(ovwt_cfg.cp_features_file)
     logging.info("Reading filtered keys from %s", ovwt_cfg.filtered_keys_file)
@@ -154,25 +102,7 @@ def main(cfg: DictConfig) -> None:
     logging.info("Reconstructing QC-passed, synonymous-corrected features")
     filtered_lf = load_filtered_embeddings(cp_features_lf, filtered_keys_lf, normalizer)
 
-    log_cv_plan(ovwt_cfg)
-    results_df, cell_scores_df, models = ovwt_batchwise(
-        filtered_lf, ovwt_cfg, feature_selector=FEATURE_SELECTOR
-    )
-
-    results_path = output_dir / f"{prefix}results.parquet"
-    logging.info("Writing %s", results_path)
-    results_df.write_parquet(results_path)
-
-    cell_scores_path = output_dir / f"{prefix}cell_scores.parquet"
-    logging.info("Writing %s", cell_scores_path)
-    cell_scores_df.write_parquet(cell_scores_path)
-
-    models_path = output_dir / f"{prefix}models.pkl"
-    logging.info("Writing %s", models_path)
-    with open(models_path, "wb") as f:
-        pickle.dump(models, f)
-
-    logging.info("Done")
+    run_ovwt(filtered_lf, ovwt_cfg, FEATURE_SELECTOR)
 
 
 if __name__ == "__main__":

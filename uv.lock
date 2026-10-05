@@ -325,6 +325,7 @@ stages = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "fisseq-common", extra = ["stages"] },
     { name = "pytest" },
 ]
 
@@ -344,7 +345,10 @@ requires-dist = [
 provides-extras = ["stages"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8.4.1" }]
+dev = [
+    { name = "fisseq-common", extras = ["stages"], editable = "packages/fisseq-common" },
+    { name = "pytest", specifier = ">=8.4.1" },
+]
 
 [[package]]
 name = "fisseq-data-pipeline"

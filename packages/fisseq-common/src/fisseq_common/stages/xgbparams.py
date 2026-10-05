@@ -1,18 +1,9 @@
-"""Shared XGBoost configuration, DMatrix construction, and split helpers.
+"""Shared XGBoost configuration, DMatrix construction, and split helpers for OvWT.
 
-Vendored from fisseq-data-pipeline's
-src/fisseq_data_pipeline/utils/xgbparams.py, with exactly one line changed:
-:func:`train_binary_xgboost` read ``cfg.random_state`` internally
-(``params["seed"] = cfg.random_state``) in the source repo -- retargeted to
-``cfg.random_seed`` to match this pipeline's single shared seed field
-instead of adding a second, redundant ``random_state`` field.
-
-Everything else (:class:`XGBoostParams`, :class:`XGBoostConfig`,
-:func:`get_dmatrix`, :func:`get_dmatrix_multiclass`,
-:func:`resolve_feature_importance`, :func:`split_indices_stratified`,
-:func:`evaluate_binary`) is vendored unchanged -- including
-:func:`split_indices_stratified`'s later upstream rework (fisseq-data-pipeline
-#75) into a two-way train/calibration split that tolerates singleton strata.
+Defines :class:`XGBoostParams` / :class:`XGBoostConfig` (the training-loop configuration),
+:func:`get_dmatrix`, :func:`split_indices_stratified` (a two-way train/calibration split that
+tolerates singleton strata) and :func:`train_binary_xgboost`, which seeds XGBoost from the
+stage config's ``random_seed``.
 """
 
 import dataclasses
@@ -142,77 +133,6 @@ def get_dmatrix(
     return xgb.DMatrix(x, label=y, weight=weight)
 
 
-def get_dmatrix_multiclass(
-    df: pl.DataFrame,
-    feature_cols: list[str],
-    label_col: str,
-) -> tuple[xgb.DMatrix, list[str]]:
-    """
-    Build a multiclass XGBoost DMatrix from a Polars DataFrame.
-
-    String labels are encoded as consecutive integers in sorted order.
-    Non-finite feature values are replaced with ``NaN``.
-
-    Parameters
-    ----------
-    df : pl.DataFrame
-        Input DataFrame containing ``feature_cols`` and ``label_col``.
-    feature_cols : list[str]
-        Names of the feature columns to include.
-    label_col : str
-        Name of the label column (string labels).
-
-    Returns
-    -------
-    tuple[xgb.DMatrix, list[str]]
-        ``(dmatrix, classes)`` where ``classes[i]`` is the label string for
-        integer class ``i``.
-    """
-    x = df.select(feature_cols).cast(pl.Float64).to_numpy().copy()
-    x[~np.isfinite(x)] = np.nan
-    raw_labels = df.get_column(label_col).to_numpy()
-    classes = sorted(set(raw_labels))
-    class_to_int = {c: i for i, c in enumerate(classes)}
-    y = np.array([class_to_int[v] for v in raw_labels], dtype=np.int32)
-    return xgb.DMatrix(x, label=y), classes
-
-
-def resolve_feature_importance(
-    model: xgb.Booster,
-    feature_cols: list[str],
-    importance_type: str = "gain",
-) -> dict[str, float]:
-    """
-    Get a trained booster's feature importances, keyed by real feature name.
-
-    :meth:`xgb.Booster.get_score` reports importances keyed by internal
-    feature index (``"f0"``, ``"f1"``, ...) rather than by name, since
-    :func:`get_dmatrix`/:func:`get_dmatrix_multiclass` build DMatrices from
-    bare numpy arrays without ``feature_names``. This resolves those indices
-    back onto the real column names.
-
-    Parameters
-    ----------
-    model : xgb.Booster
-        Trained XGBoost booster.
-    feature_cols : list[str]
-        Feature column names, in the same order used to build the model's
-        training DMatrix.
-    importance_type : str
-        Importance metric passed to :meth:`xgb.Booster.get_score`. Defaults
-        to ``"gain"``.
-
-    Returns
-    -------
-    dict[str, float]
-        Mapping from real feature name to importance score. Features never
-        used in a split are omitted, matching
-        :meth:`xgb.Booster.get_score`'s own behavior.
-    """
-    raw = model.get_score(importance_type=importance_type)
-    return {feature_cols[int(feat[1:])]: value for feat, value in raw.items()}
-
-
 def split_indices_stratified(
     labels: np.ndarray,
     random_state: int,
@@ -247,7 +167,7 @@ def split_indices_stratified(
 
     This is a two-way split on purpose. It used to be an 80/10/10
     train/test/val split whose caller
-    (:func:`fisseq_embeddings_pipeline.ovwt.ovwt_batchwise`) used only two of the
+    (:func:`fisseq_common.stages.ovwt.ovwt_batchwise`) used only two of the
     three slots, silently throwing 10% of each fold's rows away; the outer
     k-fold's own test rows already serve as the test set.
     """
@@ -340,40 +260,3 @@ def train_binary_xgboost(
         early_stopping_rounds=cfg.xgboost.early_stopping_rounds,
         verbose_eval=True,
     )
-
-
-def evaluate_binary(
-    df: pl.DataFrame, model: xgb.Booster, label_col: str, positive_label
-) -> tuple[float, float]:
-    """
-    Compute AUROC and accuracy for a trained binary model on a DataFrame split.
-
-    AUROC is undefined (NaN, with a warning rather than an exception) if
-    ``df`` is single-class for ``label_col == positive_label`` -- callers
-    must ensure both classes are present in ``df``.
-
-    Parameters
-    ----------
-    df : pl.DataFrame
-        Split to evaluate. Must contain ``label_col`` and the same feature
-        columns used during training.
-    model : xgb.Booster
-        Trained XGBoost booster.
-    label_col : str
-        Name of the label column.
-    positive_label : Any
-        Value of ``label_col`` treated as the positive class, passed to
-        :func:`get_dmatrix`.
-
-    Returns
-    -------
-    tuple[float, float]
-        ``(auroc, accuracy)`` where accuracy uses a 0.5 probability threshold.
-    """
-    dmatrix = get_dmatrix(df, label_col, positive_label)
-    y_true = dmatrix.get_label()
-    y_prob = model.predict(dmatrix)
-    auroc = sklearn.metrics.roc_auc_score(y_true, y_prob)
-    accuracy = sklearn.metrics.accuracy_score(y_true, y_prob >= 0.5)
-
-    return auroc, accuracy

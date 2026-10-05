@@ -13,7 +13,7 @@ from hydra import compose, initialize
 from hydra.core.config_store import ConfigStore
 from omegaconf import OmegaConf
 
-from fisseq_embeddings_pipeline.config import AppConfig
+from fisseq_common.stages.config import AppConfig
 
 
 @dataclasses.dataclass

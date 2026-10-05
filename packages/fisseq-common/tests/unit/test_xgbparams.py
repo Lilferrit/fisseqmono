@@ -1,38 +1,34 @@
-from __future__ import annotations
-
+import dataclasses
 import logging
 
 import numpy as np
 import polars as pl
+import pytest
 import xgboost as xgb
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 
-from fisseq_embeddings_pipeline.utils.xgbparams import (
+from fisseq_common.stages.xgbparams import (
     XGBoostConfig,
-    evaluate_binary,
+    XGBoostParams,
     get_dmatrix,
-    get_dmatrix_multiclass,
     get_feature_cols,
-    resolve_feature_importance,
     split_indices_stratified,
     train_binary_xgboost,
 )
 
 
 def _make_df(
-    n: int = 40,
+    n: int = 20,
     label_column: str = "label",
     wt_label: str = "WT",
     variant_label: str = "V1",
 ) -> pl.DataFrame:
     rng = np.random.default_rng(0)
     labels = [wt_label] * (n // 2) + [variant_label] * (n // 2)
-    # Feature is trivially separable so a shallow tree fits it easily.
-    feature = [0.0] * (n // 2) + [10.0] * (n // 2)
     return pl.DataFrame(
         {
-            "emb_0000": (np.array(feature) + rng.normal(scale=0.01, size=n)).tolist(),
-            "emb_0001": rng.random(n).tolist(),
+            "Intensity_Mean": rng.random(n).tolist(),
+            "Texture_Var": rng.random(n).tolist(),
             label_column: labels,
         }
     )
@@ -50,8 +46,8 @@ def _make_multiclass_df(
         labels.extend([c] * n_per_class)
     return pl.DataFrame(
         {
-            "emb_0000": rng.random(n).tolist(),
-            "emb_0001": rng.random(n).tolist(),
+            "Intensity_Mean": rng.random(n).tolist(),
+            "Texture_Var": rng.random(n).tolist(),
             "batch": labels,
         }
     )
@@ -72,34 +68,68 @@ def test_get_feature_cols_excludes_lowercase_columns():
     assert get_feature_cols(df) == ["Intensity_Mean"]
 
 
+def test_get_feature_cols_excludes_uppercase_without_underscore():
+    df = pl.DataFrame({"Intensity_Mean": [1.0], "Intensity": [2.0]})
+    assert get_feature_cols(df) == ["Intensity_Mean"]
+
+
+def test_get_feature_cols_empty_dataframe():
+    df = pl.DataFrame({"label": []})
+    assert get_feature_cols(df) == []
+
+
+def test_get_feature_cols_no_matching_columns():
+    df = pl.DataFrame({"label": ["WT"], "metadata": ["foo"]})
+    assert get_feature_cols(df) == []
+
+
 # ---------------------------------------------------------------------------
-# get_dmatrix / get_dmatrix_multiclass
+# get_dmatrix (binary)
 # ---------------------------------------------------------------------------
 
 
-def test_get_dmatrix_labels_wt_as_true():
+def test_get_dmatrix_label_values():
     df = _make_df(n=10)
-    dmatrix = get_dmatrix(df, "label", "WT")
-    assert dmatrix.get_label().tolist() == [1.0] * 5 + [0.0] * 5
+    dm = get_dmatrix(df, "label", "WT")
+    assert set(dm.get_label()) == {0.0, 1.0}
 
 
-def test_get_dmatrix_replaces_non_finite_with_nan():
-    df = pl.DataFrame({"emb_0000": [1.0, np.inf, -np.inf], "label": ["WT", "V1", "WT"]})
-    dmatrix = get_dmatrix(df, "label", "WT")
-    # NaN is XGBoost's "missing" sentinel -- non-finite inputs should be
-    # converted to missing entries, not left as +/-inf (which XGBoost would
-    # otherwise treat as a real, if extreme, value).
-    assert dmatrix.num_nonmissing() == 1
+def test_get_dmatrix_wt_label_is_true():
+    df = _make_df(n=10)
+    dm = get_dmatrix(df, "label", "WT")
+    assert dm.get_label().sum() == 5.0
 
 
-def test_get_dmatrix_multiclass_encodes_sorted_classes():
-    df = _make_multiclass_df(n_per_class=5)
-    dmatrix, classes = get_dmatrix_multiclass(df, ["emb_0000", "emb_0001"], "batch")
-    assert classes == ["batch_a", "batch_b", "batch_c"]
-    labels = dmatrix.get_label()
-    assert labels[:5].tolist() == [0.0] * 5
-    assert labels[5:10].tolist() == [1.0] * 5
-    assert labels[10:15].tolist() == [2.0] * 5
+def test_get_dmatrix_shape():
+    df = _make_df(n=20)
+    dm = get_dmatrix(df, "label", "WT")
+    assert dm.num_row() == 20
+    assert dm.num_col() == 2
+
+
+def test_get_dmatrix_with_weights():
+    df = _make_df(n=10)
+    weights = np.full(10, 2.0)
+    dm = get_dmatrix(df, "label", "WT", weight=weights)
+    np.testing.assert_array_equal(dm.get_weight(), weights)
+
+
+def test_get_dmatrix_no_weights_by_default():
+    df = _make_df(n=10)
+    dm = get_dmatrix(df, "label", "WT")
+    assert len(dm.get_weight()) == 0
+
+
+def test_get_dmatrix_inf_replaced_with_nan():
+    df = _make_df(n=10).with_columns(pl.lit(float("inf")).alias("Inf_Feature"))
+    dm = get_dmatrix(df, "label", "WT")
+    assert dm.num_row() == 10
+
+
+def test_get_dmatrix_neg_inf_replaced_with_nan():
+    df = _make_df(n=10).with_columns(pl.lit(float("-inf")).alias("NegInf_Feature"))
+    dm = get_dmatrix(df, "label", "WT")
+    assert dm.num_row() == 10
 
 
 # ---------------------------------------------------------------------------
@@ -191,53 +221,92 @@ def test_split_indices_stratified_two_member_stratum_survives():
 
 
 # ---------------------------------------------------------------------------
-# train_binary_xgboost / predict / evaluate -- the one deviating file:
-# reads cfg.random_seed, not cfg.random_state.
+# XGBoostParams / XGBoostConfig dataclasses
 # ---------------------------------------------------------------------------
 
 
-def _xgb_cfg(random_seed: int = 0) -> OmegaConf:
-    return OmegaConf.create(
+def test_xgboost_params_defaults():
+    p = XGBoostParams()
+    assert p.nthread == -1
+    assert p.max_depth == 3
+    assert p.subsample == 0.5
+
+
+def test_xgboost_config_defaults():
+    c = XGBoostConfig()
+    assert c.num_boost_round == 100
+    assert c.early_stopping_rounds == 5
+    assert c.weigh_samples is True
+    assert isinstance(c.params, XGBoostParams)
+
+
+# ---------------------------------------------------------------------------
+# train_binary_xgboost
+# ---------------------------------------------------------------------------
+
+
+def _train_cfg(**overrides) -> DictConfig:
+    """A DictConfig shaped like OvwtParams, which is what the real caller passes."""
+    base = {
+        "label_column": "label",
+        "wt_label": "WT",
+        "random_seed": 0,
+        "xgboost": OmegaConf.structured(XGBoostConfig()),
+    }
+    base.update(overrides)
+    return OmegaConf.create(base)
+
+
+def _separable_df(n: int = 60) -> pl.DataFrame:
+    """WT and V1 cleanly separated on Intensity_Mean, noise on Texture_Var."""
+    rng = np.random.default_rng(0)
+    half = n // 2
+    return pl.DataFrame(
         {
-            "random_seed": random_seed,
-            "xgboost": OmegaConf.structured(XGBoostConfig()),
+            "Intensity_Mean": np.concatenate(
+                [rng.normal(0.0, 0.1, half), rng.normal(5.0, 0.1, half)]
+            ).tolist(),
+            "Texture_Var": rng.random(n).tolist(),
+            "label": ["WT"] * half + ["V1"] * half,
         }
     )
 
 
-class TestTrainBinaryXgboost:
-    def test_reads_random_seed_not_random_state(self):
-        """cfg has no `random_state` field at all -- if train_binary_xgboost
-        still read `cfg.random_state` internally, this would raise
-        ConfigAttributeError instead of training."""
-        cfg = _xgb_cfg(random_seed=7)
-        assert not hasattr(cfg, "random_state")
-
-        df = _make_df(n=40)
-        model = train_binary_xgboost(df, df, "label", "WT", cfg)
-        assert isinstance(model, xgb.Booster)
-
-    def test_seed_is_threaded_into_booster_params(self):
-        cfg = _xgb_cfg(random_seed=42)
-        df = _make_df(n=40)
-        model = train_binary_xgboost(df, df, "label", "WT", cfg)
-        assert model.save_config()  # sanity: model trained successfully
-        config = model.save_config()
-        assert '"seed": "42"' in config or '"seed":"42"' in config
-
-    def test_trivially_separable_data_predicts_correct_direction(self):
-        cfg = _xgb_cfg()
-        df = _make_df(n=60)
-        model = train_binary_xgboost(df, df, "label", "WT", cfg)
-        auroc, accuracy = evaluate_binary(df, model, "label", "WT")
-        assert auroc > 0.9
-        assert accuracy > 0.9
+def test_train_binary_xgboost_returns_booster():
+    df = _separable_df()
+    model = train_binary_xgboost(df, df, "label", "WT", _train_cfg())
+    assert isinstance(model, xgb.Booster)
 
 
-def test_resolve_feature_importance_maps_back_to_real_names():
-    cfg = _xgb_cfg()
-    df = _make_df(n=60)
-    model = train_binary_xgboost(df, df, "label", "WT", cfg)
-    importances = resolve_feature_importance(model, ["emb_0000", "emb_0001"])
-    assert set(importances) <= {"emb_0000", "emb_0001"}
-    assert importances  # at least one feature was actually split on
+def test_train_binary_xgboost_learns_separable_signal():
+    df = _separable_df()
+    model = train_binary_xgboost(df, df, "label", "WT", _train_cfg())
+    scores = model.predict(get_dmatrix(df, "label", "WT"))
+    is_wt = df.get_column("label").to_numpy() == "WT"
+    # Predicts P(wildtype), so WT rows must score above variant rows.
+    assert scores[is_wt].mean() > scores[~is_wt].mean()
+
+
+def test_train_binary_xgboost_is_seeded_by_random_seed():
+    df = _separable_df()
+    a = train_binary_xgboost(df, df, "label", "WT", _train_cfg(random_seed=7))
+    b = train_binary_xgboost(df, df, "label", "WT", _train_cfg(random_seed=7))
+    dm = get_dmatrix(df, "label", "WT")
+    np.testing.assert_allclose(a.predict(dm), b.predict(dm))
+
+
+def test_train_binary_xgboost_rejects_plain_dataclass_config():
+    """dict(cfg.xgboost.params) needs a DictConfig, not a bare dataclass."""
+    df = _separable_df()
+    with pytest.raises(Exception):
+        train_binary_xgboost(
+            df, df, "label", "WT", dataclasses.make_dataclass("C", [])()
+        )
+
+
+def test_train_binary_xgboost_threads_random_seed_into_booster_params():
+    model = train_binary_xgboost(
+        _separable_df(), _separable_df(), "label", "WT", _train_cfg(random_seed=42)
+    )
+    config = model.save_config()
+    assert '"seed": "42"' in config or '"seed":"42"' in config

@@ -17,7 +17,7 @@ with `fisseq-data-pipeline` and `fisseqborn`.
 
 ::: fisseq_common.utils.batches
 
-::: fisseq_embeddings_pipeline.utils.xgbparams
+::: fisseq_common.stages.xgbparams
 
 ::: fisseq_embeddings_pipeline.utils.dimreduction
 

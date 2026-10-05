@@ -35,4 +35,4 @@ testpaths = ["tests/unit"]
 addopts = ["--import-mode=importlib"]
 
 [dependency-groups]
-dev = ["pytest>=8.4.1"]
+dev = ["fisseq-common[stages]", "pytest>=8.4.1"]

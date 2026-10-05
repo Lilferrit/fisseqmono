@@ -5,10 +5,6 @@ Hydra structured config hierarchy shared by every entry point:
 [Architecture: Key abstractions](../architecture.md#components) for how
 these compose.
 
-## app
+These live in `fisseq-common`, shared with the embeddings pipeline.
 
-::: fisseq_data_pipeline.config.app
-
-## input
-
-::: fisseq_data_pipeline.config.input
+::: fisseq_common.stages.config
