@@ -1,0 +1,55 @@
+[project]
+name = "fisseqborn"
+version = "0.1.0"
+description = "Seaborn-style, object-oriented plots of polars DataFrames for the fisseq project"
+readme = "README.md"
+authors = [
+    { name = "Gwen Straub", email = "gwenneth.straub@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "matplotlib>=3.10",
+    "numpy",
+    "pandas",
+    "polars>=1.39",
+    "pyarrow",
+    "scikit-learn",
+    "scipy",
+    "seaborn>=0.13.2",
+    "statannotations>=0.7.2",
+    "statsmodels",
+]
+
+[project.scripts]
+fisseqborn-global = "fisseqborn.global_aggregate:main"
+
+[project.optional-dependencies]
+cluster = [
+    "leidenalg>=0.12",
+    "python-igraph>=1.0",
+]
+select = [
+    "pycytominer>=1.4",
+]
+umap = [
+    "umap-learn>=0.5.12",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "fisseqborn[cluster,select,umap]",
+]
+docs = [
+    "mkdocs>=1.6,<2",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.26",
+    "ruff",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
