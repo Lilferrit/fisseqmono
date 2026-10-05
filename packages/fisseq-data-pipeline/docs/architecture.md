@@ -124,9 +124,9 @@ it creates.
     filtered_cells.parquet
     barcode_counts.parquet
     variants_per_barcode.parquet
-  normalization/
-    cells/<batch_stem>.parquet
-    normalizers/<batch_stem>.normalizer.parquet
+  normalization/<batch_stem>/
+    filtered_keys.parquet    # QC-passed cells' meta_* columns + meta_is_control
+    normalizer.parquet       # wildtype-fitted per-feature mean/std
   ovwt_batchwise/<batch_stem>/
     results.parquet          # per variant: auroc_pooled, auroc_median_barcode,
                              # auroc_folds, auroc_median_fold,

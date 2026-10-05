@@ -2,7 +2,7 @@
 
 Hydra entry point (``python -m fisseq_data_pipeline.ovwt``). The scoring is shared with
 fisseq-embeddings-pipeline and lives in :mod:`fisseq_common.stages.ovwt`; this module reads
-NORMALIZE's output and scores its CellProfiler features (``FEATURE_SELECTOR``). K-fold
+the normalized cells (:mod:`.cells`) and scores its CellProfiler features (``FEATURE_SELECTOR``). K-fold
 cross-validation stratified jointly on ``(meta_barcode, is_wt)`` gives every cell an
 out-of-fold score and every variant several distinguishability numbers:
 
@@ -58,7 +58,7 @@ import pathlib
 
 import hydra
 from hydra.core.config_store import ConfigStore
-from omegaconf import MISSING, DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf
 
 from fisseq_common.schema import FEATURE_SELECTOR
 from fisseq_common.stages.ovwt import (  # noqa: F401 (CV_MODES: test_nextflow_params.py)
@@ -68,12 +68,13 @@ from fisseq_common.stages.ovwt import (  # noqa: F401 (CV_MODES: test_nextflow_p
     OvwtParams,
     run_ovwt,
 )
-from fisseq_common.utils.batches import load_batches
 from fisseq_common.utils.log import setup_logging
+
+from .cells import CellsInput, load_cells
 
 
 @dataclasses.dataclass
-class OvwtConfig(OvwtParams):
+class OvwtConfig(CellsInput, OvwtParams):
     """
     Hydra structured configuration for OVWT_BATCHWISE.
 
@@ -81,14 +82,10 @@ class OvwtConfig(OvwtParams):
     ``calibrate``, ``min_cells``, ``downsample_wt``, ``xgboost``) are
     :class:`~fisseq_common.stages.ovwt.OvwtParams`'.
 
-    Attributes
-    ----------
-    input_file : str
-        NORMALIZE's normalized cell table (a path or glob, read with
-        :func:`~fisseq_common.utils.batches.load_batches`). Required.
+    The normalized cells come from ``cells_file`` + ``filtered_keys_file`` +
+    ``normalizer_file`` (QC_FILTER's and NORMALIZE's outputs), or from the deprecated
+    ``input_file``; see :class:`~fisseq_data_pipeline.cells.CellsInput`.
     """
-
-    input_file: str = MISSING
 
 
 _cs = ConfigStore.instance()
@@ -127,7 +124,7 @@ def main(cfg: DictConfig) -> None:
     setup_logging(ovwt_cfg, "ovwt")
 
     logging.info("Loading normalized cells from %s", ovwt_cfg.input_file)
-    cells_lf = load_batches(ovwt_cfg.input_file)[0]
+    cells_lf = load_cells(ovwt_cfg)[0]
     run_ovwt(cells_lf, ovwt_cfg, FEATURE_SELECTOR)
 
 

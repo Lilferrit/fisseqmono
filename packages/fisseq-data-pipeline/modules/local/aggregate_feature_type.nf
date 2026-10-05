@@ -1,7 +1,8 @@
 nextflow.enable.dsl = 2
 
-// cells_glob is a val (not staged into the task dir), so there is no
-// staging collision here; output_root takes priority over output_dir in
+// The cells, keys and normalizer stage as filtered_cells.parquet,
+// filtered_keys.parquet and normalizer.parquet, which never collide with the
+// output; output_root takes priority over output_dir in
 // python -m fisseq_data_pipeline.aggregatefeaturetype's own path resolution, so the output lands
 // directly in the task work dir regardless of output_dir.
 // This process runs once per (batch, feature_type) -- no repeated
@@ -23,7 +24,7 @@ process AGGREGATE_FEATURE_TYPE {
     publishDir { "${params.pipeline_dir}/${publish_subdir}" }, mode: 'copy'
 
     input:
-    tuple val(batch_key), val(cells_glob), val(feature_type), val(normalize), val(publish_subdir)
+    tuple val(batch_key), path(cells), path(filtered_keys), path(normalizer), val(feature_type), val(normalize), val(publish_subdir)
 
     output:
     tuple val(batch_key), val(feature_type), path("${feature_type}.parquet")
@@ -37,7 +38,9 @@ process AGGREGATE_FEATURE_TYPE {
     python -m fisseq_data_pipeline.aggregatefeaturetype \\
         output_dir=. \\
         output_root=${feature_type} \\
-        "input_file=${cells_glob}" \\
+        cells_file=${cells} \\
+        filtered_keys_file=${filtered_keys} \\
+        normalizer_file=${normalizer} \\
         aggregator=${feature_type} \\
         downsample_wt=${params.feature_select_downsample_wt} \\
         random_seed=${params.random_seed} \\

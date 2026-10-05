@@ -68,7 +68,10 @@ Extends `LabeledInputConfig` plus the [common config fields](qcfilter.md#common-
 
 | Field | Default | Description |
 | ----- | ------- | ----------- |
-| `input_file` | **required** | Glob pattern or path to cell-level data. |
+| `cells_file` | **required** | QC_FILTER's `filtered_cells.parquet`. |
+| `filtered_keys_file` | **required** | NORMALIZE's `filtered_keys.parquet`. |
+| `normalizer_file` | **required** | NORMALIZE's `normalizer.parquet`. |
+| `input_file` | `null` | Deprecated: a pre-normalized cell table (or glob), instead of the three files above. |
 | `label_column` | `"meta_aa_changes"` | Column identifying variant labels. |
 | `aggregator` | **required** | One of the eight aggregators above. |
 | `index_file` | `null` | Optional path to a single-column row-index parquet (as written by `python -m fisseq_data_pipeline.generatesplit`) restricting aggregation to a pseudo-replicate half. |
@@ -84,7 +87,9 @@ single-file input → `{output_root}.{stem}.parquet` or `{output_dir}/{stem}.par
 ```bash
 uv run python -m fisseq_data_pipeline.aggregatefeaturetype \
     output_dir=./out \
-    input_file=data/normalized.parquet \
+    cells_file=out/qc_filter/batch1/filtered_cells.parquet \
+    filtered_keys_file=out/normalization/batch1/filtered_keys.parquet \
+    normalizer_file=out/normalization/batch1/normalizer.parquet \
     aggregator=mean \
     index_file=./half1.parquet \
     downsample_wt=0.5 \

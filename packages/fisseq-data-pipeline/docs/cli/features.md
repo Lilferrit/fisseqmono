@@ -62,7 +62,10 @@ Generates one stratified 50/50 pseudo-replicate split.
 
 | Field | Default | Description |
 | ----- | ------- | ----------- |
-| `input_file` | **required** | Glob pattern or path to cell-level data. |
+| `cells_file` | **required** | QC_FILTER's `filtered_cells.parquet`. |
+| `filtered_keys_file` | **required** | NORMALIZE's `filtered_keys.parquet`. |
+| `normalizer_file` | **required** | NORMALIZE's `normalizer.parquet`. |
+| `input_file` | `null` | Deprecated: a pre-normalized cell table (or glob), instead of the three files above. |
 | `label_column` | `"meta_aa_changes"` | Column identifying variant labels. |
 | `random_seed` | `0` | Seed for the stratified split (the common config field). Nextflow passes `params.random_seed + bootstrap_idx`, so each replicate is distinct and reproducible. |
 
@@ -71,7 +74,9 @@ Generates one stratified 50/50 pseudo-replicate split.
 ```bash
 uv run python -m fisseq_data_pipeline.generatesplit \
     output_dir=./out \
-    input_file=data/normalized.parquet \
+    cells_file=out/qc_filter/batch1/filtered_cells.parquet \
+    filtered_keys_file=out/normalization/batch1/filtered_keys.parquet \
+    normalizer_file=out/normalization/batch1/normalizer.parquet \
     random_seed=3
 ```
 
@@ -148,7 +153,10 @@ variants.
 
 | Field | Default | Description |
 | ----- | ------- | ----------- |
-| `input_file` | **required** | Raw/normalized cell-level input — used only to derive per-variant metadata. |
+| `cells_file` | **required** | QC_FILTER's `filtered_cells.parquet` — used only to derive per-variant metadata. |
+| `filtered_keys_file` | **required** | NORMALIZE's `filtered_keys.parquet`. |
+| `normalizer_file` | **required** | NORMALIZE's `normalizer.parquet`. |
+| `input_file` | `null` | Deprecated: a pre-normalized cell table (or glob), instead of the three files above. |
 | `label_column` | `"meta_aa_changes"` | Column identifying variant labels. |
 | `feature_type_files` | **required** | Glob pattern matching per-feature-type full aggregate parquet files. |
 | `block_list_file` | **required** | Combined blocklist parquet, with `feature` and `feature_ok` columns. |
@@ -173,7 +181,9 @@ column name, holding its loading), plus `meta_variance_explained`,
 ```bash
 uv run python -m fisseq_data_pipeline.featureselect \
     output_dir=./out \
-    input_file=out/normalized.parquet \
+    cells_file=out/qc_filter/batch1/filtered_cells.parquet \
+    filtered_keys_file=out/normalization/batch1/filtered_keys.parquet \
+    normalizer_file=out/normalization/batch1/normalizer.parquet \
     'feature_type_files=out/aggregates/*.parquet' \
     block_list_file=out/blocklist.parquet
 ```

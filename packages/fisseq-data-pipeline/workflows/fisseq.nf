@@ -218,10 +218,14 @@ workflow FisseqPipeline {
     qc_ch = QC_FILTER(input_ch).qc_outputs
 
     // Step 2: normalization (per experiment) -- z-score fit on wildtype cells.
+    // NORMALIZE publishes only the QC-passed keys and the fitted normalizer; every
+    // consumer gets QC_FILTER's cells plus those two files and rebuilds the
+    // normalized table itself (fisseq_data_pipeline.cells).
     // qc_ch carries: (batch_stem, filtered_cells, barcode_counts, variants_per_barcode)
     norm_input_ch = qc_ch.map { batch_stem, fc, _bc, _vpb -> tuple(batch_stem, fc) }
     NORMALIZE(norm_input_ch)
-    norm_ch = NORMALIZE.out.normalized  // tuple(batch_stem, normalized_parquet)
+    // tuple(batch_stem, filtered_cells, filtered_keys, normalizer)
+    norm_ch = norm_input_ch.join(NORMALIZE.out.normalized)
 
     // Step 3: OvWT -- per experiment, k-fold cross-validated one-vs-wildtype
     // scoring. Every cell gets exactly one out-of-fold score; each variant
@@ -249,10 +253,9 @@ workflow FisseqPipeline {
         // (experiment, feature_type). The published aggregates are z-scored
         // against the experiment's synonymous variants.
         agg_input_ch = norm_ch
-            .map { batch_stem, normalized_parquet -> tuple(batch_stem, normalized_parquet.toString()) }
             .combine(feature_types_ch)
-            .map { batch_stem, cells_glob, feature_type ->
-                tuple(batch_stem, cells_glob, feature_type, true,
+            .map { batch_stem, cells, keys, normalizer, feature_type ->
+                tuple(batch_stem, cells, keys, normalizer, feature_type, true,
                       "feature_select_batchwise/${batch_stem}/aggregates")
             }
         AGGREGATE_FEATURE_TYPE_BATCHWISE(agg_input_ch)
@@ -266,10 +269,9 @@ workflow FisseqPipeline {
         // their own directory, so no aggregates/ glob ever mixes the two.
         passthrough_types_ch = channel.fromList(params.feature_select_passthrough_types)
         pt_agg_input_ch = norm_ch
-            .map { batch_stem, normalized_parquet -> tuple(batch_stem, normalized_parquet.toString()) }
             .combine(passthrough_types_ch)
-            .map { batch_stem, cells_glob, feature_type ->
-                tuple(batch_stem, cells_glob, feature_type, false,
+            .map { batch_stem, cells, keys, normalizer, feature_type ->
+                tuple(batch_stem, cells, keys, normalizer, feature_type, false,
                       "feature_select_batchwise/${batch_stem}/passthrough_aggregates")
             }
         AGGREGATE_FEATURE_TYPE_PASSTHROUGH(pt_agg_input_ch)
@@ -277,17 +279,17 @@ workflow FisseqPipeline {
 
         // Stage 2a: one 50/50 split per (experiment, bootstrap replicate).
         split_input_ch = norm_ch
-            .map { batch_stem, normalized_parquet -> tuple(batch_stem, normalized_parquet.toString()) }
             .combine(bootstrap_ch)
-            .map { batch_stem, cells_glob, bootstrap_idx ->
-                tuple(batch_stem, cells_glob, bootstrap_idx, "feature_select_batchwise/${batch_stem}")
+            .map { batch_stem, cells, keys, normalizer, bootstrap_idx ->
+                tuple(batch_stem, cells, keys, normalizer, bootstrap_idx,
+                      "feature_select_batchwise/${batch_stem}")
             }
         GENERATE_SPLIT_BATCHWISE(split_input_ch)
         split_ch = GENERATE_SPLIT_BATCHWISE.out  // (batch_stem, bootstrap_idx, half1, half2)
 
         // Stage 2b: expand each split into two per-half tuples, cross with
-        // feature types, and re-attach the experiment's normalized cells via
-        // .combine(norm_ch, by: 0) (keyed on batch_stem -- norm_ch has exactly
+        // feature types, and re-attach the experiment's cells, keys and normalizer
+        // via .combine(norm_ch, by: 0) (keyed on batch_stem -- norm_ch has exactly
         // one entry per experiment, so this is a per-experiment broadcast,
         // not a fan-out).
         // NOTE: .join() is NOT a broadcast operator -- for a many-to-one key
@@ -305,10 +307,10 @@ workflow FisseqPipeline {
             .combine(feature_types_ch)
             // (batch_stem, bootstrap_idx, half_num, index_file, feature_type)
             .combine(norm_ch, by: 0)
-            // (batch_stem, bootstrap_idx, half_num, index_file, feature_type, normalized_parquet)
-            .map { batch_stem, bootstrap_idx, half_num, index_file, feature_type, normalized_parquet ->
+            // (batch_stem, bootstrap_idx, half_num, index_file, feature_type, cells, keys, normalizer)
+            .map { batch_stem, bootstrap_idx, half_num, index_file, feature_type, cells, keys, normalizer ->
                 tuple(batch_stem, bootstrap_idx, half_num, index_file, feature_type,
-                      normalized_parquet.toString(), "feature_select_batchwise/${batch_stem}")
+                      cells, keys, normalizer, "feature_select_batchwise/${batch_stem}")
             }
         AGGREGATE_HALF_BATCHWISE(agg_half_input_ch)
         half_agg_ch = AGGREGATE_HALF_BATCHWISE.out
@@ -353,7 +355,7 @@ workflow FisseqPipeline {
         combined_bl_ch = COMBINE_BLOCKLISTS_BATCHWISE.out  // (batch_stem, combined_blocklist_file)
 
         // Stage 4: group stage-1 output by batch_stem (all feature types'
-        // full aggregates), join norm_ch (raw cells, for metadata), join
+        // full aggregates), join norm_ch (the cells, for metadata), join
         // stage-3's combined blocklist.
         // groupTuple() on an empty channel emits nothing, so with an empty
         // params.feature_select_passthrough_types this side of the join has no
@@ -369,8 +371,8 @@ workflow FisseqPipeline {
             .join(norm_ch)
             .join(combined_bl_ch)
             .join(pt_files_ch, remainder: true)
-            .map { batch_stem, agg_files, normalized_parquet, combined_bl_file, pt_files ->
-                tuple(batch_stem, agg_files, pt_files ?: [], normalized_parquet.toString(),
+            .map { batch_stem, agg_files, cells, keys, normalizer, combined_bl_file, pt_files ->
+                tuple(batch_stem, agg_files, pt_files ?: [], cells, keys, normalizer,
                       combined_bl_file, "feature_select_batchwise/${batch_stem}")
             }
         FINALIZE_FEATURE_SELECT_BATCHWISE(finalize_input_ch)

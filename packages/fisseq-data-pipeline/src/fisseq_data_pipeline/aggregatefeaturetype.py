@@ -20,7 +20,6 @@ from omegaconf import MISSING, DictConfig, OmegaConf
 
 from fisseq_common.normalizer import Normalizer
 from fisseq_common.schema import CONTROL_COLUMN_NAME
-from fisseq_common.utils.batches import load_batches
 from fisseq_common.utils.log import setup_logging
 
 from .aggregate import (
@@ -29,6 +28,7 @@ from .aggregate import (
     downsample_control,
     variant_classification,
 )
+from .cells import CellsInput, load_cells
 from .config import LabeledInputConfig
 from .utils.splits import filter_by_index_file
 
@@ -36,7 +36,7 @@ _cs = ConfigStore.instance()
 
 
 @dataclasses.dataclass
-class FeatureTypeAggregateConfig(LabeledInputConfig):
+class FeatureTypeAggregateConfig(CellsInput, LabeledInputConfig):
     """
     Hydra structured configuration for the lean per-feature-type aggregation
     entry point.
@@ -148,7 +148,7 @@ def main(cfg: DictConfig) -> None:
     setup_logging(ft_cfg, "aggregate_feature_type")
 
     logging.info("Loading input from %s", ft_cfg.input_file)
-    lf, output_stem = load_batches(ft_cfg.input_file)
+    lf, output_stem = load_cells(ft_cfg)
 
     logging.info("Filtering by index_file=%s", ft_cfg.index_file)
     lf = filter_by_index_file(lf, ft_cfg.index_file)

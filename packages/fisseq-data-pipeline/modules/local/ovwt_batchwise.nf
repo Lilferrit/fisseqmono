@@ -31,7 +31,7 @@ process OVWT_BATCHWISE {
     publishDir { "${params.pipeline_dir}/ovwt_batchwise/${batch_stem}" }, mode: 'copy'
 
     input:
-    tuple val(batch_stem), path(normalized_parquet)
+    tuple val(batch_stem), path(cells), path(filtered_keys), path(normalizer)
 
     output:
     tuple val(batch_stem), path("results.parquet"), path("cell_scores.parquet"), path("models.pkl"), emit: ovwt
@@ -44,7 +44,9 @@ process OVWT_BATCHWISE {
     echo "Starting OVWT_BATCHWISE for ${batch_stem}"
     python -m fisseq_data_pipeline.ovwt \\
         output_dir=. \\
-        input_file=${normalized_parquet} \\
+        cells_file=${cells} \\
+        filtered_keys_file=${filtered_keys} \\
+        normalizer_file=${normalizer} \\
         label_column=${params.filter_label_column} \\
         wt_label=${params.ovwt_wt_label} \\
         cv_mode=${params.ovwt_cv_mode} \\

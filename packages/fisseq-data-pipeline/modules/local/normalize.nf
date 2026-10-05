@@ -1,21 +1,19 @@
 nextflow.enable.dsl = 2
 
-// NORMALIZE: output_root namespaces outputs so all batches can share normalization/.
-// cells go to normalization/cells/ and normalizers go to normalization/normalizers/
-// so that the anova/ovwt glob "normalization/cells/*.parquet" only hits cell data.
+// NORMALIZE: publishes only the QC-passed cells' keys and the wildtype-fitted
+// normalizer to normalization/<batch_stem>/. No normalized copy of the cells is
+// written; every consumer rebuilds it from QC_FILTER's filtered_cells.parquet and
+// these two files (fisseq_data_pipeline.cells).
 process NORMALIZE {
     errorStrategy 'ignore'
     container "${params.container_image}"
-    publishDir "${params.pipeline_dir}/normalization", mode: 'copy', saveAs: { fname ->
-        fname.endsWith('.normalizer.parquet') ? "normalizers/${fname}" : "cells/${fname}"
-    }
+    publishDir { "${params.pipeline_dir}/normalization/${batch_stem}" }, mode: 'copy'
 
     input:
     tuple val(batch_stem), path(filtered_cells)
 
     output:
-    tuple val(batch_stem), path("${batch_stem}.parquet"), emit: normalized
-    path("${batch_stem}.normalizer.parquet"),              emit: normalizer
+    tuple val(batch_stem), path("filtered_keys.parquet"), path("normalizer.parquet"), emit: normalized
 
     when:
     task.ext.when == null || task.ext.when
@@ -25,9 +23,7 @@ process NORMALIZE {
     echo "Starting NORMALIZE for ${batch_stem}"
     python -m fisseq_data_pipeline.normalize \\
         output_dir=. \\
-        output_root=${batch_stem} \\
         input_file=${filtered_cells} \\
-        save_normalizer=true
-    mv ${batch_stem}.filtered_cells.parquet ${batch_stem}.parquet
+        batch_name=${batch_stem}
     """
 }

@@ -1,46 +1,67 @@
-"""Z-score normalization of cell-level features against a control baseline.
+"""NORMALIZE: the QC-passed cells' keys plus a Normalizer fitted on wildtype cells.
 
-Hydra entry point (``python -m fisseq_data_pipeline.normalize``) / Nextflow process ``NORMALIZE`` (second
-pipeline stage). Fits the :class:`Normalizer` on rows matching a configurable SQL
-control-sample query (default: WT cells) and applies it to every feature column,
-producing normalized cell-level Parquet output plus an optional serialized
-normalizer.
+Hydra entry point (``python -m fisseq_data_pipeline.normalize``) / Nextflow process
+``NORMALIZE`` (second pipeline stage). The stage is shared with fisseq-embeddings-pipeline and
+documented in :mod:`fisseq_common.stages.filter`. It writes only
+
+- ``filtered_keys.parquet``: every ``meta_*`` column of the QC-passed cells, plus
+  ``meta_is_control`` and ``meta_batch``, and no features;
+- ``normalizer.parquet``: per-feature means and standard deviations of the control cells.
+
+No normalized copy of the cell table is written. Every stage that needs it rebuilds it from
+QC_FILTER's ``filtered_cells.parquet`` and these two files (:mod:`.cells`).
+
+The control cells are the rows matching ``control_sample_query``, by default wildtype. The
+embeddings pipeline uses untagged synonymous variants instead; this pipeline keeps wildtype
+because its per-variant aggregates are z-scored against the synonymous variants afterwards
+(AGGREGATE_FEATURE_TYPE's ``normalize_to_synonymous``), which needs the synonymous cells to
+survive aggregation as ordinary variants.
 """
 
 import dataclasses
 import logging
 import pathlib
+from typing import Optional
 
 import hydra
 import polars as pl
 from hydra.core.config_store import ConfigStore
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import MISSING, DictConfig, OmegaConf
 
-from fisseq_common.normalizer import Normalizer
-from fisseq_common.schema import (
-    CONTROL_COLUMN_NAME,
+from fisseq_common.schema import META_BATCH_COL
+from fisseq_common.stages.filter import (
+    FilterParams,
+    filter_and_fit_normalizer,
+    write_filter_outputs,
 )
 from fisseq_common.utils.log import setup_logging
 
-from .config import InputConfig
+from .cells import JOIN_KEYS
 
 
 @dataclasses.dataclass
-class NormalizeConfig(InputConfig):
+class NormalizeConfig(FilterParams):
     """
     Hydra structured configuration for the normalization entry point.
 
     Attributes
     ----------
+    input_file : str
+        QC_FILTER's ``filtered_cells.parquet``. Required.
     control_sample_query : str
-        SQL-like WHERE clause identifying control rows used to fit the
-        normalizer (e.g. ``"meta_aa_changes = 'WT'"``).
+        SQL-like WHERE clause identifying the control rows the normalizer is fitted on.
+        Defaults to ``"meta_aa_changes = 'WT'"``.
+    batch_name : str, optional
+        The experiment's name, stored as ``meta_batch`` in ``filtered_keys.parquet``.
+        Defaults to ``input_file``'s stem.
     save_normalizer : bool
-        If ``True``, persist the fitted :class:`Normalizer` to a parquet file
-        alongside the normalized output.
+        Deprecated and ignored: ``normalizer.parquet`` is always written, since no
+        normalized cell table is.
     """
 
+    input_file: str = MISSING
     control_sample_query: str = "meta_aa_changes = 'WT'"
+    batch_name: Optional[str] = None
     save_normalizer: bool = True
 
 
@@ -48,48 +69,13 @@ _cs = ConfigStore.instance()
 _cs.store(name="normalize_main", node=NormalizeConfig)
 
 
-def add_control_indicator_column(
-    lf: pl.LazyFrame, cfg: NormalizeConfig
-) -> pl.LazyFrame:
-    """
-    Append a boolean ``CONTROL_COLUMN`` to a LazyFrame using a SQL predicate.
-
-    Parameters
-    ----------
-    lf : pl.LazyFrame
-        Input LazyFrame to annotate.
-    cfg : NormalizeConfig
-        Configuration supplying ``control_sample_query``, a SQL-like WHERE
-        clause evaluated against the frame (e.g. ``"meta_aa_changes = 'WT'"``).
-
-    Returns
-    -------
-    pl.LazyFrame
-        The input frame with an additional boolean ``CONTROL_COLUMN`` column
-        that is ``True`` for rows matching the query.
-    """
-    return lf.with_columns(
-        pl.sql_expr(cfg.control_sample_query).alias(CONTROL_COLUMN_NAME)
-    )
-
-
 @hydra.main(version_base=None, config_path=None, config_name="normalize_main")
 def main(cfg: DictConfig) -> None:
     """
-    Hydra entry point: fit and apply z-score normalization to a parquet file.
+    Hydra entry point: determine the QC-passed cells and fit the control z-score.
 
-    Reads the input file at ``input_file``, adds a control indicator column
-    via :func:`add_control_indicator_column`, fits a :class:`Normalizer` on
-    the control rows, applies it, and writes the result.
-
-    Output path
-    -----------
-    - If ``output_root`` is set: ``{output_root}.{stem}.{ext}``
-    - Otherwise: ``{output_dir}/{filename}`` (same name as the input file)
-
-    If ``save_normalizer`` is ``True``, the fitted :class:`Normalizer` is also
-    written alongside the output using the same root/dir convention with the
-    name ``normalizer.parquet``.
+    Writes ``{prefix}filtered_keys.parquet`` and ``{prefix}normalizer.parquet`` to
+    ``output_dir``, where ``prefix`` is ``{output_root}.`` when ``output_root`` is set.
 
     Configuration
     -------------
@@ -97,44 +83,40 @@ def main(cfg: DictConfig) -> None:
 
         python -m fisseq_data_pipeline.normalize \\
             output_dir=./out \\
-            input_file=data/cells.parquet
+            input_file=qc_filter/batch1/filtered_cells.parquet \\
+            batch_name=batch1
     """
     norm_cfg: NormalizeConfig = OmegaConf.to_object(cfg)
 
     output_dir = pathlib.Path(norm_cfg.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    norm_cfg.output_dir = output_dir
+    norm_cfg.output_dir = str(output_dir)
     setup_logging(norm_cfg, "normalize")
 
+    if not norm_cfg.save_normalizer:
+        logging.warning(
+            "save_normalizer is deprecated and ignored: normalizer.parquet is always written"
+        )
+
     input_path = pathlib.Path(norm_cfg.input_file)
-    logging.info("Loading input from %s", input_path)
-    lf = pl.scan_parquet(input_path)
-    lf = add_control_indicator_column(lf, norm_cfg)
+    batch_name = norm_cfg.batch_name or input_path.stem
+    logging.info("Loading QC-passed cells from %s (batch %s)", input_path, batch_name)
+    cells_lf = pl.scan_parquet(input_path).with_columns(
+        pl.lit(batch_name).alias(META_BATCH_COL)
+    )
 
-    logging.info("Fitting normalizer")
-    normalizer = Normalizer.from_lazyframe(lf)
-    logging.info("Applying normalizer")
-    lf = normalizer.apply(lf)
-
-    stem = input_path.stem
-    ext = input_path.suffix.lstrip(".")
-    if norm_cfg.output_root is not None:
-        out_path = pathlib.Path(f"{norm_cfg.output_root}.{stem}.{ext}")
-    else:
-        out_path = output_dir / input_path.name
-
-    logging.info("Writing output to %s", out_path)
-    lf.sink_parquet(out_path)
-
-    if norm_cfg.save_normalizer:
-        if norm_cfg.output_root is not None:
-            norm_path = pathlib.Path(f"{norm_cfg.output_root}.normalizer.parquet")
-        else:
-            norm_path = output_dir / "normalizer.parquet"
-        logging.info("Saving normalizer to %s", norm_path)
-        normalizer.save(norm_path)
-
-    logging.info("Done")
+    logging.info(
+        "Fitting normalizer on rows matching %r", norm_cfg.control_sample_query
+    )
+    filtered_keys_lf, normalizer = filter_and_fit_normalizer(
+        cells_lf,
+        cells_lf,
+        norm_cfg.label_column,
+        JOIN_KEYS,
+        control=norm_cfg.control_sample_query,
+        sort_by=JOIN_KEYS,
+    )
+    write_filter_outputs(filtered_keys_lf, normalizer, norm_cfg)
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ process AGGREGATE_HALF {
     publishDir { "${params.pipeline_dir}/${publish_subdir}/half_aggregates/bootstrap_${bootstrap_idx}/${feature_type}" }, mode: 'copy'
 
     input:
-    tuple val(batch_key), val(bootstrap_idx), val(half_num), path(index_file), val(feature_type), val(cells_glob), val(publish_subdir)
+    tuple val(batch_key), val(bootstrap_idx), val(half_num), path(index_file), val(feature_type), path(cells), path(filtered_keys), path(normalizer), val(publish_subdir)
 
     output:
     tuple val(batch_key), val(bootstrap_idx), val(feature_type), val(half_num), path("half${half_num}_agg.parquet")
@@ -31,7 +31,9 @@ process AGGREGATE_HALF {
     python -m fisseq_data_pipeline.aggregatefeaturetype \\
         output_dir=. \\
         output_root=${feature_type} \\
-        "input_file=${cells_glob}" \\
+        cells_file=${cells} \\
+        filtered_keys_file=${filtered_keys} \\
+        normalizer_file=${normalizer} \\
         aggregator=${feature_type} \\
         index_file=${index_file} \\
         downsample_wt=${params.feature_select_downsample_wt} \\

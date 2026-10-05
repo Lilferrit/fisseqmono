@@ -21,12 +21,12 @@ from omegaconf import MISSING, DictConfig, OmegaConf
 
 from fisseq_common.normalizer import Normalizer
 from fisseq_common.schema import FEATURE_SELECTOR
-from fisseq_common.utils.batches import load_batches
 from fisseq_common.utils.log import setup_logging
 from fisseq_common.utils.metadata import get_aggregate_meta_data
 from fisseq_common.utils.vectors import compute_impact_score
 
 from .aggregate import variant_classification
+from .cells import CellsInput, load_cells
 from .config import LabeledInputConfig
 from .utils.dimreduction import compute_pca, compute_umap
 from .utils.featuretypes import join_feature_type_files
@@ -67,7 +67,7 @@ def pyc_feature_select(agg_df: pl.DataFrame) -> pl.DataFrame:
 
 
 @dataclasses.dataclass
-class FinalizeFeatureSelectConfig(LabeledInputConfig):
+class FinalizeFeatureSelectConfig(CellsInput, LabeledInputConfig):
     """
     Hydra structured configuration for the final feature-selection entry
     point: joins per-feature-type aggregates, applies the combined
@@ -216,7 +216,7 @@ def main(cfg: DictConfig) -> None:
     setup_logging(feat_cfg, "features")
 
     logging.info("Loading raw input from %s", feat_cfg.input_file)
-    lf, output_stem = load_batches(feat_cfg.input_file)
+    lf, output_stem = load_cells(feat_cfg)
 
     logging.info(
         "Loading per-feature-type aggregates from %s", feat_cfg.feature_type_files

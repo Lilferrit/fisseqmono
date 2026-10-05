@@ -130,7 +130,10 @@ Extends `LabeledInputConfig` plus the [common config fields](qcfilter.md#common-
 
 | Field | Default | Description |
 | ----- | ------- | ----------- |
-| `input_file` | **required** | Path to normalized cell-level parquet. |
+| `cells_file` | **required** | QC_FILTER's `filtered_cells.parquet`. |
+| `filtered_keys_file` | **required** | NORMALIZE's `filtered_keys.parquet`. |
+| `normalizer_file` | **required** | NORMALIZE's `normalizer.parquet`. |
+| `input_file` | `null` | Deprecated: a pre-normalized cell table (or glob), instead of the three files above. |
 | `label_column` | `"meta_aa_changes"` | Column identifying variant labels. |
 | `wt_label` | `"WT"` | Label identifying wildtype cells. Wildtype is the positive class, so models predict P(wildtype). |
 | `cv_mode` | `"kfold"` | Fold scheme: `"kfold"` or `"barcode_holdout"`. |
@@ -154,7 +157,9 @@ Extends `LabeledInputConfig` plus the [common config fields](qcfilter.md#common-
 ```bash
 uv run python -m fisseq_data_pipeline.ovwt \
     output_dir=./out \
-    input_file=out/normalized.parquet \
+    cells_file=out/qc_filter/batch1/filtered_cells.parquet \
+    filtered_keys_file=out/normalization/batch1/filtered_keys.parquet \
+    normalizer_file=out/normalization/batch1/normalizer.parquet \
     cv_mode=barcode_holdout \
     n_folds=null \
     calibrate=true \

@@ -1,13 +1,11 @@
 """FILTER_CP_FEATURES.
 
 Thin Hydra entry point reusing filter.py's
-:func:`~fisseq_embeddings_pipeline.filter.filter_and_fit_normalizer` and
-:data:`~fisseq_embeddings_pipeline.filter.JOIN_KEYS` directly -- no logic
-duplication. Those functions never reference ``EMBEDDING_SELECTOR``, only
-``JOIN_KEYS``/``META_SELECTOR`` and ``Normalizer`` (which itself keys off
-``FEATURE_SELECTOR``, already CellProfiler-shaped), so they apply to
-BUILD_CP_FEATURES' ``cp_features.parquet`` exactly as they do to
-EMBED_CELLS' ``embeddings.parquet``.
+:func:`~fisseq_embeddings_pipeline.filter.filter_and_fit_normalizer` (the shared
+:mod:`fisseq_common.stages.filter` on :data:`~fisseq_embeddings_pipeline.filter.JOIN_KEYS`).
+Nothing there references ``EMBEDDING_SELECTOR``; the Normalizer keys off
+``FEATURE_SELECTOR``, so it applies to BUILD_CP_FEATURES' ``cp_features.parquet`` exactly as
+to EMBED_CELLS' ``embeddings.parquet``.
 
 Crucially, this stage's ``qc_passed_file`` is **not** a new QC run --
 it's the *same* QC_FILTER ``filtered_cells.parquet`` FILTER_EMBEDDINGS
@@ -25,14 +23,14 @@ import polars as pl
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 
+from fisseq_common.stages.filter import FilterParams
 from fisseq_common.utils.log import setup_logging
 
-from .config import AppConfig
-from .filter import filter_and_fit_normalizer
+from .filter import filter_and_fit_normalizer, write_filter_outputs
 
 
 @dataclasses.dataclass
-class FilterCpFeaturesConfig(AppConfig):
+class FilterCpFeaturesConfig(FilterParams):
     """
     Hydra structured configuration for FILTER_CP_FEATURES.
 
@@ -56,7 +54,6 @@ class FilterCpFeaturesConfig(AppConfig):
 
     cp_features_file: str = MISSING
     qc_passed_file: str = MISSING
-    label_column: str = "meta_aa_changes"
 
 
 _cs = ConfigStore.instance()
@@ -100,8 +97,6 @@ def main(cfg: DictConfig) -> None:
     filter_cfg.output_dir = str(output_dir)
     setup_logging(filter_cfg, "filter_cp_features")
 
-    prefix = f"{filter_cfg.output_root}." if filter_cfg.output_root is not None else ""
-
     logging.info("Reading CellProfiler features from %s", filter_cfg.cp_features_file)
     cp_features_lf = pl.scan_parquet(filter_cfg.cp_features_file)
     logging.info("Reading QC-passed cells from %s", filter_cfg.qc_passed_file)
@@ -112,15 +107,7 @@ def main(cfg: DictConfig) -> None:
         cp_features_lf, qc_passed_lf, filter_cfg.label_column
     )
 
-    keys_path = output_dir / f"{prefix}filtered_keys.parquet"
-    logging.info("Writing %s", keys_path)
-    filtered_keys_lf.sink_parquet(keys_path)
-
-    normalizer_path = output_dir / f"{prefix}normalizer.parquet"
-    logging.info("Writing %s", normalizer_path)
-    normalizer.save(normalizer_path)
-
-    logging.info("Done")
+    write_filter_outputs(filtered_keys_lf, normalizer, filter_cfg)
 
 
 if __name__ == "__main__":

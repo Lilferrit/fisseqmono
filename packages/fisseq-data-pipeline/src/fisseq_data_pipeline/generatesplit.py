@@ -16,10 +16,10 @@ import sklearn.model_selection
 from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig, OmegaConf
 
-from fisseq_common.utils.batches import load_batches
 from fisseq_common.utils.log import setup_logging
 from fisseq_common.utils.metadata import get_column
 
+from .cells import CellsInput, load_cells
 from .config import LabeledInputConfig
 from .utils.splits import TMP_IDX_COL, add_row_index
 
@@ -27,7 +27,7 @@ _cs = ConfigStore.instance()
 
 
 @dataclasses.dataclass
-class GenerateSplitConfig(LabeledInputConfig):
+class GenerateSplitConfig(CellsInput, LabeledInputConfig):
     """
     Hydra structured configuration for the pseudo-replicate split-generation
     entry point.
@@ -79,7 +79,7 @@ def main(cfg: DictConfig) -> None:
     setup_logging(split_cfg, "generate_split")
 
     logging.info("Loading input from %s", split_cfg.input_file)
-    lf, _ = load_batches(split_cfg.input_file)
+    lf, _ = load_cells(split_cfg)
     lf = add_row_index(lf)
 
     idx = get_column(lf, TMP_IDX_COL)

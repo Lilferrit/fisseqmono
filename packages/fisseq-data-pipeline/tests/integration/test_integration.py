@@ -15,6 +15,8 @@ import polars as pl
 import pytest
 import yaml
 
+from fisseq_data_pipeline.cells import CellsInput, load_cells
+
 _PROJECT_ROOT = Path(__file__).parents[2]
 
 # Avoids a network round-trip (version check) on every `nextflow run` call.
@@ -210,19 +212,33 @@ def test_tagged_variant_pools_with_base(pipeline_outputs, batch_stem):
 
 @pytest.mark.parametrize("batch_stem", ["batch1", "batch2"])
 def test_normalization_outputs(pipeline_outputs, batch_stem):
+    """NORMALIZE publishes the QC-passed keys and the normalizer, no cell copy."""
     exp_dir, _ = pipeline_outputs
-    assert (exp_dir / "normalization" / "cells" / f"{batch_stem}.parquet").exists()
-    assert (
-        exp_dir / "normalization" / "normalizers" / f"{batch_stem}.normalizer.parquet"
-    ).exists()
+    out = exp_dir / "normalization" / batch_stem
+    assert sorted(p.name for p in out.glob("*.parquet")) == [
+        "filtered_keys.parquet",
+        "normalizer.parquet",
+    ]
+    keys = pl.read_parquet(out / "filtered_keys.parquet")
+    assert not set(_FEATURE_COLS) & set(keys.columns)
+    assert keys["meta_batch"].unique().to_list() == [batch_stem]
 
 
 @pytest.mark.parametrize("batch_stem", ["batch1", "batch2"])
 def test_normalized_cells_wt_mean_near_zero(pipeline_outputs, batch_stem):
     """NORMALIZE fits on wildtype cells, so their post-fit mean sits at ~0."""
     exp_dir, _ = pipeline_outputs
-    df = pl.read_parquet(exp_dir / "normalization" / "cells" / f"{batch_stem}.parquet")
-    wt = df.filter(pl.col("meta_aa_changes") == "WT")
+    out = exp_dir / "normalization" / batch_stem
+    cells, _ = load_cells(
+        CellsInput(
+            cells_file=str(
+                exp_dir / "qc_filter" / batch_stem / "filtered_cells.parquet"
+            ),
+            filtered_keys_file=str(out / "filtered_keys.parquet"),
+            normalizer_file=str(out / "normalizer.parquet"),
+        )
+    )
+    wt = cells.collect().filter(pl.col("meta_aa_changes") == "WT")
     for col in _FEATURE_COLS:
         assert abs(wt[col].mean()) < 1e-6
 
@@ -522,7 +538,7 @@ def test_run_feature_selection_false_skips_feature_select(gates_off_outputs):
 def test_gates_off_upstream_stages_still_run(gates_off_outputs):
     exp_dir, _ = gates_off_outputs
     assert (exp_dir / "input" / "batch1.parquet").exists()
-    assert (exp_dir / "normalization" / "cells" / "batch1.parquet").exists()
+    assert (exp_dir / "normalization" / "batch1" / "filtered_keys.parquet").exists()
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 {
   "scenario": "data",
-  "commit": "efb32e97dd483d77e41bba82c9c47f6c4f5997cc+dirty",
+  "commit": "6c6058217689df49692662241e4b0abdedef3104+dirty",
   "files": [
     "feature_select_batchwise/batch1/aggregates/AUROC.parquet",
     "feature_select_batchwise/batch1/aggregates/KS.parquet",
@@ -174,10 +174,10 @@
     "feature_select_batchwise/batch2/splits/bootstrap_3/half2.parquet",
     "input/batch1.parquet",
     "input/batch2.parquet",
-    "normalization/cells/batch1.parquet",
-    "normalization/cells/batch2.parquet",
-    "normalization/normalizers/batch1.normalizer.parquet",
-    "normalization/normalizers/batch2.normalizer.parquet",
+    "normalization/batch1/filtered_keys.parquet",
+    "normalization/batch1/normalizer.parquet",
+    "normalization/batch2/filtered_keys.parquet",
+    "normalization/batch2/normalizer.parquet",
     "ovwt_batchwise/batch1/cell_scores.parquet",
     "ovwt_batchwise/batch1/results.parquet",
     "ovwt_batchwise/batch2/cell_scores.parquet",
