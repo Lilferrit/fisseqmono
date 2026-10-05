@@ -1,82 +1,14 @@
-"""Cosine-distance and impact-score computation for per-variant feature vectors.
+"""Cosine-distance-based impact score for per-variant feature vectors.
 
-Defines :func:`compute_impact_score`, used by the aggregation and feature-selection
-entry points to measure each variant's cosine distance from the control median,
-scaled to a 0-1 impact score.
+Defines :func:`compute_cosine_distance` and :func:`compute_impact_score`: each variant's cosine
+distance from the median of the control rows, scaled to ``[0, 1]``.
 """
 
 import polars as pl
 
-from .constants import CONTROL_COLUMN_NAME, FEATURE_SELECTOR, IMPACT_SCORE_COL
+from ..schema import CONTROL_COLUMN_NAME, FEATURE_SELECTOR, IMPACT_SCORE_COL
 
-NORM_COL = "tmp_row_norm"
-DOT_COL = "tmp_dot_product"
 COSINE_DIST_COL = "tmp_cosine_distance"
-
-
-def compute_norm(lf: pl.LazyFrame) -> pl.LazyFrame:
-    """
-    Compute the L2 norm of all feature columns for each row.
-
-    Adds a ``NORM_COL`` (``"tmp_row_norm"``) column equal to
-    ``sqrt(sum(x_i ** 2))`` over all non-``meta_*`` columns.
-    ``meta_*`` columns are left unchanged.
-
-    Parameters
-    ----------
-    lf : pl.LazyFrame
-        Input frame containing feature columns (any column not prefixed
-        with ``meta_``).
-
-    Returns
-    -------
-    pl.LazyFrame
-        Same frame with an additional ``tmp_row_norm`` column.
-    """
-    return lf.with_columns(
-        pl.sum_horizontal(FEATURE_SELECTOR.pow(2)).sqrt().alias(NORM_COL)
-    )
-
-
-def compute_query_dot(value_lf: pl.LazyFrame, query_lf: pl.LazyFrame) -> pl.LazyFrame:
-    """
-    Compute the dot product between each row of ``value_lf`` and a single query row.
-
-    Cross-joins ``value_lf`` with the single-row ``query_lf``, multiplies
-    corresponding feature columns element-wise, and sums the products into a
-    ``DOT_COL`` (``"tmp_dot_product"``) column. The suffixed query columns are
-    dropped from the result; all other columns from ``value_lf`` are preserved.
-
-    Parameters
-    ----------
-    value_lf : pl.LazyFrame
-        Frame whose rows will each be dotted against the query.
-    query_lf : pl.LazyFrame
-        Exactly one-row frame whose feature columns are used as the query vector.
-
-    Returns
-    -------
-    pl.LazyFrame
-        ``value_lf`` with ``tmp_dot_product`` appended and the ``_query``-suffixed
-        columns dropped.
-
-    Raises
-    ------
-    ValueError
-        If ``query_lf`` does not contain exactly one row.
-    """
-    query_len = query_lf.select(pl.len()).collect().item()
-    if query_len != 1:
-        raise ValueError(f"query must have exactly 1 row, got {query_len}")
-
-    feature_cols = list(value_lf.select(FEATURE_SELECTOR).collect_schema().names())
-    joined_lf = value_lf.join(query_lf, how="cross", suffix="_query")
-
-    return joined_lf.with_columns(
-        pl.sum_horizontal(
-            pl.col(col) * pl.col(f"{col}_query") for col in feature_cols
-        ).alias(DOT_COL)
-    ).drop([f"{col}_query" for col in feature_cols])
 
 
 def compute_cosine_distance(
@@ -154,18 +86,20 @@ def compute_impact_score(lf: pl.LazyFrame) -> pl.LazyFrame:
 
         impact = cosine_distance / 2
 
-    This maps 0 (identical direction to control) → 0, orthogonal → 0.5,
-    and opposite direction → 1.
+    This maps 0 (identical direction to control) -> 0, orthogonal -> 0.5,
+    and opposite direction -> 1.
 
     Parameters
     ----------
     lf : pl.LazyFrame
-        Frame with feature columns and a boolean ``meta_is_control`` column.
-        Must contain at least one control row. Null, NaN, and infinite
-        feature values are excluded from the calculation on a per-row,
-        per-feature basis (via :func:`compute_cosine_distance`) rather than
-        dropping the whole column — a feature still contributes to a row's
-        score whenever it is present for that row.
+        Frame with feature columns (matched by ``FEATURE_SELECTOR`` --
+        i.e. any column *not* prefixed ``meta_``) and a boolean
+        ``meta_is_control`` column. Must contain at least one control row.
+        Null, NaN, and infinite feature values are excluded from the
+        calculation on a per-row, per-feature basis (via
+        :func:`compute_cosine_distance`) rather than dropping the whole
+        column -- a feature still contributes to a row's score whenever it
+        is present for that row.
 
     Returns
     -------

@@ -475,7 +475,7 @@ def _cp_style_kfold_fixture_lf(wt_n: int = 15, variant_n: int = 15) -> pl.LazyFr
 
 
 def test_ovwt_batchwise_with_feature_selector_matches_cp_style_columns():
-    from fisseq_embeddings_pipeline.utils.constants import FEATURE_SELECTOR
+    from fisseq_common.schema import FEATURE_SELECTOR
 
     results, cell_scores, _ = ovwt_batchwise(
         _cp_style_kfold_fixture_lf(), _ovwt_cfg(), feature_selector=FEATURE_SELECTOR

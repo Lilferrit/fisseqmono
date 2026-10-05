@@ -17,15 +17,15 @@ from pathlib import Path
 
 import polars as pl
 
+from fisseq_common.schema import (
+    META_BARCODE_COL,
+    META_BATCH_COL,
+    META_EDIT_DISTANCE_COL,
+)
 from fisseq_embeddings_pipeline.cp_features import (
     CpFeaturesConfig,
     build_cp_features,
     main,
-)
-from fisseq_embeddings_pipeline.utils.constants import (
-    META_BARCODE_COL,
-    META_BATCH_COL,
-    META_EDIT_DISTANCE_COL,
 )
 
 # ---------------------------------------------------------------------------

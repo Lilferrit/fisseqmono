@@ -18,6 +18,11 @@ from pathlib import Path
 
 import polars as pl
 
+from fisseq_common.schema import (
+    META_BARCODE_COL,
+    META_BATCH_COL,
+    META_EDIT_DISTANCE_COL,
+)
 from fisseq_embeddings_pipeline.cell_metadata import (
     CellMetadataConfig,
     build_cell_metadata,
@@ -26,11 +31,6 @@ from fisseq_embeddings_pipeline.cell_metadata import (
 from fisseq_embeddings_pipeline.cp_features import CpFeaturesConfig, build_cp_features
 from fisseq_embeddings_pipeline.filter import JOIN_KEYS
 from fisseq_embeddings_pipeline.utils.cell_table import CELL_METADATA_SCHEMA
-from fisseq_embeddings_pipeline.utils.constants import (
-    META_BARCODE_COL,
-    META_BATCH_COL,
-    META_EDIT_DISTANCE_COL,
-)
 
 # ---------------------------------------------------------------------------
 # Fixture helpers

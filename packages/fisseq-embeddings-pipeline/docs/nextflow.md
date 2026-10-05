@@ -582,7 +582,7 @@ changed.
   .snakemake_cache/                       # the nested starcall snakemake's $XDG_CACHE_HOME/$HOME (snakemake_cache_dir)
 ```
 
-Each stage's own `<stage>.log` (written by `utils/log.py` into
+Each stage's own `<stage>.log` (written by `fisseq_common.utils.log` into
 `output_dir`) stays in that task's hashed `work/` directory alongside
 Nextflow's `.command.log`/`.command.err`; it isn't published.
 

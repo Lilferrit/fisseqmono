@@ -7,7 +7,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from fisseq_data_pipeline.utils.constants import (
+from fisseq_common.schema import (
     COMPONENT_IDX_COL,
     CUMULATIVE_VARIANCE_EXPLAINED_COL,
     VARIANCE_EXPLAINED_COL,

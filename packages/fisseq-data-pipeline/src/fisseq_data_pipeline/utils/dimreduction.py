@@ -19,7 +19,7 @@ import numpy as np
 import polars as pl
 from sklearn.decomposition import PCA
 
-from .constants import (
+from fisseq_common.schema import (
     COMPONENT_IDX_COL,
     CUMULATIVE_VARIANCE_EXPLAINED_COL,
     FEATURE_SELECTOR,
@@ -36,7 +36,7 @@ def _select_fittable_features(
     Restrict ``df`` to feature columns usable by a dense-matrix fit (PCA/UMAP).
 
     A z-score-normalized feature column is entirely null whenever the
-    :class:`fisseq_data_pipeline.normalize.Normalizer` it came from stored a
+    :class:`fisseq_common.normalizer.Normalizer` it came from stored a
     ``None`` standard deviation for it (near-zero variance among control
     rows) -- see :meth:`Normalizer.apply`. Such columns carry no information
     and cannot be fit by sklearn/umap-learn (which reject any ``NaN``), so

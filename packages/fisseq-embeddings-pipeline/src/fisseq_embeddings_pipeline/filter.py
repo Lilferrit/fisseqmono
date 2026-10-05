@@ -32,11 +32,12 @@ import polars as pl
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 
+from fisseq_common.normalizer import Normalizer
+from fisseq_common.schema import CONTROL_COLUMN_NAME, META_SELECTOR
+from fisseq_common.utils.log import setup_logging
+from fisseq_common.variant import classify_variant
+
 from .config import AppConfig
-from .utils.constants import CONTROL_COLUMN_NAME, META_SELECTOR
-from .utils.log import setup_logging
-from .utils.normalizer import Normalizer
-from .utils.variant import classify_variant
 
 # The composite key each tile shard's WebDataset sample keys are built from --
 # the only column set that's both experiment-unique and present, under
@@ -82,7 +83,7 @@ def variant_classification(lf: pl.LazyFrame, label_column: str) -> pl.LazyFrame:
 
     Ported unchanged from fisseq-data-pipeline's aggregate.py:98-129. A row
     is control when its ``label_column`` value classifies as ``"Synonymous"``
-    (:func:`fisseq_embeddings_pipeline.utils.variant.classify_variant`) *and*
+    (:func:`fisseq_common.variant.classify_variant`) *and*
     carries no ``":<tag>"`` metadata suffix (e.g. a downsampled pseudo-variant
     tag) -- tagged rows are never treated as control, avoiding double-counting
     in the Normalizer fit.

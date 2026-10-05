@@ -5,8 +5,8 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from fisseq_data_pipeline.utils.batches import load_batches
-from fisseq_data_pipeline.utils.constants import META_BATCH_COL
+from fisseq_common.schema import META_BATCH_COL
+from fisseq_common.utils.batches import load_batches
 
 # ---------------------------------------------------------------------------
 # load_batches

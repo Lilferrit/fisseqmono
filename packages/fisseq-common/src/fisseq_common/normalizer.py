@@ -1,18 +1,13 @@
 """Z-score normalization statistics, fitted against a control-row subset.
 
-Vendored unchanged from fisseq-data-pipeline's
-src/fisseq_data_pipeline/normalize.py's ``Normalizer`` class, retargeted to
-a synonymous control query instead of a wildtype one. Only the
-``NormalizeConfig``/``add_control_indicator_column``/``main`` half of the
-source file is left behind -- this pipeline has no standalone NORMALIZE
-stage; ``Normalizer`` is fit and applied by filter.py against
-``meta_is_control`` rows produced by ``variant_classification()`` rather
-than a SQL ``control_sample_query``.
+:class:`Normalizer` stores per-feature means and standard deviations fitted on the rows where
+``meta_is_control`` is true, and applies ``(x - mean) / std``. Which rows are controls is the
+caller's choice: the data pipeline's filter stage marks wildtype cells, the embeddings
+pipeline's marks untagged synonymous variants, and the cross-experiment OvWT aggregation fits
+one per experiment on its synonymous variants' scores.
 
-No adaptation was needed for ``FEATURE_SELECTOR`` to work against this
-pipeline's ``emb_*`` columns: it's defined as `cs.exclude("^meta_.*$")` --
-an *exclude* selector, not a CellProfiler-specific allowlist -- so it
-already matches embedding columns with zero changes.
+Feature columns are found with ``FEATURE_SELECTOR`` (every non-``meta_`` column), so the same
+class handles CellProfiler features, embedding dimensions and score columns.
 """
 
 import logging
@@ -23,7 +18,7 @@ from typing import Optional
 import polars as pl
 from polars import selectors as cs
 
-from .constants import CONTROL_COLUMN, EPS, FEATURE_SELECTOR
+from .schema import CONTROL_COLUMN, EPS, FEATURE_SELECTOR
 
 
 @dataclass

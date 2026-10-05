@@ -17,9 +17,9 @@ from pathlib import Path
 import polars as pl
 import pytest
 
+from fisseq_common.normalizer import Normalizer
 from fisseq_embeddings_pipeline.filter import JOIN_KEYS
 from fisseq_embeddings_pipeline.filter_cp_features import FilterCpFeaturesConfig, main
-from fisseq_embeddings_pipeline.utils.normalizer import Normalizer
 
 LABEL_COLUMN = "meta_aa_changes"
 

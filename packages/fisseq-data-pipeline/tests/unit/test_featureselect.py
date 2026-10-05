@@ -9,7 +9,7 @@ import pytest
 from omegaconf import OmegaConf
 
 import fisseq_data_pipeline.featureselect as m
-from fisseq_data_pipeline.utils.constants import (
+from fisseq_common.schema import (
     IMPACT_SCORE_COL,
     META_BARCODE_COL,
     META_BATCH_COL,

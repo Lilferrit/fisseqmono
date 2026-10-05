@@ -1,18 +1,11 @@
 """Per-variant metadata aggregation helpers.
 
-Vendored from fisseq-data-pipeline's
-src/fisseq_data_pipeline/utils/metadata.py. Defines
-:func:`get_aggregate_meta_data`, used by AGGREGATE_EMBEDDINGS to attach
-per-variant cell counts and barcode/batch frequency summaries to its
-output.
+Defines :func:`get_aggregate_meta_data`, used by the aggregation stages to attach per-variant
+cell counts and barcode/batch frequency summaries to their outputs.
 
-One divergence from the vendored source: the ``*_counts`` list columns are
-sorted. ``value_counts()`` returns its entries in an order Polars does not
-define, so two runs over identical input produced identical numbers in a
-different order -- which made aggregate.parquet non-byte-reproducible.
-That was harmless while nothing compared two runs; it stops being harmless
-once the reproducibility-filtering chain exists and a rerun at the same
-random_seed is expected to yield the same blocklist.
+The ``*_counts`` list columns are sorted by value: ``value_counts()`` returns its entries in an
+order Polars does not define, so without the sort two runs over identical input produce the
+same numbers in a different order, and aggregate outputs are not byte-reproducible.
 """
 
 import logging
@@ -20,7 +13,7 @@ from typing import Any
 
 import polars as pl
 
-from .constants import META_BARCODE_COL, META_BATCH_COL, META_SELECTOR
+from ..schema import META_BARCODE_COL, META_BATCH_COL, META_SELECTOR
 
 
 def get_column(lf: pl.LazyFrame, col: str) -> list[Any]:

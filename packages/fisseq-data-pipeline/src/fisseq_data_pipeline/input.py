@@ -66,8 +66,9 @@ import yaml
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 
+from fisseq_common.utils.log import setup_logging
+
 from .config import AppConfig
-from .utils.log import setup_logging
 
 logger = logging.getLogger(__name__)
 

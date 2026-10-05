@@ -37,15 +37,16 @@ import polars as pl
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 
-from .config import AppConfig
-from .utils.constants import (
+from fisseq_common.schema import (
     META_BARCODE_COL,
     META_CELL_INDEX_COL,
     META_EDIT_DISTANCE_COL,
     META_VARIANT_TAG_COL,
 )
-from .utils.log import setup_logging
-from .utils.variant import classify_variant
+from fisseq_common.utils.log import setup_logging
+from fisseq_common.variant import classify_variant
+
+from .config import AppConfig
 
 DOWNSAMPLE_TAG = "downsample"
 DOWNSAMPLE_CLASSES = ("Synonymous", "Single Missense")
@@ -89,7 +90,7 @@ class QcFilterConfig(AppConfig):
         through untouched. Runs before QC thresholding. Defaults to
         ``None`` (disabled).
     variant_downsample_classes : List[str]
-        Classes (from :func:`fisseq_data_pipeline.utils.variant.classify_variant`)
+        Classes (from :func:`fisseq_common.variant.classify_variant`)
         eligible for the ``n_variants`` restriction. Defaults to
         ``["Single Missense"]``.
     variant_downsample_mode : str

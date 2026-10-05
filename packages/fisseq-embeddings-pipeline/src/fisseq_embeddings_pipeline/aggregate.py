@@ -66,7 +66,7 @@ aggregator names (validating the whole set up front -- empty, unknown, or
 duplicate names all raise before any aggregator runs), joins their outputs
 on ``label_column`` (each aggregator's ``_stat_suffix`` already namespaces
 columns, so no collision across methods), then joins in
-:func:`fisseq_embeddings_pipeline.utils.metadata.get_aggregate_meta_data`.
+:func:`fisseq_common.utils.metadata.get_aggregate_meta_data`.
 When ``aggregators`` is exactly ``("median",)``, the ``_median`` suffix is
 stripped before returning, producing bare feature columns and keeping the
 selector valid for any future consumer in that case. Any other selection
@@ -89,12 +89,13 @@ import polars as pl
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 
+from fisseq_common.normalizer import Normalizer
+from fisseq_common.schema import CONTROL_COLUMN, CONTROL_COLUMN_NAME, EMBEDDING_SELECTOR
+from fisseq_common.utils.log import setup_logging
+from fisseq_common.utils.metadata import get_aggregate_meta_data
+
 from .config import AppConfig
 from .filter import load_filtered_embeddings
-from .utils.constants import CONTROL_COLUMN, CONTROL_COLUMN_NAME, EMBEDDING_SELECTOR
-from .utils.log import setup_logging
-from .utils.metadata import get_aggregate_meta_data
-from .utils.normalizer import Normalizer
 
 #: Number of embedding dimensions aggregated per Polars query when no explicit
 #: ``feature_chunk_size`` is given. Aggregating every dimension in one query is
@@ -850,7 +851,7 @@ def aggregate_embeddings(
 
     Runs each requested aggregator (see :data:`_AGGREGATORS`) against
     ``filtered_lf`` and joins their outputs together on ``label_column``,
-    then joins in :func:`fisseq_embeddings_pipeline.utils.metadata.get_aggregate_meta_data`
+    then joins in :func:`fisseq_common.utils.metadata.get_aggregate_meta_data`
     for `meta_num_cells`/`meta_barcode_num_unique`/etc. The control/WT-label
     metadata row is naturally dropped by this join -- no aggregator ever
     produces a control-row group to join against, so the inner join between
@@ -883,7 +884,7 @@ def aggregate_embeddings(
         :data:`DEFAULT_FEATURE_CHUNK_SIZE`.
     include_metadata : bool
         When ``True`` (the default), join in
-        :func:`~fisseq_embeddings_pipeline.utils.metadata.get_aggregate_meta_data`'s
+        :func:`~fisseq_common.utils.metadata.get_aggregate_meta_data`'s
         ``meta_num_cells``/``meta_barcode_num_unique``/... columns. When
         ``False``, return the lean ``[label_column] + stat columns`` frame
         only -- what AGGREGATE_HALF and AGGREGATE_PASSTHROUGH want, since

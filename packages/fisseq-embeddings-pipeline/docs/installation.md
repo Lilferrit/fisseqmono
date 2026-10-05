@@ -23,7 +23,7 @@ resolution doesn't match your hardware, reinstall it explicitly per
 `dinov2` itself is not on PyPI; the minimal pure-torch subset needed for
 inference is vendored directly under
 `src/fisseq_embeddings_pipeline/vendor/dinov2/` (see
-[Architecture](architecture.md#vendored-code)), so no separate `dinov2`
+[Architecture](architecture.md#shared-and-vendored-code)), so no separate `dinov2`
 install step is needed.
 
 ## Nextflow

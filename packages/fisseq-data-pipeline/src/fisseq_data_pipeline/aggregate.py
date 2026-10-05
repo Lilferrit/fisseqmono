@@ -24,14 +24,15 @@ import polars as pl
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 
+from fisseq_common.normalizer import Normalizer
+from fisseq_common.schema import CONTROL_COLUMN, CONTROL_COLUMN_NAME, FEATURE_SELECTOR
+from fisseq_common.utils.batches import load_batches
+from fisseq_common.utils.log import setup_logging
+from fisseq_common.utils.metadata import get_aggregate_meta_data
+from fisseq_common.utils.vectors import compute_impact_score
+from fisseq_common.variant import classify_variant
+
 from .config import LabeledInputConfig
-from .normalize import Normalizer
-from .utils.batches import load_batches
-from .utils.constants import CONTROL_COLUMN, CONTROL_COLUMN_NAME, FEATURE_SELECTOR
-from .utils.log import setup_logging
-from .utils.metadata import get_aggregate_meta_data
-from .utils.variant import classify_variant
-from .utils.vectors import compute_impact_score
 
 #: Number of feature columns aggregated per Polars query when no explicit
 #: ``feature_chunk_size`` is given. Aggregating every feature in one query is
@@ -65,7 +66,7 @@ class AggregateConfig(LabeledInputConfig):
         ``KS``, ``signedKS``, ``QQ``, ``AUROC``, ``KSnegLogP``,
         ``AUROCnegLogP``. Required.
     save_normalizer : bool
-        If ``True``, persist the fitted :class:`.normalize.Normalizer` alongside
+        If ``True``, persist the fitted :class:`fisseq_common.normalizer.Normalizer` alongside
         the output. Defaults to ``True``.
     block_list_file : str or None
         Optional path to a parquet file with at least ``feature`` (str) and
@@ -1303,7 +1304,7 @@ def main(cfg: DictConfig) -> None:
 
     Runs the configured aggregator to produce one row per variant, marks
     synonymous variants as the normalization reference via
-    :func:`variant_classification`, fits a :class:`.normalize.Normalizer` on
+    :func:`variant_classification`, fits a :class:`fisseq_common.normalizer.Normalizer` on
     those rows, applies it, joins per-variant metadata from
     :func:`get_aggregate_meta_data`, and writes the result.
 
@@ -1313,7 +1314,7 @@ def main(cfg: DictConfig) -> None:
     - Single-file input: ``{output_root}.{stem}.{ext}`` or
       ``{output_dir}/{filename}`` (same name as the input file)
 
-    If ``save_normalizer`` is ``True``, the fitted :class:`.normalize.Normalizer`
+    If ``save_normalizer`` is ``True``, the fitted :class:`fisseq_common.normalizer.Normalizer`
     is also written alongside the output as ``normalizer.parquet``.
 
     Configuration

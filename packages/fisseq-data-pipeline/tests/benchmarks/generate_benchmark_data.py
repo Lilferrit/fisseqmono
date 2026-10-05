@@ -16,7 +16,7 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from fisseq_data_pipeline.utils.constants import CONTROL_COLUMN_NAME
+from fisseq_common.schema import CONTROL_COLUMN_NAME
 
 LABEL_COL = "meta_aa_changes"
 #: Bytes of float64 feature data per written row group.

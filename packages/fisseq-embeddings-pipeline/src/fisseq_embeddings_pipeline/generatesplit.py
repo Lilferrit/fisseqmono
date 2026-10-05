@@ -34,10 +34,11 @@ import sklearn.model_selection
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 
+from fisseq_common.utils.log import setup_logging
+from fisseq_common.utils.splits import write_split
+
 from .config import AppConfig
 from .filter import JOIN_KEYS
-from .utils.log import setup_logging
-from .utils.splits import write_split
 
 
 @dataclasses.dataclass

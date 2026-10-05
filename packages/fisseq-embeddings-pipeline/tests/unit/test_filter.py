@@ -15,6 +15,8 @@ from typing import List
 import polars as pl
 import pytest
 
+from fisseq_common.normalizer import Normalizer
+from fisseq_common.schema import CONTROL_COLUMN_NAME
 from fisseq_embeddings_pipeline.filter import (
     JOIN_KEYS,
     FilterEmbeddingsConfig,
@@ -23,8 +25,6 @@ from fisseq_embeddings_pipeline.filter import (
     main,
     variant_classification,
 )
-from fisseq_embeddings_pipeline.utils.constants import CONTROL_COLUMN_NAME
-from fisseq_embeddings_pipeline.utils.normalizer import Normalizer
 
 LABEL_COLUMN = "meta_aa_changes"
 

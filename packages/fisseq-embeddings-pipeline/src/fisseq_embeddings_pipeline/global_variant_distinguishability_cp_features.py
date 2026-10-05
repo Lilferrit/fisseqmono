@@ -21,9 +21,10 @@ import polars as pl
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 
+from fisseq_common.utils.log import setup_logging
+
 from .config import AppConfig
 from .global_distinguishability import global_variant_distinguishability
-from .utils.log import setup_logging
 
 
 @dataclasses.dataclass

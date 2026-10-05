@@ -32,9 +32,10 @@ from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 from polars import selectors as cs
 
+from fisseq_common.utils.log import setup_logging
+
 from .config import AppConfig
 from .utils.cell_table import CELL_METADATA_SCHEMA, cell_metadata_exprs
-from .utils.log import setup_logging
 
 _CP_COL_PREFIX = "cp_"
 

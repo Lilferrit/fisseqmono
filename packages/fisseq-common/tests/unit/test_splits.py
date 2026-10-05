@@ -1,11 +1,13 @@
-"""utils/splits.py -- split files name cells by composite key, not row index."""
+"""Split files name cells by composite key, not row index."""
 
 from pathlib import Path
 
 import polars as pl
 
-from fisseq_embeddings_pipeline.filter import JOIN_KEYS
-from fisseq_embeddings_pipeline.utils.splits import filter_by_split_file, write_split
+from fisseq_common.utils.splits import filter_by_split_file, write_split
+
+# The embeddings pipeline's join keys; any composite cell key works the same way.
+JOIN_KEYS = ["meta_batch", "meta_well", "meta_tile", "meta_cell_index"]
 
 
 def _keys(n: int) -> pl.DataFrame:

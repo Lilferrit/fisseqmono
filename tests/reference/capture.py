@@ -3,7 +3,8 @@
     uv run python tests/reference/capture.py [scenario ...]
 
 With no arguments every scenario in ``tests/_fixtures.SCENARIOS`` is captured. Each scenario's
-directory is replaced wholesale, and ``MANIFEST.json`` records the commit the outputs came from.
+directory is replaced wholesale, and ``MANIFEST.json`` records the commit the outputs came from
+(``+dirty``: that commit's working tree, i.e. the commit that adds these outputs).
 Regenerate a scenario only in a commit that deliberately changes its outputs (and explains why).
 """
 

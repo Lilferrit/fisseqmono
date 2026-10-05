@@ -3,106 +3,12 @@ from __future__ import annotations
 import polars as pl
 import pytest
 
-from fisseq_data_pipeline.utils.constants import CONTROL_COLUMN_NAME, IMPACT_SCORE_COL
-from fisseq_data_pipeline.utils.vectors import (
+from fisseq_common.schema import CONTROL_COLUMN_NAME, IMPACT_SCORE_COL
+from fisseq_common.utils.vectors import (
     COSINE_DIST_COL,
-    DOT_COL,
-    NORM_COL,
     compute_cosine_distance,
     compute_impact_score,
-    compute_norm,
-    compute_query_dot,
 )
-
-# ---------------------------------------------------------------------------
-# compute_norm
-# ---------------------------------------------------------------------------
-
-
-def test_compute_norm_pythagorean() -> None:
-    lf = pl.LazyFrame({"f1": [3.0], "f2": [4.0]})
-    result = compute_norm(lf).collect()
-    assert result[NORM_COL][0] == pytest.approx(5.0)
-
-
-def test_compute_norm_unit_vector() -> None:
-    lf = pl.LazyFrame({"f1": [1.0], "f2": [0.0]})
-    result = compute_norm(lf).collect()
-    assert result[NORM_COL][0] == pytest.approx(1.0)
-
-
-def test_compute_norm_multiple_rows() -> None:
-    lf = pl.LazyFrame({"f1": [3.0, 0.0], "f2": [4.0, 5.0]})
-    result = compute_norm(lf).collect()
-    assert result[NORM_COL].to_list() == pytest.approx([5.0, 5.0])
-
-
-def test_compute_norm_preserves_meta_columns() -> None:
-    lf = pl.LazyFrame({"meta_label": ["a"], "f1": [3.0], "f2": [4.0]})
-    result = compute_norm(lf).collect()
-    assert "meta_label" in result.columns
-    assert result["meta_label"][0] == "a"
-
-
-def test_compute_norm_excludes_meta_from_norm() -> None:
-    # meta columns must not contribute to the norm value
-    lf = pl.LazyFrame({"meta_label": [99.0], "f1": [3.0], "f2": [4.0]})
-    result = compute_norm(lf).collect()
-    assert result[NORM_COL][0] == pytest.approx(5.0)
-
-
-# ---------------------------------------------------------------------------
-# compute_query_dot
-# ---------------------------------------------------------------------------
-
-
-def test_compute_query_dot_basic() -> None:
-    value_lf = pl.LazyFrame({"f1": [1.0], "f2": [2.0]})
-    query_lf = pl.LazyFrame({"f1": [3.0], "f2": [4.0]})
-    result = compute_query_dot(value_lf, query_lf).collect()
-    assert result[DOT_COL][0] == pytest.approx(11.0)  # 1·3 + 2·4
-
-
-def test_compute_query_dot_orthogonal() -> None:
-    value_lf = pl.LazyFrame({"f1": [1.0], "f2": [0.0]})
-    query_lf = pl.LazyFrame({"f1": [0.0], "f2": [1.0]})
-    result = compute_query_dot(value_lf, query_lf).collect()
-    assert result[DOT_COL][0] == pytest.approx(0.0)
-
-
-def test_compute_query_dot_drops_query_columns() -> None:
-    value_lf = pl.LazyFrame({"f1": [1.0], "f2": [2.0]})
-    query_lf = pl.LazyFrame({"f1": [3.0], "f2": [4.0]})
-    result = compute_query_dot(value_lf, query_lf).collect()
-    assert "f1_query" not in result.columns
-    assert "f2_query" not in result.columns
-
-
-def test_compute_query_dot_preserves_meta_columns() -> None:
-    value_lf = pl.LazyFrame({"meta_label": ["x"], "f1": [1.0], "f2": [2.0]})
-    query_lf = pl.LazyFrame({"f1": [3.0], "f2": [4.0]})
-    result = compute_query_dot(value_lf, query_lf).collect()
-    assert "meta_label" in result.columns
-    assert result["meta_label"][0] == "x"
-
-
-def test_compute_query_dot_raises_on_empty_query() -> None:
-    value_lf = pl.LazyFrame({"f1": [1.0]})
-    query_lf = pl.LazyFrame({"f1": pl.Series([], dtype=pl.Float64)})
-    with pytest.raises(ValueError, match="query must have exactly 1 row"):
-        compute_query_dot(value_lf, query_lf)
-
-
-def test_compute_query_dot_raises_on_multi_row_query() -> None:
-    value_lf = pl.LazyFrame({"f1": [1.0]})
-    query_lf = pl.LazyFrame({"f1": [1.0, 2.0]})
-    with pytest.raises(ValueError, match="query must have exactly 1 row"):
-        compute_query_dot(value_lf, query_lf)
-
-
-# ---------------------------------------------------------------------------
-# compute_impact_score
-# ---------------------------------------------------------------------------
 
 
 def test_compute_impact_score_control_is_zero() -> None:
@@ -142,8 +48,7 @@ def test_compute_impact_score_opposite_is_one() -> None:
 def test_compute_impact_score_drops_temp_columns() -> None:
     lf = pl.LazyFrame({CONTROL_COLUMN_NAME: [True], "f1": [1.0], "f2": [0.0]})
     result = compute_impact_score(lf).collect()
-    assert NORM_COL not in result.columns
-    assert DOT_COL not in result.columns
+    assert not [c for c in result.columns if c.startswith("tmp_")]
 
 
 def test_compute_impact_score_output_columns() -> None:

@@ -71,10 +71,11 @@ import xgboost as xgb
 from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig, OmegaConf
 
+from fisseq_common.schema import FEATURE_SELECTOR, META_BARCODE_COL, META_SELECTOR
+from fisseq_common.utils.batches import load_batches
+from fisseq_common.utils.log import setup_logging
+
 from .config import LabeledInputConfig
-from .utils.batches import load_batches
-from .utils.constants import FEATURE_SELECTOR, META_BARCODE_COL, META_SELECTOR
-from .utils.log import setup_logging
 from .utils.xgbparams import (
     XGBoostConfig,
     get_dmatrix,

@@ -67,6 +67,9 @@ import webdataset as wds
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 
+from fisseq_common.schema import META_BATCH_COL
+from fisseq_common.utils.log import setup_logging
+
 from .config import AppConfig
 from .utils.cell_table import (
     CELL_METADATA_SCHEMA,
@@ -74,8 +77,6 @@ from .utils.cell_table import (
     META_TILE_COL,
     META_WELL_COL,
 )
-from .utils.constants import META_BATCH_COL
-from .utils.log import setup_logging
 from .vendor.dinov2.models.vision_transformer import (
     vit_base,
     vit_giant2,
@@ -607,7 +608,7 @@ def main(cfg: DictConfig) -> None:
     3. For each batch, embed via :func:`embed_batch` and accumulate one row
        per cell: the shard's location fields plus zero-padded
        ``emb_0000``..``emb_{D-1}`` columns (``EMBEDDING_SELECTOR``,
-       ``utils/constants.py``, matches these).
+       ``fisseq_common.schema``, matches these).
     4. Join the remaining ``meta_*`` columns on from ``metadata_path``
        (:func:`attach_metadata`) and write ``embeddings.parquet``.
 

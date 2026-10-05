@@ -18,7 +18,11 @@ Not to be confused with ``utils/metadata.py``, which is the vendored
 
 import polars as pl
 
-from .constants import META_BARCODE_COL, META_BATCH_COL, META_EDIT_DISTANCE_COL
+from fisseq_common.schema import (
+    META_BARCODE_COL,
+    META_BATCH_COL,
+    META_EDIT_DISTANCE_COL,
+)
 
 #: Column names of the projection below, in order. ``meta_batch``,
 #: ``meta_well``, ``meta_tile`` and ``meta_cell_index`` are ``filter.py``'s

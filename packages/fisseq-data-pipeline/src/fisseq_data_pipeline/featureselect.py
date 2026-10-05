@@ -19,16 +19,17 @@ import pycytominer
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 
+from fisseq_common.normalizer import Normalizer
+from fisseq_common.schema import FEATURE_SELECTOR
+from fisseq_common.utils.batches import load_batches
+from fisseq_common.utils.log import setup_logging
+from fisseq_common.utils.metadata import get_aggregate_meta_data
+from fisseq_common.utils.vectors import compute_impact_score
+
 from .aggregate import variant_classification
 from .config import LabeledInputConfig
-from .normalize import Normalizer
-from .utils.batches import load_batches
-from .utils.constants import FEATURE_SELECTOR
 from .utils.dimreduction import compute_pca, compute_umap
 from .utils.featuretypes import join_feature_type_files
-from .utils.log import setup_logging
-from .utils.metadata import get_aggregate_meta_data
-from .utils.vectors import compute_impact_score
 
 _cs = ConfigStore.instance()
 
@@ -173,7 +174,7 @@ def main(cfg: DictConfig) -> None:
        blocklist, correlation threshold).
     5. Mark synonymous variants as the normalization reference
        (:func:`fisseq_data_pipeline.aggregate.variant_classification`), fit a
-       :class:`.normalize.Normalizer` on those rows, and apply it — the
+       :class:`fisseq_common.normalizer.Normalizer` on those rows, and apply it — the
        output features are z-score normalized to the synonymous baseline.
     6. Optionally compute impact score on the normalized features
        (:func:`.utils.vectors.compute_impact_score`).

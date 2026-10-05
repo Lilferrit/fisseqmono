@@ -25,7 +25,7 @@ import numpy as np
 import polars as pl
 from sklearn.decomposition import PCA
 
-from .constants import (
+from fisseq_common.schema import (
     COMPONENT_IDX_COL,
     CUMULATIVE_VARIANCE_EXPLAINED_COL,
     FEATURE_SELECTOR,

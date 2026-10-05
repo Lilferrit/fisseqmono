@@ -39,12 +39,13 @@ import polars as pl
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 
+from fisseq_common.normalizer import Normalizer
+from fisseq_common.utils.log import setup_logging
+from fisseq_common.utils.splits import filter_by_split_file
+
 from .aggregate import DEFAULT_FEATURE_CHUNK_SIZE, aggregate_embeddings
 from .config import AppConfig
 from .filter import JOIN_KEYS, load_filtered_embeddings
-from .utils.log import setup_logging
-from .utils.normalizer import Normalizer
-from .utils.splits import filter_by_split_file
 
 
 @dataclasses.dataclass

@@ -51,9 +51,10 @@ import polars as pl
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 
+from fisseq_common.utils.log import setup_logging
+
 from .config import AppConfig
 from .utils.cell_table import CELL_METADATA_SCHEMA, cell_metadata_exprs
-from .utils.log import setup_logging
 
 
 @dataclasses.dataclass

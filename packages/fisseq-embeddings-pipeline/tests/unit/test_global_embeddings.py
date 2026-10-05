@@ -18,17 +18,17 @@ import polars as pl
 import pytest
 
 import fisseq_embeddings_pipeline.global_embeddings as m
-from fisseq_embeddings_pipeline.global_embeddings import (
-    GlobalVariantEmbeddingsConfig,
-    _n_components_for_variance,
-    global_variant_embeddings,
-)
-from fisseq_embeddings_pipeline.utils.constants import (
+from fisseq_common.schema import (
     COMPONENT_IDX_COL,
     CONTROL_COLUMN_NAME,
     CUMULATIVE_VARIANCE_EXPLAINED_COL,
     IMPACT_SCORE_COL,
     VARIANCE_EXPLAINED_COL,
+)
+from fisseq_embeddings_pipeline.global_embeddings import (
+    GlobalVariantEmbeddingsConfig,
+    _n_components_for_variance,
+    global_variant_embeddings,
 )
 
 LABEL_COLUMN = "meta_aa_changes"

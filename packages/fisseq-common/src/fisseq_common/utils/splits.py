@@ -1,20 +1,9 @@
 """Pseudo-replicate split files: write one, and filter a cell-level frame by it.
 
-Adapted from fisseq-data-pipeline's ``utils/splits.py``, with one
-deliberate difference: that repo identifies a split half by **positional
-row index** (its ``TMP_IDX_COL``, added with ``add_row_index`` and applied
-with ``filter_by_index_file``), which is only safe because GENERATE_SPLIT
-and AGGREGATE_HALF there read the same already-materialized normalized
-parquet in the same order.
-
-This pipeline never materializes a normalized cell-level table -- both
-stages reconstruct it with
-:func:`~fisseq_embeddings_pipeline.filter.load_filtered_embeddings`, i.e.
-through a join, whose row order Polars does not guarantee to be stable
-across two separate processes. So a split half is identified here by the
-composite cell key (:data:`~fisseq_embeddings_pipeline.filter.JOIN_KEYS`)
-instead, which is order-independent by construction and already the
-pipeline's one canonical way of naming a cell.
+A split half is a parquet of composite cell keys (the filter stage's join keys), applied with a
+semi-join. Keys rather than positional row indices, because the stages that write and read a
+split each rebuild the cell-level table through a join, whose row order Polars does not
+guarantee to be the same in two separate processes.
 """
 
 import logging
@@ -31,7 +20,7 @@ def write_split(keys_df: pl.DataFrame, path: Union[str, pathlib.Path]) -> None:
     Parameters
     ----------
     keys_df : pl.DataFrame
-        Exactly the :data:`~fisseq_embeddings_pipeline.filter.JOIN_KEYS`
+        Exactly the join keys
         columns, one row per cell in this half. No feature columns -- a
         split file names cells, it never copies their data.
     path : str or pathlib.Path
@@ -58,7 +47,7 @@ def filter_by_split_file(
         AGGREGATE_PASSTHROUGH (every cell).
     join_keys : list of str
         The composite cell key --
-        :data:`~fisseq_embeddings_pipeline.filter.JOIN_KEYS`. Passed in
+        join keys. Passed in
         rather than imported to keep this module free of a circular
         dependency on ``filter``.
 

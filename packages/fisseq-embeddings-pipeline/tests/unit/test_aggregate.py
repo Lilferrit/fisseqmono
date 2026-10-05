@@ -706,7 +706,7 @@ def test_base_aggregator_default_feature_selector_ignores_cp_style_columns(
 def test_median_aggregator_with_feature_selector_matches_cp_style_columns(
     cp_style_df: pl.DataFrame,
 ) -> None:
-    from fisseq_embeddings_pipeline.utils.constants import FEATURE_SELECTOR
+    from fisseq_common.schema import FEATURE_SELECTOR
 
     result = (
         m.MedianAggregator(feature_selector=FEATURE_SELECTOR)
@@ -726,7 +726,7 @@ def test_median_aggregator_with_feature_selector_matches_cp_style_columns(
 def test_aggregate_embeddings_with_feature_selector_matches_cp_style_columns(
     cp_style_df: pl.DataFrame,
 ) -> None:
-    from fisseq_embeddings_pipeline.utils.constants import FEATURE_SELECTOR
+    from fisseq_common.schema import FEATURE_SELECTOR
 
     result = m.aggregate_embeddings(
         cp_style_df.lazy(), "meta_aa_changes", feature_selector=FEATURE_SELECTOR

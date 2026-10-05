@@ -1,10 +1,8 @@
 """Glob-based loading of per-batch Parquet files into one labeled LazyFrame.
 
-Vendored unchanged from fisseq-data-pipeline's
-src/fisseq_data_pipeline/utils/batches.py. Defines
-:func:`load_batches`, used by Hydra entry points whose input accepts a glob
-pattern (one file per batch, tagged with ``meta_batch`` from the filename
-stem or parent directory name).
+Defines :func:`load_batches`, used by the stage entry points whose input accepts a glob
+pattern (one file per batch, tagged with ``meta_batch`` from the filename stem or parent
+directory name).
 """
 
 import glob as _glob
@@ -13,7 +11,7 @@ import pathlib
 
 import polars as pl
 
-from .constants import META_BATCH_COL
+from ..schema import META_BATCH_COL
 
 
 def load_batches(

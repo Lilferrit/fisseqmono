@@ -40,7 +40,7 @@ cosine-distance impact score against the control median"):
   ``label_column`` when it collapses each batch to one cross-experiment
   row -- this is that same metadata, "propagated" back onto the final
   per-variant table).
-- ``meta_impact_score``, via :func:`~fisseq_embeddings_pipeline.utils.vectors.compute_impact_score`
+- ``meta_impact_score``, via :func:`~fisseq_common.utils.vectors.compute_impact_score`
   (cosine distance from the control/synonymous median, scaled to
   ``[0, 1]``) -- **computed on the reduced PC matrix itself**, not on the
   original ``emb_*`` feature matrix the way ``globalfeatureselect.py``'s
@@ -63,19 +63,20 @@ import polars as pl
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 
-from .config import AppConfig
-from .filter import variant_classification
-from .utils.constants import (
+from fisseq_common.schema import (
     COMPONENT_IDX_COL,
     CUMULATIVE_VARIANCE_EXPLAINED_COL,
     FEATURE_SELECTOR,
     PC_COL_PREFIX,
     VARIANCE_EXPLAINED_COL,
 )
+from fisseq_common.utils.log import setup_logging
+from fisseq_common.utils.vectors import compute_impact_score
+
+from .config import AppConfig
+from .filter import variant_classification
 from .utils.dimreduction import compute_pca
 from .utils.globalfeatureselect import median_across_batches
-from .utils.log import setup_logging
-from .utils.vectors import compute_impact_score
 
 
 def _full_rank(df: pl.DataFrame, label_column: str) -> int:

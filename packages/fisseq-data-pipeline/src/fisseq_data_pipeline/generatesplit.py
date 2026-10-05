@@ -16,10 +16,11 @@ import sklearn.model_selection
 from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig, OmegaConf
 
+from fisseq_common.utils.batches import load_batches
+from fisseq_common.utils.log import setup_logging
+from fisseq_common.utils.metadata import get_column
+
 from .config import LabeledInputConfig
-from .utils.batches import load_batches
-from .utils.log import setup_logging
-from .utils.metadata import get_column
 from .utils.splits import TMP_IDX_COL, add_row_index
 
 _cs = ConfigStore.instance()

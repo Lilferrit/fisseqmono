@@ -71,11 +71,12 @@ import xgboost as xgb
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 
+from fisseq_common.normalizer import Normalizer
+from fisseq_common.schema import EMBEDDING_SELECTOR, META_BARCODE_COL, META_SELECTOR
+from fisseq_common.utils.log import setup_logging
+
 from .config import AppConfig
 from .filter import load_filtered_embeddings
-from .utils.constants import EMBEDDING_SELECTOR, META_BARCODE_COL, META_SELECTOR
-from .utils.log import setup_logging
-from .utils.normalizer import Normalizer
 from .utils.xgbparams import (
     XGBoostConfig,
     get_dmatrix,

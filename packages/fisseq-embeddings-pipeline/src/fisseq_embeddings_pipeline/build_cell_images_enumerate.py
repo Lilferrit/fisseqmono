@@ -67,9 +67,9 @@ import yaml
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 
+from fisseq_common.utils.log import setup_logging
+
 from .config import AppConfig
-from .utils.constants import TILE_DIR_RE
-from .utils.log import setup_logging
 
 # Matches a well's grid directory name (e.g. "well1_grid4") -- used only by
 # resolve_grid_size's auto-detection scan.
@@ -100,6 +100,9 @@ _MANIFEST_FIELDNAMES = [
 ]
 
 _RESOLVED_DIR_KEYS = ("phenotyping_dir", "segmentation_dir", "sequencing_dir")
+
+# starcall-workflow's tile-directory naming convention, ``tile<x>x<y>y``.
+TILE_DIR_RE = re.compile(r"^tile(\d+)x(\d+)y$")
 
 
 @dataclasses.dataclass

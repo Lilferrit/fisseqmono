@@ -1,19 +1,24 @@
-"""Shared logging setup for every Hydra entry point.
+"""Shared logging setup for every stage entry point.
 
-Vendored unchanged from fisseq-data-pipeline's
-src/fisseq_data_pipeline/utils/log.py. Defines
-:func:`setup_logging`, which configures a console handler plus a per-run
-log file under ``output_dir`` (optionally prefixed by ``output_root``),
-called at the start of every entry point's ``main()``.
+Defines :func:`setup_logging`, which configures a console handler plus a per-run log file under
+``output_dir`` (optionally prefixed by ``output_root``), called at the start of every entry
+point's ``main()``.
 """
 
 import logging
 import pathlib
+from typing import Optional, Protocol
 
-from ..config import AppConfig
+
+class LoggingConfig(Protocol):
+    """The fields of a stage config that :func:`setup_logging` reads (``AppConfig`` has them)."""
+
+    output_dir: str
+    output_root: Optional[str]
+    log_level: str
 
 
-def setup_logging(cfg: AppConfig, name: str) -> None:
+def setup_logging(cfg: LoggingConfig, name: str) -> None:
     """
     Configure logging for the pipeline.
 
@@ -23,7 +28,7 @@ def setup_logging(cfg: AppConfig, name: str) -> None:
 
     Parameters
     ----------
-    cfg : AppConfig
+    cfg : LoggingConfig
         Application configuration supplying ``output_dir`` and optionally
         ``output_root``.
     name : str

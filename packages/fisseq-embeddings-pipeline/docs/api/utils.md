@@ -1,22 +1,21 @@
 # API: utils
 
-Shared helpers used across pipeline stages -- most are vendored from
-`fisseq-data-pipeline` (see each module's own docstring, and
-[Architecture](../architecture.md#vendored-code)).
+Shared helpers used across pipeline stages. Most live in the `fisseq-common` package, shared
+with `fisseq-data-pipeline` and `fisseqborn`.
 
-::: fisseq_embeddings_pipeline.utils.constants
+::: fisseq_common.schema
 
-::: fisseq_embeddings_pipeline.utils.variant
+::: fisseq_common.variant
 
-::: fisseq_embeddings_pipeline.utils.normalizer
+::: fisseq_common.normalizer
 
-::: fisseq_embeddings_pipeline.utils.metadata
+::: fisseq_common.utils.metadata
 
 ::: fisseq_embeddings_pipeline.utils.cell_table
 
-::: fisseq_embeddings_pipeline.utils.splits
+::: fisseq_common.utils.splits
 
-::: fisseq_embeddings_pipeline.utils.batches
+::: fisseq_common.utils.batches
 
 ::: fisseq_embeddings_pipeline.utils.xgbparams
 
@@ -24,6 +23,6 @@ Shared helpers used across pipeline stages -- most are vendored from
 
 ::: fisseq_embeddings_pipeline.utils.globalfeatureselect
 
-::: fisseq_embeddings_pipeline.utils.vectors
+::: fisseq_common.utils.vectors
 
-::: fisseq_embeddings_pipeline.utils.log
+::: fisseq_common.utils.log

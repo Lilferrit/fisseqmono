@@ -12,7 +12,7 @@ import math
 import polars as pl
 import pytest
 
-from fisseq_embeddings_pipeline.utils.normalizer import Normalizer
+from fisseq_common.normalizer import Normalizer
 
 # ---------------------------------------------------------------------------
 # Helpers

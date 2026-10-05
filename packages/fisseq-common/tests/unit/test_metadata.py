@@ -1,24 +1,16 @@
-"""Tests for utils/metadata.py's get_aggregate_meta_data.
-
-Ported unchanged (only the import path retargeted) from fisseq-data-pipeline's
-tests/unit/utils/test_metadata.py.
-"""
-
 from __future__ import annotations
-
-import logging
 
 import polars as pl
 import pytest
 
-from fisseq_embeddings_pipeline.utils.constants import META_BARCODE_COL, META_BATCH_COL
-from fisseq_embeddings_pipeline.utils.metadata import get_aggregate_meta_data
+from fisseq_common.schema import META_BARCODE_COL, META_BATCH_COL
+from fisseq_common.utils.metadata import get_aggregate_meta_data
 
 # ---------------------------------------------------------------------------
 # get_aggregate_meta_data
 # ---------------------------------------------------------------------------
 
-# 2 variants x 2 batches x 2 barcodes/variant -- straightforward ground truth
+# 2 variants × 2 batches × 2 barcodes/variant — straightforward ground truth
 _AGG_META_LF = pl.LazyFrame(
     {
         "meta_aa_changes": ["WT", "WT", "WT", "WT", "M1K", "M1K"],
@@ -64,6 +56,7 @@ def test_get_aggregate_meta_data_warns_on_missing_column(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     lf = pl.LazyFrame({"meta_aa_changes": ["WT"], META_BARCODE_COL: ["bc_a"]})
+    import logging
 
     with caplog.at_level(logging.WARNING):
         get_aggregate_meta_data(lf, "meta_aa_changes")

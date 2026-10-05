@@ -479,8 +479,8 @@ Global Variant CP Distinguish-ability Scores (once, across all experiments)
     runs; it stops being harmless once a rerun at the same `random_seed` is
     expected to reproduce the same blocklist. Both sorts are cheap (one row
     per variant) and make every published per-experiment table
-    byte-reproducible. This is a divergence from `utils/metadata.py`'s
-    otherwise-unchanged vendored source.
+    byte-reproducible. The sorted `*_counts` lists are in
+    `fisseq_common.utils.metadata`, which both pipelines now use.
 24. **starcall-workflow is pinned to one commit at image build time, run
     through a wrapper Snakefile; a cell shard's `meta.json` carries only
     the cell's location.** The root `Dockerfile` clones upstream
@@ -619,10 +619,12 @@ New dependency versus `fisseq-data-pipeline`'s stack: **`webdataset`**
 (`tile_shard.py` writes shards, `EMBED_CELLS` reads them), plus whatever
 `torch` pulls in for the GPU stage.
 
-## Vendored code
+## Shared and vendored code
 
-Every module that ports code from `fisseq-data-pipeline` says so, and
-what, in its own module docstring -- see `src/fisseq_embeddings_pipeline/`.
+Code this pipeline shares with `fisseq-data-pipeline` (and, for the column schema, variant
+classification and output layout, with `fisseqborn`) lives in the `fisseq-common` package of
+the same repository and is imported from `fisseq_common`; the stage modules here are thin
+Hydra entry points around it where a stage is shared.
 `dinov2` itself is vendored (not installed as a dependency) directly under
 `src/fisseq_embeddings_pipeline/vendor/dinov2/`; see that directory's
 `VENDORED_FROM.md` for the exact upstream commit, file list, and the one

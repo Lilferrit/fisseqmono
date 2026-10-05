@@ -39,10 +39,11 @@ import webdataset as wds
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 
+from fisseq_common.utils.log import setup_logging
+
 from .build_cell_images_table import read_segmentation_table
 from .config import AppConfig
 from .utils.cell_table import META_CELL_INDEX_COL, META_TILE_COL, META_WELL_COL
-from .utils.log import setup_logging
 
 _BBOX_COLS = ("bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2")
 

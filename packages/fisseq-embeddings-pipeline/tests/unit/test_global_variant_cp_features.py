@@ -19,14 +19,14 @@ from pathlib import Path
 
 import polars as pl
 
-from fisseq_embeddings_pipeline.global_variant_cp_features import (
-    GlobalVariantCpFeaturesConfig,
-    main,
-)
-from fisseq_embeddings_pipeline.utils.constants import (
+from fisseq_common.schema import (
     CONTROL_COLUMN_NAME,
     IMPACT_SCORE_COL,
     VARIANCE_EXPLAINED_COL,
+)
+from fisseq_embeddings_pipeline.global_variant_cp_features import (
+    GlobalVariantCpFeaturesConfig,
+    main,
 )
 
 LABEL_COLUMN = "meta_aa_changes"

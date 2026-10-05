@@ -18,6 +18,11 @@ import hydra
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 
+from fisseq_common.normalizer import Normalizer
+from fisseq_common.schema import CONTROL_COLUMN_NAME
+from fisseq_common.utils.batches import load_batches
+from fisseq_common.utils.log import setup_logging
+
 from .aggregate import (
     DEFAULT_FEATURE_CHUNK_SIZE,
     aggregate,
@@ -25,10 +30,6 @@ from .aggregate import (
     variant_classification,
 )
 from .config import LabeledInputConfig
-from .normalize import Normalizer
-from .utils.batches import load_batches
-from .utils.constants import CONTROL_COLUMN_NAME
-from .utils.log import setup_logging
 from .utils.splits import filter_by_index_file
 
 _cs = ConfigStore.instance()
@@ -79,7 +80,7 @@ class FeatureTypeAggregateConfig(LabeledInputConfig):
 
     ``normalize_to_synonymous`` marks synonymous variants with
     :func:`fisseq_data_pipeline.aggregate.variant_classification`, fits a
-    :class:`.normalize.Normalizer` on those rows only (mean and ``ddof=1``
+    :class:`fisseq_common.normalizer.Normalizer` on those rows only (mean and ``ddof=1``
     std), applies it, and drops the ``meta_is_control`` column again so the
     output stays ``[label_column] + stat columns``. It needs at least two
     synonymous variants: with fewer the std is undefined and every stat

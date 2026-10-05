@@ -207,7 +207,7 @@ modules.
 The `meta_` prefix is load-bearing: `FEATURE_SELECTOR` is
 `cs.exclude("^meta_.*$")`, so any new non-`meta_` column is treated as a feature.
 
-Key constants (`utils/constants.py`): `CONTROL_COLUMN_NAME`
+Key constants (`fisseq_common.schema`): `CONTROL_COLUMN_NAME`
 (`meta_is_control`), `META_BARCODE_COL`, `META_BATCH_COL`,
 `META_CELL_INDEX_COL`, `META_EDIT_DISTANCE_COL`, `META_VARIANT_TAG_COL`,
 `IMPACT_SCORE_COL`, `FEATURE_SELECTOR`, `META_SELECTOR`.
@@ -228,7 +228,7 @@ Overrides are `key=value` CLI pairs (dot-notation for nested fields:
 
 ### Logging
 
-Every `main()` calls `setup_logging(cfg, name)` from `utils/log.py` first.
+Every `main()` calls `setup_logging(cfg, name)` from `fisseq_common.utils.log` first.
 
 ### Error handling
 

@@ -16,7 +16,7 @@ from typing import List, Optional
 
 import polars as pl
 
-from .constants import FEATURE_SELECTOR
+from fisseq_common.schema import FEATURE_SELECTOR
 
 
 def median_across_batches(

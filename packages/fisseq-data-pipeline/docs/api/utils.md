@@ -1,26 +1,31 @@
 # API: utils
 
-Shared, non-CLI internals used across multiple pipeline modules.
+Shared, non-CLI internals used across multiple pipeline modules. Most live in the
+`fisseq-common` package, shared with `fisseq-embeddings-pipeline` and `fisseqborn`.
 
-## constants
+## schema (column names and selectors)
 
-::: fisseq_data_pipeline.utils.constants
+::: fisseq_common.schema
 
 ## log
 
-::: fisseq_data_pipeline.utils.log
+::: fisseq_common.utils.log
 
 ## batches
 
-::: fisseq_data_pipeline.utils.batches
+::: fisseq_common.utils.batches
 
 ## variant
 
-::: fisseq_data_pipeline.utils.variant
+::: fisseq_common.variant
+
+## normalizer
+
+::: fisseq_common.normalizer
 
 ## metadata
 
-::: fisseq_data_pipeline.utils.metadata
+::: fisseq_common.utils.metadata
 
 ## splits
 
@@ -32,7 +37,7 @@ Shared, non-CLI internals used across multiple pipeline modules.
 
 ## vectors
 
-::: fisseq_data_pipeline.utils.vectors
+::: fisseq_common.utils.vectors
 
 ## xgbparams
 
@@ -41,4 +46,3 @@ Shared, non-CLI internals used across multiple pipeline modules.
 ## dimreduction
 
 ::: fisseq_data_pipeline.utils.dimreduction
-
