@@ -105,10 +105,10 @@ def test_random_seed_and_bootstrap_idx_are_interchangeable_offsets(
     assert a1.equals(b1)
 
 
-def test_singleton_label_raises(tmp_path: Path) -> None:
+def test_singleton_label_raises(tmp_path: Path, cell_level_helpers) -> None:
     """A label with one cell cannot be in both halves; failing loudly beats
     silently biasing one half's aggregate."""
-    from .conftest import _write_input_triple, make_cell_level_frame
+    _write_input_triple, make_cell_level_frame = cell_level_helpers
 
     df = make_cell_level_frame()
     lonely = df[0].with_columns(

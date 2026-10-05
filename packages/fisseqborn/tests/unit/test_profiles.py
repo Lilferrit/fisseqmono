@@ -3,7 +3,7 @@ import re
 import numpy as np
 import polars as pl
 import pytest
-from conftest import PIPELINE_BATCHES, PIPELINE_FEATURES, PIPELINE_VARIANTS
+from fisseqborn_testdata import PIPELINE_BATCHES, PIPELINE_FEATURES, PIPELINE_VARIANTS
 
 import fisseqborn as fb
 

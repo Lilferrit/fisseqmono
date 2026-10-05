@@ -80,3 +80,10 @@ def make_cell_level_frame(
 def cell_level_inputs(tmp_path: Path) -> "tuple[Path, Path, Path]":
     """The (embeddings, filtered_keys, normalizer) triple on disk."""
     return _write_input_triple(tmp_path, make_cell_level_frame())
+
+
+@pytest.fixture
+def cell_level_helpers():
+    """``(write_input_triple, make_cell_level_frame)`` for tests that build their
+    own frame (test modules can't import conftest under --import-mode=importlib)."""
+    return _write_input_triple, make_cell_level_frame

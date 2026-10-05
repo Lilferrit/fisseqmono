@@ -1,13 +1,14 @@
 [project]
 name = "fisseqborn"
-version = "0.1.0"
+version = "2.0.0"
 description = "Seaborn-style, object-oriented plots of polars DataFrames for the fisseq project"
 readme = "README.md"
 authors = [
     { name = "Gwen Straub", email = "gwenneth.straub@gmail.com" }
 ]
-requires-python = ">=3.13"
+requires-python = ">=3.13,<3.14"
 dependencies = [
+    "fisseq-common @ git+https://github.com/Lilferrit/fisseqmono@v2.0.0#subdirectory=packages/fisseq-common",
     "matplotlib>=3.10",
     "numpy",
     "pandas",
@@ -52,4 +53,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests/unit"]
+# importlib mode: test modules with the same basename in different packages don't collide.
+addopts = ["--import-mode=importlib"]
+# For fisseqborn_testdata, the helper module shared by conftest.py and the tests.
+pythonpath = ["tests/unit"]
+
+[tool.uv.sources]
+fisseq-common = { workspace = true }
+
+[tool.hatch.metadata]
+allow-direct-references = true

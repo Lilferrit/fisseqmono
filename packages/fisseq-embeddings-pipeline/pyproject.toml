@@ -1,6 +1,6 @@
 [project]
 name = "fisseq-embeddings-pipeline"
-version = "0.1.0"
+version = "2.0.0"
 description = "Nextflow + Python pipeline for learned (Cell-DINO) cell embeddings and variant distinguish-ability scoring -- sibling to fisseq-data-pipeline, retargeted from CellProfiler features to embeddings."
 readme = "README.md"
 authors = [
@@ -17,6 +17,7 @@ authors = [
 # somewhere .python-version isn't copied/respected.
 requires-python = ">=3.13,<3.14"
 dependencies = [
+    "fisseq-common[stages] @ git+https://github.com/Lilferrit/fisseqmono@v2.0.0#subdirectory=packages/fisseq-common",
     "hydra-core>=1.3.2",
     "pandas>=2.3.2",
     "polars>=1.32.3",
@@ -37,6 +38,8 @@ dependencies = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit", "tests/integration"]
+# importlib mode: test modules with the same basename in different packages don't collide.
+addopts = ["--import-mode=importlib"]
 markers = [
     # tests/integration/conftest.py's mode switch: marked tests run only
     # under `pytest tests/integration --container`, unmarked ones only
@@ -44,25 +47,6 @@ markers = [
     "container: containerized real-starcall integration test (opt-in, needs docker + testing_data/lmna_t3_mini)",
 ]
 
-[tool.ruff]
-# ruff>=0.16 formats Python code fences embedded in Markdown by default,
-# which would otherwise rewrite docs/*.md's illustrative code examples
-# every time `ruff format .` runs (fisseq-data-pipeline doesn't hit this
-# since it happens to be locked to ruff 0.15.12). Excluded entirely rather
-# than relying on a version pin, so this repo's docs stay untouched by
-# lint/format tooling regardless of which ruff version resolves.
-#
-# src/fisseq_embeddings_pipeline/vendor/ holds third-party dinov2 source
-# kept as close to byte-identical upstream as possible (see
-# vendor/dinov2/VENDORED_FROM.md) -- excluded so ruff's import-sort/format
-# rules don't drift it further from upstream than the one documented,
-# deliberate line change.
-extend-exclude = ["*.md", "src/fisseq_embeddings_pipeline/vendor"]
-
-[tool.ruff.lint]
-# Ruff's default select ("E4", "E7", "E9", "F") plus "I" (isort-equivalent
-# import sorting) so ruff fully replaces isort -- matches fisseq-data-pipeline.
-select = ["E4", "E7", "E9", "F", "I"]
 
 [build-system]
 requires = ["hatchling"]
@@ -84,3 +68,9 @@ dev = [
     # deserves a direct declaration.
     "scipy>=1.16.1",
 ]
+
+[tool.uv.sources]
+fisseq-common = { workspace = true }
+
+[tool.hatch.metadata]
+allow-direct-references = true

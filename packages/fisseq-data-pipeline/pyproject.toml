@@ -1,6 +1,6 @@
 [project]
 name = "fisseq-data-pipeline"
-version = "1.0.0"
+version = "2.0.0"
 description = "Nextflow + Python pipeline for single-cell CellProfiler morphological profiling of FISSEQ variant data"
 readme = "README.md"
 authors = [
@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.13,<3.14"
 dependencies = [
+    "fisseq-common[stages] @ git+https://github.com/Lilferrit/fisseqmono@v2.0.0#subdirectory=packages/fisseq-common",
     "hydra-core>=1.3.2",
     "joblib>=1.5.1",
     "llvmlite>=0.44.0",
@@ -26,17 +27,9 @@ dependencies = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit", "tests/integration"]
+# importlib mode: test modules with the same basename in different packages don't collide.
+addopts = ["--import-mode=importlib"]
 
-[tool.ruff]
-# ruff >= 0.16 formats fenced code blocks inside Markdown by default, which
-# would silently rewrite every page under docs/ on the next pre-commit run.
-extend-exclude = ["*.md"]
-
-[tool.ruff.lint]
-# Ruff's default select ("E4", "E7", "E9", "F") plus "I" (isort-equivalent
-# import sorting) so ruff fully replaces isort -- both formatting and import
-# order then come from the same tool, avoiding an isort/ruff-format conflict.
-select = ["E4", "E7", "E9", "F", "I"]
 
 [build-system]
 requires = ["hatchling"]
@@ -52,3 +45,9 @@ dev = [
     "pytest>=8.4.1",
     "ruff>=0.15.12",
 ]
+
+[tool.uv.sources]
+fisseq-common = { workspace = true }
+
+[tool.hatch.metadata]
+allow-direct-references = true

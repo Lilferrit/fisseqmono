@@ -4,7 +4,7 @@ import subprocess
 
 import polars as pl
 import pytest
-from conftest import PIPELINE_BATCHES
+from fisseqborn_testdata import PIPELINE_BATCHES
 
 import fisseqborn as fb
 from fisseqborn import _pipeline, _remote

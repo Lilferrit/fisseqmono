@@ -1,0 +1,56 @@
+# Virtual workspace root: not a package. `uv sync` installs the dev group, which pulls in all four
+# workspace packages for the cross-package tests under tests/.
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+fisseq-common = { workspace = true }
+fisseq-data-pipeline = { workspace = true }
+fisseq-embeddings-pipeline = { workspace = true }
+fisseqborn = { workspace = true }
+
+[project]
+name = "fisseqmono"
+version = "2.0.0"
+requires-python = ">=3.13,<3.14"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "fisseq-common[stages]",
+    "fisseq-data-pipeline",
+    "fisseq-embeddings-pipeline",
+    "fisseqborn[cluster,select,umap]",
+    "pre-commit>=4.5.1",
+    "pytest>=8.4.1",
+    "ruff>=0.15.12",
+    "scipy>=1.16.1",
+]
+docs = [
+    "mkdocs>=1.6.1",
+    "mkdocs-material>=9.6.20",
+    "mkdocstrings[python]>=0.30.1",
+    "mkdocstrings-python>=1.16.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# importlib mode: test modules with the same basename in different packages don't collide.
+addopts = ["--import-mode=importlib"]
+
+[tool.ruff]
+# ruff >= 0.16 formats fenced code blocks inside Markdown by default, which would rewrite the
+# docs. vendor/ holds third-party dinov2 source kept as close to upstream as possible.
+extend-exclude = [
+    "*.md",
+    "packages/fisseq-embeddings-pipeline/src/fisseq_embeddings_pipeline/vendor",
+]
+# First-party detection for import sorting, per workspace package.
+src = ["packages/*/src", "tests"]
+
+[tool.ruff.lint]
+# Ruff's default select plus "I" (import sorting), so ruff replaces isort.
+select = ["E4", "E7", "E9", "F", "I"]
