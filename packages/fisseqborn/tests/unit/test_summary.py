@@ -26,7 +26,10 @@ CLASSES = {
 
 def test_cluster_summary_matches_group_by(variants):
     summary = variants.cluster_summary(
-        medians={"feature_1": "feature_1", "meta_distinguishability_score": "Median score"},
+        medians={
+            "feature_1": "feature_1",
+            "meta_distinguishability_score": "Median score",
+        },
         zscore=["feature_1"],
         shares={"class": CLASSES, "domain": "meta_domain"},
     )
@@ -53,10 +56,14 @@ def test_cluster_summary_matches_group_by(variants):
     assert df["label"][0] == f"0 (n={expected['n'][0]})"
 
     present = set(src["meta_domain"].drop_nulls())
-    assert summary.shares("domain") == [d for d in fisseq.LMNA_DOMAIN_REGIONS if d in present]
+    assert summary.shares("domain") == [
+        d for d in fisseq.LMNA_DOMAIN_REGIONS if d in present
+    ]
     for col in summary.shares("class") + summary.shares("domain"):
         assert df[col].sum() == pytest.approx(1.0)
-    assert summary.totals["class"]["Synonymous"] == int(src["meta_variant_type"].eq("Synonymous").sum())
+    assert summary.totals["class"]["Synonymous"] == int(
+        src["meta_variant_type"].eq("Synonymous").sum()
+    )
     assert summary.totals["domain"]["Head"] == int(src["meta_domain"].eq("Head").sum())
 
 
@@ -73,8 +80,11 @@ def test_cluster_summary_group_feeds_clustermap(variants):
         summary,
         row_labels="label",
         standardize=True,
-        groups=[fb.FeatureGroup("Medians", ["feature_0", "feature_1"]), group,
-                summary.group("domain")],
+        groups=[
+            fb.FeatureGroup("Medians", ["feature_0", "feature_1"]),
+            group,
+            summary.group("domain"),
+        ],
     ).plot()
     assert set(axes.heatmap_axes) == {"Medians", "Share of class", "domain"}
 
@@ -89,7 +99,9 @@ def test_cluster_summary_explicit_levels_and_errors(variants):
     with pytest.raises(ValueError, match="duplicate"):
         variants.cluster_summary(shares={"a": CLASSES, "b": CLASSES})
     with pytest.raises(ValueError, match="variant_type"):
-        variants.drop("meta_is_control").cluster_summary(medians=["feature_0"], zscore=True)
+        variants.drop("meta_is_control").cluster_summary(
+            medians=["feature_0"], zscore=True
+        )
     with pytest.raises(KeyError):
         summary.group("class")
 

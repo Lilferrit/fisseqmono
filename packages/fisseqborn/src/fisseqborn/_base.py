@@ -94,7 +94,11 @@ class Plot(ABC):
     def legend(self, *, outside: bool = False, **legend_kw: Any) -> Self:
         """Restyle the legend. ``outside=True`` places it to the right of the axes."""
         if outside:
-            legend_kw = {"loc": "center left", "bbox_to_anchor": (1.0, 0.5), **legend_kw}
+            legend_kw = {
+                "loc": "center left",
+                "bbox_to_anchor": (1.0, 0.5),
+                **legend_kw,
+            }
 
         def layer(_plot: Plot, ax: Axes) -> None:
             if ax.get_legend() is not None:
@@ -159,7 +163,9 @@ class FigurePlot(Plot):
     def _main_ax(self, handle: Any) -> Axes:
         """The axes that layers are applied to."""
 
-    def _draw(self, ax: Axes) -> None:  # pragma: no cover - figure-level plots don't use it
+    def _draw(
+        self, ax: Axes
+    ) -> None:  # pragma: no cover - figure-level plots don't use it
         raise NotImplementedError
 
     def plot(self, ax: Axes | None = None) -> tuple[Figure, Any]:  # type: ignore[override]

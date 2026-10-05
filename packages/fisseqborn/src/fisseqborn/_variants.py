@@ -60,9 +60,13 @@ def variant_type_expr(column: str) -> pl.Expr:
     def codon_position(i: int) -> pl.Expr:
         # "A12-" -> 12, the same slice as ``codon[1:-1]``
         codon = codons.list.get(i, null_on_oob=True)
-        return codon.str.slice(1, codon.str.len_chars() - 2).cast(pl.Int64, strict=False)
+        return codon.str.slice(1, codon.str.len_chars() - 2).cast(
+            pl.Int64, strict=False
+        )
 
-    adjacent_pair = (codons.list.len() == 2) & (codon_position(0) == codon_position(1) - 1)
+    adjacent_pair = (codons.list.len() == 2) & (
+        codon_position(0) == codon_position(1) - 1
+    )
     ref = label.str.extract(r"^([A-Z])\d+[A-Z]", 1)
     alt = label.str.extract(r"^[A-Z]\d+([A-Z])", 1)
     return (
@@ -76,7 +80,10 @@ def variant_type_expr(column: str) -> pl.Expr:
             .then(pl.lit("3nt Deletion"))
             .otherwise(pl.lit("Other"))
         )
-        .when(label.str.contains("X", literal=True) | label.str.contains("*", literal=True))
+        .when(
+            label.str.contains("X", literal=True)
+            | label.str.contains("*", literal=True)
+        )
         .then(pl.lit("Nonsense"))
         .when(label.str.contains("WT", literal=True))
         .then(pl.lit("WT"))
@@ -90,7 +97,9 @@ def variant_type_expr(column: str) -> pl.Expr:
 
 def control_expr(variant_type: pl.Expr, column: str) -> pl.Expr:
     """The pipeline's control rule: a synonymous variant without a ``:<tag>`` suffix."""
-    return (variant_type == "Synonymous") & ~pl.col(column).str.contains(":", literal=True)
+    return (variant_type == "Synonymous") & ~pl.col(column).str.contains(
+        ":", literal=True
+    )
 
 
 def position_expr(column: str, *, strict: bool = False) -> pl.Expr:

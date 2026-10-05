@@ -57,7 +57,9 @@ class ClusterSummary(Dataset):
 
     def _block(self, key: str) -> list[str]:
         if key not in self.share_columns:
-            raise KeyError(f"No share block {key!r}; blocks are {list(self.share_columns)}")
+            raise KeyError(
+                f"No share block {key!r}; blocks are {list(self.share_columns)}"
+            )
         return self.share_columns[key]
 
     def shares(self, key: str) -> list[str]:
@@ -75,14 +77,18 @@ class ClusterSummary(Dataset):
             if self._counts is None or not cols:
                 self._totals = {k: {} for k in self.share_columns}
             else:
-                row = self._counts.select(pl.col(cols).sum()).collect().row(0, named=True)
+                row = (
+                    self._counts.select(pl.col(cols).sum()).collect().row(0, named=True)
+                )
                 self._totals = {
                     key: {c: int(row[c]) for c in block}
                     for key, block in self.share_columns.items()
                 }
         return self._totals
 
-    def group(self, key: str, name: str | None = None, **group_kw: Any) -> "FeatureGroup":
+    def group(
+        self, key: str, name: str | None = None, **group_kw: Any
+    ) -> "FeatureGroup":
         """A `FeatureGroup` of share block ``key``, titled ``name`` (default ``key``).
 
         Features are labelled ``"<level> (n=<total>)"`` and ``vmin`` defaults to 0;
@@ -116,7 +122,9 @@ def cluster_summary(
     """See `Dataset.cluster_summary`."""
     columns = dataset.columns
     schema = pl.DataFrame(schema=dataset.schema)
-    median_names = dict(medians) if isinstance(medians, Mapping) else {c: c for c in medians}
+    median_names = (
+        dict(medians) if isinstance(medians, Mapping) else {c: c for c in medians}
+    )
     _data.require_columns(schema, by, *median_names)
     shares = dict(shares or {})
     levels = dict(levels or {})
@@ -140,7 +148,9 @@ def cluster_summary(
                 f"Column {control_col!r} not found; chain .variant_type() before "
                 ".cluster_summary(zscore=...)"
             )
-        lf = lf.with_columns(_transforms.normalize_exprs(zcols, control_col=control_col, by=None))
+        lf = lf.with_columns(
+            _transforms.normalize_exprs(zcols, control_col=control_col, by=None)
+        )
 
     share_exprs: dict[str, dict[str, pl.Expr]] = {}
     for key, spec in shares.items():
@@ -177,7 +187,11 @@ def cluster_summary(
                 for name, expr in exprs.items()
             ],
         )
-        .sort(pl.col(by).cast(pl.Int64, strict=False), pl.col(by).cast(pl.String), nulls_last=True)
+        .sort(
+            pl.col(by).cast(pl.Int64, strict=False),
+            pl.col(by).cast(pl.String),
+            nulls_last=True,
+        )
     )
     share_cols = [name for exprs in share_exprs.values() for name in exprs]
     summary = counts.with_columns(
@@ -193,4 +207,3 @@ def cluster_summary(
         counts=counts,
         variant_col=dataset.variant_col,
     )
-

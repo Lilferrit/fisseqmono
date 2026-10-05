@@ -1,6 +1,6 @@
 """Matrix heatmaps."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import Any, Literal, Self
 
 import numpy as np
@@ -18,7 +18,11 @@ def _natural_sorted(values: Sequence[Any]) -> list[Any]:
     return sorted(values, key=_data._natural_key)
 
 
-_CORR_LABELS = {"pearson": "Pearson r", "spearman": "Spearman ρ", "cosine": "Cosine similarity"}
+_CORR_LABELS = {
+    "pearson": "Pearson r",
+    "spearman": "Spearman ρ",
+    "cosine": "Cosine similarity",
+}
 
 
 def correlation_label(method: str, squared: bool = False) -> str:
@@ -124,22 +128,37 @@ class Heatmap(Plot):
         super().__init__(data, title=title, figsize=figsize, dpi=dpi)
         if values is not None:
             if not isinstance(columns, str):
-                raise ValueError("Long form (values=...) needs a single `columns` column name")
+                raise ValueError(
+                    "Long form (values=...) needs a single `columns` column name"
+                )
             _data.require_columns(data, index, columns, values)
         else:
             if isinstance(columns, str):
                 raise ValueError("A single `columns` name needs `values` (long form)")
             if columns is None:
-                columns = [c for c in data.columns if c != index and _data.is_numeric(data, c)]
+                columns = [
+                    c for c in data.columns if c != index and _data.is_numeric(data, c)
+                ]
             _data.require_columns(data, index, *columns)
         self.index, self.columns, self.values = index, columns, values
-        self.aggregate, self.symmetric, self.fill_value = aggregate, symmetric, fill_value
+        self.aggregate, self.symmetric, self.fill_value = (
+            aggregate,
+            symmetric,
+            fill_value,
+        )
         self.nan_color = nan_color
         #: Shared-row counts per cell, set by `Heatmap.correlation`.
         self.n_shared: pd.DataFrame | None = None
         self.row_order, self.col_order = row_order, col_order
-        self.heatmap_kw = {"cmap": cmap, "vmin": vmin, "vmax": vmax, "center": center,
-                           "annot": annot, "fmt": fmt, **kw}
+        self.heatmap_kw = {
+            "cmap": cmap,
+            "vmin": vmin,
+            "vmax": vmax,
+            "center": center,
+            "annot": annot,
+            "fmt": fmt,
+            **kw,
+        }
 
     @classmethod
     def correlation(
@@ -177,8 +196,11 @@ class Heatmap(Plot):
         wide = pl.DataFrame({"column": columns}).with_columns(
             pl.Series(c, corr[:, i]) for i, c in enumerate(columns)
         )
-        scale = ({"cmap": "Blues", "vmin": 0, "vmax": 1} if squared
-                 else {"cmap": "vlag", "vmin": -1, "vmax": 1, "center": 0})
+        scale = (
+            {"cmap": "Blues", "vmin": 0, "vmax": 1}
+            if squared
+            else {"cmap": "vlag", "vmin": -1, "vmax": 1, "center": 0}
+        )
         kw = with_cbar_label(
             {**scale, "annot": True, "row_order": columns, "col_order": columns, **kw},
             correlation_label(method, squared),
@@ -191,7 +213,9 @@ class Heatmap(Plot):
         """The matrix that will be drawn, as a pandas DataFrame."""
         if self.values is not None:
             wide = self.data.pivot(
-                on=self.columns, index=self.index, values=self.values,  # type: ignore[arg-type]
+                on=self.columns,
+                index=self.index,
+                values=self.values,  # type: ignore[arg-type]
                 aggregate_function=self.aggregate,  # type: ignore[arg-type]
             )
             col_labels = [c for c in wide.columns if c != self.index]
@@ -205,8 +229,16 @@ class Heatmap(Plot):
             labels = _natural_sorted(list(set(mat.index) | set(mat.columns)))
             mat = mat.reindex(index=labels, columns=labels)
             mat = mat.combine_first(mat.T).reindex(index=labels, columns=labels)
-        rows = list(self.row_order) if self.row_order is not None else _natural_sorted(list(mat.index))
-        cols = list(self.col_order) if self.col_order is not None else _natural_sorted(list(mat.columns))
+        rows = (
+            list(self.row_order)
+            if self.row_order is not None
+            else _natural_sorted(list(mat.index))
+        )
+        cols = (
+            list(self.col_order)
+            if self.col_order is not None
+            else _natural_sorted(list(mat.columns))
+        )
         mat = mat.reindex(index=rows, columns=cols)
         if self.fill_value is not None:
             mat = mat.fillna(self.fill_value)

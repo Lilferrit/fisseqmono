@@ -108,7 +108,8 @@ class VolcanoPlot(Plot):
         features = [
             c.removesuffix(x_suffix)
             for c in data.columns
-            if c.endswith(x_suffix) and c.removesuffix(x_suffix) + y_suffix in data.columns
+            if c.endswith(x_suffix)
+            and c.removesuffix(x_suffix) + y_suffix in data.columns
         ]
         if not features:
             raise ValueError(
@@ -153,7 +154,8 @@ class VolcanoPlot(Plot):
             color = fisseq.PALETTE.get(label, "grey")
         new = copy.copy(self)
         new._point_layers = [
-            *self._point_layers, _PointLayer(where, label, color, scatter_kw)
+            *self._point_layers,
+            _PointLayer(where, label, color, scatter_kw),
         ]
         new._figure = None
         return new
@@ -177,7 +179,9 @@ class VolcanoPlot(Plot):
             pl.col(self.x).cast(pl.Float64).is_finite(),
             pl.col(self.y).cast(pl.Float64).is_finite(),
         )
-        return [(lyr, finite.filter(lyr.where).select(self.x, self.y)) for lyr in layers]
+        return [
+            (lyr, finite.filter(lyr.where).select(self.x, self.y)) for lyr in layers
+        ]
 
     def _draw(self, ax: Axes) -> None:
         points = self._points()
@@ -202,8 +206,14 @@ class VolcanoPlot(Plot):
         threshold = self._threshold(sum(rows.height for _, rows in points))
         if threshold is not None:
             name = "Bonferroni p" if self.bonferroni else "p"
-            ax.axhline(threshold, color="black", linestyle="--", linewidth=1,
-                       zorder=len(points) + 1, label=f"{name} = {self.alpha:g}")
+            ax.axhline(
+                threshold,
+                color="black",
+                linestyle="--",
+                linewidth=1,
+                zorder=len(points) + 1,
+                label=f"{name} = {self.alpha:g}",
+            )
 
         if self.x_quantiles is not None:
             xs = pl.concat([rows.get_column(self.x) for _, rows in points])

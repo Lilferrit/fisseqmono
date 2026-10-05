@@ -76,7 +76,9 @@ class Dataset:
         spec = _remote.parse(path)
         if spec is None:
             if download_dir is not None:
-                raise ValueError(f"download_dir is only used for remote files, but {path} is local")
+                raise ValueError(
+                    f"download_dir is only used for remote files, but {path} is local"
+                )
             return cls(pl.scan_parquet(path), **kw)
         host, remote_path = spec
         if any(ch in remote_path for ch in "*?["):
@@ -87,7 +89,9 @@ class Dataset:
             local = _remote.temp_dir(host, root)
         else:
             local = pathlib.Path(download_dir)
-        [file] = _remote.Remote(host, root, local, refresh=refresh).fetch([remote_file.name])
+        [file] = _remote.Remote(host, root, local, refresh=refresh).fetch(
+            [remote_file.name]
+        )
         return cls(pl.scan_parquet(file), **kw)
 
     # ----- chaining -------------------------------------------------------------------
@@ -102,7 +106,10 @@ class Dataset:
         _data.require_columns(pl.DataFrame(schema=self.schema), *columns)
 
     def pipe(
-        self, function: Callable[..., pl.LazyFrame | pl.DataFrame], *args: Any, **kw: Any
+        self,
+        function: Callable[..., pl.LazyFrame | pl.DataFrame],
+        *args: Any,
+        **kw: Any,
     ) -> Self:
         """Apply ``function(lazyframe, *args, **kw)`` and wrap the frame it returns."""
         return self._replace(function(self._lf, *args, **kw))
@@ -157,10 +164,16 @@ class Dataset:
         variant_type = _variants.variant_type_expr(self.variant_col)
         exprs = [variant_type.alias(output_col)]
         if control_col is not None:
-            exprs.append(_variants.control_expr(variant_type, self.variant_col).alias(control_col))
+            exprs.append(
+                _variants.control_expr(variant_type, self.variant_col).alias(
+                    control_col
+                )
+            )
         return self.with_columns(exprs)
 
-    def position(self, *, strict: bool = False, output_col: str = "meta_position") -> Self:
+    def position(
+        self, *, strict: bool = False, output_col: str = "meta_position"
+    ) -> Self:
         """Add the amino-acid position of each variant.
 
         By default the leading position of the first codon is used, so frameshifts,
@@ -188,7 +201,9 @@ class Dataset:
         self._require(self.variant_col)
         position = _variants.position_expr(self.variant_col, strict=True)
         regions = fisseq.LMNA_DOMAIN_REGIONS if regions is None else regions
-        return self.with_columns(_variants.region_expr(position, regions).alias(output_col))
+        return self.with_columns(
+            _variants.region_expr(position, regions).alias(output_col)
+        )
 
     def tile(
         self,
@@ -208,7 +223,9 @@ class Dataset:
         position = _variants.position_expr(self.variant_col)
         tiles = fisseq.LMNA_TILES if tiles is None else tiles
         return self.with_columns(
-            _variants.tile_expr(position, tiles, allow_multiple=allow_multiple).alias(output_col)
+            _variants.tile_expr(position, tiles, allow_multiple=allow_multiple).alias(
+                output_col
+            )
         )
 
     def clinvar(
@@ -244,7 +261,11 @@ class Dataset:
             table.unique(subset=["variant"], keep="first", maintain_order=True)
             .filter(pl.col("clinvar_clinical_significance").str.contains("Pathogenic"))
             .rename(
-                {c: f"{_META}{c}" for c in columns if c != "variant" and not c.startswith(_META)}
+                {
+                    c: f"{_META}{c}"
+                    for c in columns
+                    if c != "variant" and not c.startswith(_META)
+                }
             )
         )
         significance = pl.col("meta_clinvar_clinical_significance")

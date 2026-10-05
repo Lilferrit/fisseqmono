@@ -69,7 +69,9 @@ class BoxPlot(Plot):
         super().__init__(data, title=title, figsize=figsize, dpi=dpi)
         _data.require_columns(data, x, y, hue)
         if points not in (None, "strip", "density"):
-            raise ValueError(f"points must be None, 'strip' or 'density', got {points!r}")
+            raise ValueError(
+                f"points must be None, 'strip' or 'density', got {points!r}"
+            )
         self.x, self.y, self.hue = x, y, hue
         self.order = _data.resolve_order(data, x, order)
         self.hue_order = _data.resolve_order(data, hue, hue_order) if hue else None
@@ -133,7 +135,9 @@ class BoxPlot(Plot):
 
     def _valid(self) -> pl.DataFrame:
         """Rows with a usable (non-null, non-NaN) ``y``."""
-        return self.data.filter(pl.col(self.y).is_not_null() & pl.col(self.y).is_not_nan())
+        return self.data.filter(
+            pl.col(self.y).is_not_null() & pl.col(self.y).is_not_nan()
+        )
 
     def _pdf(self) -> pd.DataFrame:
         return _data.to_pandas(self._valid(), self.x, self.y, self.hue)

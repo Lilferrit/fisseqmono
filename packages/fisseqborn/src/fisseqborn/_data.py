@@ -75,7 +75,8 @@ def resolve_order(
 
 
 def resolve_palette(
-    levels: Iterable[Any], palette: Mapping[Any, Any] | str | Sequence[Any] | None = None
+    levels: Iterable[Any],
+    palette: Mapping[Any, Any] | str | Sequence[Any] | None = None,
 ) -> dict[Any, Any]:
     """Map each level to a color.
 
@@ -125,6 +126,10 @@ def color_norm(
         below, above = bool(finite.min() < vmin), bool(finite.max() > vmax)
     else:
         below = above = False
-    extend = {(False, False): "neither", (True, False): "min",
-              (False, True): "max", (True, True): "both"}[(below, above)]
+    extend = {
+        (False, False): "neither",
+        (True, False): "min",
+        (False, True): "max",
+        (True, True): "both",
+    }[(below, above)]
     return Normalize(vmin=vmin, vmax=vmax), extend

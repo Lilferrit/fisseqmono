@@ -25,7 +25,9 @@ LABELS = [
 
 @pytest.fixture
 def labels() -> fb.Dataset:
-    return fb.Dataset(pl.DataFrame({"meta_aa_changes": LABELS, "feature_0": range(len(LABELS))}))
+    return fb.Dataset(
+        pl.DataFrame({"meta_aa_changes": LABELS, "feature_0": range(len(LABELS))})
+    )
 
 
 def test_rejects_non_polars():
@@ -74,7 +76,9 @@ def test_chaining_returns_copies(labels):
 
 def test_position_domain_and_tile():
     ds = fb.Dataset(
-        pl.DataFrame({"meta_aa_changes": ["A5V", "A95fs", "A222V", "A300-|L301-", "WT", "A700V"]})
+        pl.DataFrame(
+            {"meta_aa_changes": ["A5V", "A95fs", "A222V", "A300-|L301-", "WT", "A700V"]}
+        )
     )
     df = ds.position().position(strict=True, output_col="strict").domain().tile().df
     assert df["meta_position"].to_list() == [5, 95, 222, 300, None, 700]
@@ -107,7 +111,9 @@ def test_clinvar(tmp_path):
     )
     path = tmp_path / "clinvar.parquet"
     clinvar.write_parquet(path)
-    ds = fb.Dataset(pl.DataFrame({"meta_aa_changes": ["A1A", "A2V", "A3V", "A4V"]})).variant_type()
+    ds = fb.Dataset(
+        pl.DataFrame({"meta_aa_changes": ["A1A", "A2V", "A3V", "A4V"]})
+    ).variant_type()
     df = ds.clinvar(path).df
     assert df["meta_clinvar_annotation"].to_list() == [
         "Synonymous",
@@ -122,7 +128,9 @@ def test_clinvar(tmp_path):
 def test_clinvar_needs_variant_type():
     ds = fb.Dataset(pl.DataFrame({"meta_aa_changes": ["A1A"]}))
     with pytest.raises(ValueError, match="meta_variant_type"):
-        ds.clinvar(pl.DataFrame({"variant": ["A1A"], "clinvar_clinical_significance": ["x"]}))
+        ds.clinvar(
+            pl.DataFrame({"variant": ["A1A"], "clinvar_clinical_significance": ["x"]})
+        )
 
 
 def test_polars_passthroughs(labels):

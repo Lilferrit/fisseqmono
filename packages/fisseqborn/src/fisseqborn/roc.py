@@ -65,12 +65,16 @@ class RocPlot(Plot):
         self.scores = _as_list(score)
         _data.require_columns(data, label, group, *self.scores)
         if group is not None and len(self.scores) > 1:
-            raise ValueError("Pass either several score columns or a group column, not both")
+            raise ValueError(
+                "Pass either several score columns or a group column, not both"
+            )
         self.label, self.group, self.combined = label, group, combined
         self.positive, self.negative = _as_list(positive), _as_list(negative)
         overlap = set(self.positive) & set(self.negative)
         if overlap:
-            raise ValueError(f"Levels are both positive and negative: {sorted(overlap)}")
+            raise ValueError(
+                f"Levels are both positive and negative: {sorted(overlap)}"
+            )
         self.names = dict(names or {})
         self.line_kw = line_kw
         self.group_order = (
@@ -91,7 +95,8 @@ class RocPlot(Plot):
             return [(s, s, df) for s in self.scores]
         score = self.scores[0]
         curves = [
-            (lvl, score, df.filter(pl.col(self.group) == lvl)) for lvl in self.group_order or []
+            (lvl, score, df.filter(pl.col(self.group) == lvl))
+            for lvl in self.group_order or []
         ]
         if self.combined:
             curves.append(("Combined", score, df))
@@ -100,7 +105,9 @@ class RocPlot(Plot):
     @staticmethod
     def _roc_inputs(rows: pl.DataFrame, score: str):
         rows = rows.filter(pl.col(score).cast(pl.Float64).is_finite())
-        return rows.get_column("__is_positive").to_numpy(), rows.get_column(score).to_numpy()
+        return rows.get_column("__is_positive").to_numpy(), rows.get_column(
+            score
+        ).to_numpy()
 
     def aucs(self) -> pl.DataFrame:
         """One row per curve: ``curve``, ``auc``, ``n_positive``, ``n_negative``."""
@@ -110,10 +117,23 @@ class RocPlot(Plot):
             n_pos = int(truth.sum())
             n_neg = len(truth) - n_pos
             auc = roc_auc_score(truth, values) if n_pos and n_neg else float("nan")
-            rows.append({"curve": str(key), "auc": float(auc),
-                         "n_positive": n_pos, "n_negative": n_neg})
-        return pl.DataFrame(rows, schema={"curve": pl.String, "auc": pl.Float64,
-                                          "n_positive": pl.Int64, "n_negative": pl.Int64})
+            rows.append(
+                {
+                    "curve": str(key),
+                    "auc": float(auc),
+                    "n_positive": n_pos,
+                    "n_negative": n_neg,
+                }
+            )
+        return pl.DataFrame(
+            rows,
+            schema={
+                "curve": pl.String,
+                "auc": pl.Float64,
+                "n_positive": pl.Int64,
+                "n_negative": pl.Int64,
+            },
+        )
 
     def _draw(self, ax: Axes) -> None:
         for key, score, curve_df in self._curves():
@@ -123,11 +143,22 @@ class RocPlot(Plot):
             fpr, tpr, _ = roc_curve(truth, values)
             auc = roc_auc_score(truth, values)
             name = self.names.get(key, str(key))
-            color = "black" if key == "Combined" and self.group else self.palette.get(key)
-            ax.plot(fpr, tpr, label=f"{name} (AUC = {auc:.3f})", color=color,
-                    **{"linewidth": 2, **self.line_kw})
+            color = (
+                "black" if key == "Combined" and self.group else self.palette.get(key)
+            )
+            ax.plot(
+                fpr,
+                tpr,
+                label=f"{name} (AUC = {auc:.3f})",
+                color=color,
+                **{"linewidth": 2, **self.line_kw},
+            )
         ax.plot([0, 1], [0, 1], linestyle="--", color="gray", linewidth=1)
-        ax.set(xlim=(0, 1), ylim=(0, 1), xlabel="False positive rate",
-               ylabel="True positive rate")
+        ax.set(
+            xlim=(0, 1),
+            ylim=(0, 1),
+            xlabel="False positive rate",
+            ylabel="True positive rate",
+        )
         if ax.get_legend_handles_labels()[0]:
             ax.legend(loc="lower right")

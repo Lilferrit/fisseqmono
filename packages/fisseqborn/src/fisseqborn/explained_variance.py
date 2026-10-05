@@ -64,11 +64,15 @@ class ExplainedVariancePlot(Plot):
         super().__init__(data, title=title, figsize=figsize, dpi=dpi)
         _data.require_columns(data, "explained_variance_ratio")
         if kind not in ("cumulative", "scree", "both"):
-            raise ValueError(f"kind must be 'cumulative', 'scree' or 'both', got {kind!r}")
+            raise ValueError(
+                f"kind must be 'cumulative', 'scree' or 'both', got {kind!r}"
+            )
         if x not in ("components", "fraction"):
             raise ValueError(f"x must be 'components' or 'fraction', got {x!r}")
         self.kind, self.x = kind, x
-        self.ratios = data.get_column("explained_variance_ratio").cast(pl.Float64).to_numpy()
+        self.ratios = (
+            data.get_column("explained_variance_ratio").cast(pl.Float64).to_numpy()
+        )
         self.thresholds = list(thresholds)
         self.noise_floor = noise_floor
         self.palette = _data.resolve_palette(self.thresholds, palette)
@@ -88,22 +92,31 @@ class ExplainedVariancePlot(Plot):
     def _draw(self, ax: Axes) -> None:
         pos = self._positions()
         cumulative = np.cumsum(self.ratios)
-        xlabel = "Fraction of components" if self.x == "fraction" else "Number of components"
+        xlabel = (
+            "Fraction of components" if self.x == "fraction" else "Number of components"
+        )
         xmax = 1.0 if self.x == "fraction" else len(pos) + 0.5
         width = (pos[1] - pos[0]) * 0.8 if len(pos) > 1 else 0.8
 
         if self.kind == "scree":
             ax.bar(pos, self.ratios, width=width, color="grey")
             if self.noise_floor is not None:
-                ax.axhline(self.noise_floor, linestyle="--", color="red", linewidth=1,
-                           label="noise floor")
+                ax.axhline(
+                    self.noise_floor,
+                    linestyle="--",
+                    color="red",
+                    linewidth=1,
+                    label="noise floor",
+                )
             ax.set(ylabel="Explained variance ratio")
         else:
             if self.kind == "both":
                 scree_ax = ax.twinx()
                 scree_ax.bar(pos, self.ratios, width=width, color="lightgrey", zorder=0)
                 if self.noise_floor is not None:
-                    scree_ax.axhline(self.noise_floor, linestyle=":", color="red", linewidth=1)
+                    scree_ax.axhline(
+                        self.noise_floor, linestyle=":", color="red", linewidth=1
+                    )
                 scree_ax.set_ylabel("Explained variance ratio")
                 ax.set_zorder(scree_ax.get_zorder() + 1)
                 ax.patch.set_visible(False)
@@ -112,12 +125,22 @@ class ExplainedVariancePlot(Plot):
                 k = self.n_components(t)
                 color = self.palette[t]
                 ax.axhline(t, linestyle="--", color=color, linewidth=1)
-                ax.axvline(self._xpos(k), linestyle="--", color=color, linewidth=1,
-                           label=f"{t:g}: {k} PCs")
+                ax.axvline(
+                    self._xpos(k),
+                    linestyle="--",
+                    color=color,
+                    linewidth=1,
+                    label=f"{t:g}: {k} PCs",
+                )
             if self.noise_floor is not None:
                 k = int(np.sum(self.ratios > self.noise_floor))
-                ax.axvline(self._xpos(k), linestyle=":", color="red", linewidth=1,
-                           label=f"noise floor: {k} PCs")
+                ax.axvline(
+                    self._xpos(k),
+                    linestyle=":",
+                    color="red",
+                    linewidth=1,
+                    label=f"noise floor: {k} PCs",
+                )
             ax.set(ylim=(0, 1.01), ylabel="Cumulative explained variance")
         ax.set(xlim=(0, xmax), xlabel=xlabel)
         if ax.get_legend_handles_labels()[0]:

@@ -85,7 +85,7 @@ LMNA_TILES: list[tuple[str, int, int]] = [
     ("T8", 607, 664),
 ]
 
-_BATCH_RE =re.compile(r"^(?P<time>T\d+)_(?P<replicate>R\d+)$")
+_BATCH_RE = re.compile(r"^(?P<time>T\d+)_(?P<replicate>R\d+)$")
 
 
 def _parse_batch_name(batch: str) -> tuple[str, str]:

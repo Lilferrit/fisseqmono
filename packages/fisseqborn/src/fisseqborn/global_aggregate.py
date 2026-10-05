@@ -29,7 +29,11 @@ from .ovwt import OvwtScores
 from .profiles import Profiles
 
 #: `Profiles.feature_select`'s default operations (the pipeline's).
-OPERATIONS: tuple[str, ...] = ("variance_threshold", "blocklist", "correlation_threshold")
+OPERATIONS: tuple[str, ...] = (
+    "variance_threshold",
+    "blocklist",
+    "correlation_threshold",
+)
 
 
 def write_global(
@@ -111,7 +115,9 @@ def write_global(
     )
     schema = profiles.schema
     sum_cols = [
-        c for c in profiles.meta if c not in (variant_col, batch_col) and schema[c].is_integer()
+        c
+        for c in profiles.meta
+        if c not in (variant_col, batch_col) and schema[c].is_integer()
     ]
     aggregate = (
         profiles.keep_features(ok)
@@ -146,11 +152,16 @@ def write_global(
             .per_variant(corrected, n_col="meta_num_experiments")
             .select(
                 variant_col,
-                *[pl.col(c).alias(f"meta_median_{s}") for s, c in zip(scores, corrected)],
+                *[
+                    pl.col(c).alias(f"meta_median_{s}")
+                    for s, c in zip(scores, corrected)
+                ],
                 "meta_num_experiments",
             )
         )
-        written["global_scores"] = out / "ovwt_distinguishability" / "global_scores.parquet"
+        written["global_scores"] = (
+            out / "ovwt_distinguishability" / "global_scores.parquet"
+        )
         global_scores.save(written["global_scores"])
     return written
 
@@ -184,9 +195,12 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "pipeline_dir", help="pipeline output directory, local or remote (user@host:/path)"
+        "pipeline_dir",
+        help="pipeline output directory, local or remote (user@host:/path)",
     )
-    parser.add_argument("--out", type=pathlib.Path, required=True, help="output directory")
+    parser.add_argument(
+        "--out", type=pathlib.Path, required=True, help="output directory"
+    )
     parser.add_argument(
         "--exclude",
         action="append",
@@ -202,7 +216,10 @@ def _parser() -> argparse.ArgumentParser:
         help="exclude batches whose name this regex matches (repeatable), e.g. '_R3$'",
     )
     parser.add_argument(
-        "--types", nargs="+", default=["median"], help="aggregate types (default: median)"
+        "--types",
+        nargs="+",
+        default=["median"],
+        help="aggregate types (default: median)",
     )
     parser.add_argument(
         "--passthrough",
@@ -253,9 +270,15 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--corr-threshold", type=float, default=0.9)
     parser.add_argument(
-        "--pca", type=int, default=0, metavar="N", help="add N PCs and write pca_components"
+        "--pca",
+        type=int,
+        default=0,
+        metavar="N",
+        help="add N PCs and write pca_components",
     )
-    parser.add_argument("--umap", type=int, default=0, metavar="N", help="add an N-D UMAP")
+    parser.add_argument(
+        "--umap", type=int, default=0, metavar="N", help="add an N-D UMAP"
+    )
     parser.add_argument(
         "--scores",
         nargs="+",
@@ -285,7 +308,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     """Entry point of the ``fisseqborn-global`` command."""
     parser = _parser()
     args = parser.parse_args(argv)
-    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s"
+    )
     try:
         paired = _paired(args.paired)
     except argparse.ArgumentTypeError as err:

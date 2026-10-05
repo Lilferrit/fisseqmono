@@ -107,7 +107,9 @@ class OvwtScores(Dataset):
             for b, path in zip(names, paths)
         ]
         return cls(
-            pl.concat(frames, how="diagonal_relaxed"), variant_col=variant_col, batch_col=batch_col
+            pl.concat(frames, how="diagonal_relaxed"),
+            variant_col=variant_col,
+            batch_col=batch_col,
         )
 
     @classmethod
@@ -196,7 +198,9 @@ class OvwtScores(Dataset):
         """
         scores = self._score_columns(score)
         if output_col is not None and len(scores) != 1:
-            raise ValueError("output_col needs a single score; the others get '_corrected'")
+            raise ValueError(
+                "output_col needs a single score; the others get '_corrected'"
+            )
         self._require(self.variant_col, self.batch_col)
         if reference == "synonymous":
             is_reference = _variants.control_expr(
@@ -205,8 +209,14 @@ class OvwtScores(Dataset):
         elif reference == "all":
             is_reference = pl.lit(True)
         else:
-            raise ValueError(f"reference must be 'synonymous' or 'all', got {reference!r}")
-        outputs = [output_col] if output_col is not None else [f"{s}_corrected" for s in scores]
+            raise ValueError(
+                f"reference must be 'synonymous' or 'all', got {reference!r}"
+            )
+        outputs = (
+            [output_col]
+            if output_col is not None
+            else [f"{s}_corrected" for s in scores]
+        )
 
         def value(s: str) -> pl.Expr:
             return pl.col(s).cast(pl.Float64).fill_nan(None)
@@ -247,7 +257,9 @@ class OvwtScores(Dataset):
                 z = z * target_std + target_mean
             exprs.append(z.alias(out))
         return self._replace(
-            self._lf.join(stats.lazy(), on=self.batch_col, how="left", maintain_order="left")
+            self._lf.join(
+                stats.lazy(), on=self.batch_col, how="left", maintain_order="left"
+            )
             .with_columns(exprs)
             .drop(stats.columns[1:])
         )
@@ -271,7 +283,9 @@ class OvwtScores(Dataset):
         self._require(self.variant_col, self.batch_col)
         summed = [c for c in ("meta_n_cells", "meta_n_barcodes") if c in self.columns]
         first = [
-            c for c in self.meta if c not in {self.variant_col, self.batch_col, n_col, *summed}
+            c
+            for c in self.meta
+            if c not in {self.variant_col, self.batch_col, n_col, *summed}
         ]
         present = pl.any_horizontal([pl.col(s).is_not_null() for s in scores])
         return self._replace(
@@ -279,6 +293,9 @@ class OvwtScores(Dataset):
                 *[pl.col(c).first() for c in first],
                 *[pl.col(c).sum() for c in summed],
                 present.sum().cast(pl.UInt32).alias(n_col),
-                *[pl.col(s).median() if agg == "median" else pl.col(s).mean() for s in scores],
+                *[
+                    pl.col(s).median() if agg == "median" else pl.col(s).mean()
+                    for s in scores
+                ],
             )
         )

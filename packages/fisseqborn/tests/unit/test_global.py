@@ -62,7 +62,9 @@ def test_cli_writes_the_old_global_artifacts(pipeline_dir, tmp_path, capsys):
     loadings = pl.read_parquet(out / "feature_select" / "pca_components.parquet")
     assert loadings["component"].to_list() == ["meta_pc_1", "meta_pc_2"]
 
-    global_scores = pl.read_parquet(out / "ovwt_distinguishability" / "global_scores.parquet")
+    global_scores = pl.read_parquet(
+        out / "ovwt_distinguishability" / "global_scores.parquet"
+    )
     assert global_scores.columns == [
         "meta_aa_changes",
         "meta_median_auroc_pooled",
@@ -70,15 +72,18 @@ def test_cli_writes_the_old_global_artifacts(pipeline_dir, tmp_path, capsys):
         "meta_median_auroc_median_fold",
         "meta_num_experiments",
     ]
-    assert global_scores["meta_num_experiments"].to_list() == [len(PIPELINE_BATCHES)] * len(
-        PIPELINE_VARIANTS
-    )
+    assert global_scores["meta_num_experiments"].to_list() == [
+        len(PIPELINE_BATCHES)
+    ] * len(PIPELINE_VARIANTS)
     # z-score each experiment against its synonymous controls, then take the median
     raw = fb.OvwtScores.from_pipeline(pipeline_dir).variant_type().df
     controls = (
         raw.filter("meta_is_control")
         .group_by("meta_experiment")
-        .agg(pl.col("auroc_pooled").mean().alias("mean"), pl.col("auroc_pooled").std().alias("std"))
+        .agg(
+            pl.col("auroc_pooled").mean().alias("mean"),
+            pl.col("auroc_pooled").std().alias("std"),
+        )
     )
     expected = (
         raw.join(controls, on="meta_experiment")
@@ -86,14 +91,20 @@ def test_cli_writes_the_old_global_artifacts(pipeline_dir, tmp_path, capsys):
         .agg(((pl.col("auroc_pooled") - pl.col("mean")) / pl.col("std")).median())
     )
     np.testing.assert_allclose(
-        global_scores["meta_median_auroc_pooled"].to_numpy(), expected["auroc_pooled"].to_numpy()
+        global_scores["meta_median_auroc_pooled"].to_numpy(),
+        expected["auroc_pooled"].to_numpy(),
     )
 
 
 def test_write_global_options(pipeline_dir, tmp_path):
     out = tmp_path / "global"
     written = fb.write_global(
-        pipeline_dir, out, exclude="T10_*", operations=(), min_correlation=0.7, ovwt=False
+        pipeline_dir,
+        out,
+        exclude="T10_*",
+        operations=(),
+        min_correlation=0.7,
+        ovwt=False,
     )
     assert set(written) == {"aggregate", "blocklist"}
     blocklist = pl.read_parquet(written["blocklist"])
@@ -101,19 +112,30 @@ def test_write_global_options(pipeline_dir, tmp_path):
     # intensity has median_r 0.6 in T2_R1, so it fails at 0.7
     assert blocklist["feature_ok"].to_list() == [True, False, False]
     aggregate = pl.read_parquet(written["aggregate"])
-    assert [c for c in aggregate.columns if not c.startswith("meta_")] == ["AreaShape_Area_median"]
+    assert [c for c in aggregate.columns if not c.startswith("meta_")] == [
+        "AreaShape_Area_median"
+    ]
     assert aggregate["meta_n_experiments"].to_list() == [2] * len(PIPELINE_VARIANTS)
 
 
 def test_cli_exclude_regex_and_bad_paired(pipeline_dir, tmp_path):
     out = tmp_path / "global"
     global_aggregate.main(
-        [str(pipeline_dir), "--out", str(out), "--exclude-regex", "^T1_", "--operations"]
+        [
+            str(pipeline_dir),
+            "--out",
+            str(out),
+            "--exclude-regex",
+            "^T1_",
+            "--operations",
+        ]
     )
     scores = pl.read_parquet(out / "ovwt_distinguishability" / "global_scores.parquet")
     assert scores["meta_num_experiments"].to_list() == [2] * len(PIPELINE_VARIANTS)
     with pytest.raises(SystemExit):
-        global_aggregate.main([str(pipeline_dir), "--out", str(out), "--paired", "median"])
+        global_aggregate.main(
+            [str(pipeline_dir), "--out", str(out), "--paired", "median"]
+        )
 
 
 def test_documented_chain_matches_write_global(pipeline_dir, tmp_path):
@@ -131,7 +153,9 @@ def test_documented_chain_matches_write_global(pipeline_dir, tmp_path):
     )
 
     # the chain from docs/data.md ("Reproduce the old global feature select")
-    blocklists = fb.Blocklists.from_pipeline(run, types=["median", "KS"]).rethreshold(0.7)
+    blocklists = fb.Blocklists.from_pipeline(run, types=["median", "KS"]).rethreshold(
+        0.7
+    )
     table = blocklists.table()
     ok = table.filter("feature_ok")["feature"].to_list()
     assert ok == blocklists.consensus()

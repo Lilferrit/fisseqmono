@@ -73,13 +73,17 @@ def test_distinguishability_join(batch_scores):
     profiles = fb.Profiles(pl.DataFrame({"meta_aa_changes": ["D3V", "A1A", "Z9Z"]}))
     corrected = batch_scores.correct().per_variant("auroc_pooled_corrected").df
     joined = profiles.distinguishability(batch_scores).df
-    expected = dict(zip(corrected["meta_aa_changes"], corrected["auroc_pooled_corrected"]))
+    expected = dict(
+        zip(corrected["meta_aa_changes"], corrected["auroc_pooled_corrected"])
+    )
     assert joined["meta_distinguishability_score"].to_list()[:2] == pytest.approx(
         [expected["D3V"], expected["A1A"]]
     )
     assert joined["meta_distinguishability_score"][2] is None
     raw = profiles.distinguishability(batch_scores, reference=None).df
-    assert raw["meta_distinguishability_score"].to_list()[:2] == pytest.approx([0.9, 0.5])
+    assert raw["meta_distinguishability_score"].to_list()[:2] == pytest.approx(
+        [0.9, 0.5]
+    )
     # an already per-variant table is joined as-is
     as_is = profiles.distinguishability(batch_scores.per_variant(), output_col="s").df
     assert as_is["s"].to_list()[:2] == pytest.approx([0.9, 0.5])
@@ -89,7 +93,11 @@ def test_from_global_is_deprecated(tmp_path):
     path = tmp_path / "global" / "main" / "ovwt_distinguishability"
     path.mkdir(parents=True)
     pl.DataFrame(
-        {"meta_aa_changes": ["A1V"], "meta_median_auroc_pooled": [1.5], "meta_num_experiments": [3]}
+        {
+            "meta_aa_changes": ["A1V"],
+            "meta_median_auroc_pooled": [1.5],
+            "meta_num_experiments": [3],
+        }
     ).write_parquet(path / "global_scores.parquet")
     with pytest.warns(DeprecationWarning, match="global_scores.parquet"):
         scores = fb.OvwtScores.from_global(tmp_path, "main")
@@ -143,11 +151,15 @@ def test_from_pipeline_reads_legacy_schema(tmp_path):
     assert per_variant["meta_n_cells"].to_list() == [20, 40, 60]
     assert per_variant["test_auroc"].to_list() == pytest.approx([0.55, 0.6, 0.9])
 
-    profiles = fb.Profiles(pl.DataFrame({"meta_aa_changes": ["A1A", "D3V"], "f_median": [1.0, 2.0]}))
+    profiles = fb.Profiles(
+        pl.DataFrame({"meta_aa_changes": ["A1A", "D3V"], "f_median": [1.0, 2.0]})
+    )
     with pytest.raises(ValueError, match="test_auroc"):
         profiles.distinguishability(scores)
     joined = profiles.distinguishability(scores, score="test_auroc", reference=None).df
-    assert joined["meta_distinguishability_score"].to_list() == pytest.approx([0.55, 0.9])
+    assert joined["meta_distinguishability_score"].to_list() == pytest.approx(
+        [0.55, 0.9]
+    )
 
 
 def test_blocklist_table_and_missing(pipeline_dir):
@@ -156,19 +168,41 @@ def test_blocklist_table_and_missing(pipeline_dir):
     assert table.columns == ["feature", "n_batches", "n_ok", "feature_ok"]
     rows = {r["feature"]: r for r in table.iter_rows(named=True)}
     intensity = rows["Mean_Nuclei_Intensity_MeanIntensity_CH1_median"]
-    assert (intensity["n_batches"], intensity["n_ok"], intensity["feature_ok"]) == (3, 2, False)
+    assert (intensity["n_batches"], intensity["n_ok"], intensity["feature_ok"]) == (
+        3,
+        2,
+        False,
+    )
     assert rows["AreaShape_Area_median"]["feature_ok"]
-    assert blocklists.rethreshold(0.7).table(min_batches=2).filter("feature_ok").height == 2
+    assert (
+        blocklists.rethreshold(0.7).table(min_batches=2).filter("feature_ok").height
+        == 2
+    )
 
     # T1_R1's blocklist no longer reports the area feature
-    path = pipeline_dir / "feature_select_batchwise" / "T1_R1" / "blocklists" / "median.parquet"
-    pl.read_parquet(path).filter(pl.col("feature") != "AreaShape_Area_median").write_parquet(path)
+    path = (
+        pipeline_dir
+        / "feature_select_batchwise"
+        / "T1_R1"
+        / "blocklists"
+        / "median.parquet"
+    )
+    pl.read_parquet(path).filter(
+        pl.col("feature") != "AreaShape_Area_median"
+    ).write_parquet(path)
     partial = fb.Blocklists.from_pipeline(pipeline_dir, types=["median"])
     assert "AreaShape_Area_median" not in partial.consensus()
     assert "AreaShape_Area_median" in partial.consensus(missing="ignore")
-    area = partial.table(missing="ignore").filter(pl.col("feature") == "AreaShape_Area_median")
+    area = partial.table(missing="ignore").filter(
+        pl.col("feature") == "AreaShape_Area_median"
+    )
     assert area.row(0) == ("AreaShape_Area_median", 2, 2, True)
-    assert partial.table().filter(pl.col("feature") == "AreaShape_Area_median")["feature_ok"][0] is False
+    assert (
+        partial.table().filter(pl.col("feature") == "AreaShape_Area_median")[
+            "feature_ok"
+        ][0]
+        is False
+    )
     with pytest.raises(ValueError, match="missing"):
         partial.consensus(missing="drop")
 
@@ -180,7 +214,9 @@ def test_correct_defaults_to_every_score(pipeline_dir):
     assert "auroc_folds_corrected" not in corrected.columns
     # each score is corrected as it would be on its own
     alone = scores.correct("auroc_median_barcode").df["auroc_median_barcode_corrected"]
-    assert corrected.df["auroc_median_barcode_corrected"].to_list() == pytest.approx(alone.to_list())
+    assert corrected.df["auroc_median_barcode_corrected"].to_list() == pytest.approx(
+        alone.to_list()
+    )
     with pytest.raises(ValueError, match="output_col"):
         scores.correct(["auroc_pooled", "auroc_median_fold"], output_col="x")
 
@@ -190,7 +226,8 @@ def test_correct_without_rescale_is_a_zscore(batch_scores):
     means = {"b0": 0.55, "b1": 0.75, "b2": 0.5}
     stds = {"b0": np.sqrt(0.005), "b1": np.sqrt(0.005), "b2": np.sqrt(0.02)}  # ddof=1
     expected = [
-        (v - means[b]) / stds[b] for v, b in zip(df["auroc_pooled"], df["meta_experiment"])
+        (v - means[b]) / stds[b]
+        for v, b in zip(df["auroc_pooled"], df["meta_experiment"])
     ]
     np.testing.assert_allclose(df["auroc_pooled_corrected"].to_numpy(), expected)
 
@@ -199,7 +236,16 @@ def test_correct_constant_and_missing_controls_give_null(caplog):
     scores = fb.OvwtScores(
         pl.DataFrame(
             {
-                "meta_aa_changes": ["A1A", "C2C", "D3V", "A1A", "D3V", "A1A", "C2C", "D3V"],
+                "meta_aa_changes": [
+                    "A1A",
+                    "C2C",
+                    "D3V",
+                    "A1A",
+                    "D3V",
+                    "A1A",
+                    "C2C",
+                    "D3V",
+                ],
                 "meta_experiment": ["flat"] * 3 + ["one"] * 2 + ["ok"] * 3,
                 "auroc_pooled": [0.6, 0.6, 0.9, 0.5, 0.9, 0.5, 0.7, 0.9],
             }
@@ -208,7 +254,9 @@ def test_correct_constant_and_missing_controls_give_null(caplog):
     with caplog.at_level("WARNING"):
         df = scores.correct(rescale=False).df
     by_batch = dict(
-        df.group_by("meta_experiment").agg(pl.col("auroc_pooled_corrected").is_null().all()).iter_rows()
+        df.group_by("meta_experiment")
+        .agg(pl.col("auroc_pooled_corrected").is_null().all())
+        .iter_rows()
     )
     assert by_batch == {"flat": True, "one": True, "ok": False}
     # only the experiment with a single synonymous control is warned about
@@ -216,7 +264,12 @@ def test_correct_constant_and_missing_controls_give_null(caplog):
     assert "one" in caplog.records[0].getMessage()
     assert "fewer than 2" in caplog.records[0].getMessage()
     # the rescaled correction also gives null rather than inf for a zero std
-    assert df.filter(pl.col("meta_experiment") == "flat")["auroc_pooled_corrected"].null_count() == 3
+    assert (
+        df.filter(pl.col("meta_experiment") == "flat")[
+            "auroc_pooled_corrected"
+        ].null_count()
+        == 3
+    )
     rescaled = scores.correct().df.filter(pl.col("meta_experiment") == "flat")
     assert rescaled["auroc_pooled_corrected"].null_count() == 3
 
@@ -227,17 +280,22 @@ def test_auroc_folds_is_not_a_score(pipeline_dir):
         scores.correct("auroc_folds")
     with pytest.raises(ValueError, match="auroc_folds"):
         scores.per_variant(["auroc_pooled", "auroc_folds"])
-    legacy = fb.OvwtScores(pl.DataFrame({"meta_aa_changes": ["A1A"], "test_auroc": [0.5]}))
+    legacy = fb.OvwtScores(
+        pl.DataFrame({"meta_aa_changes": ["A1A"], "test_auroc": [0.5]})
+    )
     with pytest.raises(ValueError, match="test_auroc"):
         legacy.correct()
 
 
 def test_per_variant_several_scores(batch_scores):
-    two = batch_scores.with_columns((pl.col("auroc_pooled") * 2).alias("auroc_median_fold"))
+    two = batch_scores.with_columns(
+        (pl.col("auroc_pooled") * 2).alias("auroc_median_fold")
+    )
     two = two.with_columns(
-        pl.when(pl.col("meta_experiment") == "b2").then(None).otherwise(pl.col("auroc_pooled")).alias(
-            "auroc_pooled"
-        )
+        pl.when(pl.col("meta_experiment") == "b2")
+        .then(None)
+        .otherwise(pl.col("auroc_pooled"))
+        .alias("auroc_pooled")
     )
     df = two.per_variant(["auroc_pooled", "auroc_median_fold"]).df
     assert df["auroc_pooled"].to_list() == pytest.approx([0.6, 0.7, 0.95])
@@ -249,7 +307,9 @@ def test_per_variant_several_scores(batch_scores):
 def test_distinguishability_without_rescale(batch_scores):
     profiles = fb.Profiles(pl.DataFrame({"meta_aa_changes": ["D3V"]}))
     joined = profiles.distinguishability(batch_scores, rescale=False).df
-    expected = batch_scores.correct(rescale=False).per_variant("auroc_pooled_corrected").df
+    expected = (
+        batch_scores.correct(rescale=False).per_variant("auroc_pooled_corrected").df
+    )
     assert joined["meta_distinguishability_score"][0] == pytest.approx(
         expected.filter(pl.col("meta_aa_changes") == "D3V")["auroc_pooled_corrected"][0]
     )

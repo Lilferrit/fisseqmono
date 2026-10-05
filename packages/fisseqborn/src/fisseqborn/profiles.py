@@ -152,7 +152,9 @@ class Profiles(Dataset):
         if not types and not passthrough:
             raise ValueError("Pass at least one aggregate type or passthrough type")
         if features not in ("union", "intersection"):
-            raise ValueError(f"features must be 'union' or 'intersection', got {features!r}")
+            raise ValueError(
+                f"features must be 'union' or 'intersection', got {features!r}"
+            )
         src = _pipeline.source(pipeline_dir, download_dir, refresh)
         stage = _pipeline.FEATURE_SELECT
         names = src.batches(stage, batches, exclude)
@@ -165,7 +167,9 @@ class Profiles(Dataset):
         frames: dict[str, pl.LazyFrame] = {}
         for b in names:
             parts = [
-                _pipeline.scan(paths[b][f]).select(variant_col, ~cs.starts_with("meta_"))
+                _pipeline.scan(paths[b][f]).select(
+                    variant_col, ~cs.starts_with("meta_")
+                )
                 for f in files
                 if f != "output.parquet"
             ]
@@ -219,7 +223,11 @@ class Profiles(Dataset):
             stacklevel=2,
         )
         path = (
-            pathlib.Path(pipeline_dir) / "global" / channel / "feature_select" / "aggregate.parquet"
+            pathlib.Path(pipeline_dir)
+            / "global"
+            / channel
+            / "feature_select"
+            / "aggregate.parquet"
         )
         return cls(_pipeline.scan(path), **kw)
 
@@ -307,7 +315,9 @@ class Profiles(Dataset):
         """
         self._require(self.variant_col, self.batch_col, *sum_cols)
         if features not in ("union", "intersection"):
-            raise ValueError(f"features must be 'union' or 'intersection', got {features!r}")
+            raise ValueError(
+                f"features must be 'union' or 'intersection', got {features!r}"
+            )
         kept = self.features
         lf = self._lf
         if features == "intersection":
@@ -360,20 +370,27 @@ class Profiles(Dataset):
         exact = {p for p in patterns if not any(ch in p for ch in "*?[")}
         globs = [p for p in patterns if p not in exact]
         return [
-            c for c in self.features if c in exact or any(fnmatch.fnmatchcase(c, g) for g in globs)
+            c
+            for c in self.features
+            if c in exact or any(fnmatch.fnmatchcase(c, g) for g in globs)
         ]
 
     def drop_nonfinite(self) -> Self:
         """Drop every feature column that holds a null, NaN or infinite value."""
         df = self.df
         bad = df.select(
-            (~_transforms.finite(pl.col(c)).is_not_null().all()).alias(c) for c in self.features
+            (~_transforms.finite(pl.col(c)).is_not_null().all()).alias(c)
+            for c in self.features
         )
         return self._replace(df.drop([c for c in bad.columns if bad[0, c]]))
 
     def feature_select(
         self,
-        operations: Sequence[str] = ("variance_threshold", "blocklist", "correlation_threshold"),
+        operations: Sequence[str] = (
+            "variance_threshold",
+            "blocklist",
+            "correlation_threshold",
+        ),
         *,
         corr_threshold: float = 0.9,
         corr_method: Literal["pearson", "spearman", "kendall"] = "pearson",
@@ -435,7 +452,10 @@ class Profiles(Dataset):
         return new
 
     def impact_score(
-        self, *, control_col: str = "meta_is_control", output_col: str = "meta_impact_score"
+        self,
+        *,
+        control_col: str = "meta_is_control",
+        output_col: str = "meta_impact_score",
     ) -> Self:
         """Add the impact score: the cosine distance between each profile and the median
         control profile, halved so it runs from 0 (same direction) to 1 (opposite).
@@ -447,7 +467,9 @@ class Profiles(Dataset):
                 f"Column {control_col!r} not found; chain .variant_type() before .impact_score()"
             )
         return self.with_columns(
-            _transforms.impact_score_expr(self.values, control_col=control_col).alias(output_col)
+            _transforms.impact_score_expr(self.values, control_col=control_col).alias(
+                output_col
+            )
         )
 
     # ----- embeddings -----------------------------------------------------------------
@@ -551,7 +573,9 @@ class Profiles(Dataset):
         )
         outputs = [f"{prefix}{v}" for v in variances]
         impact = tmp.select(
-            _transforms.impact_score_expr(pcs[: ks[v]], control_col=control_col).alias(out)
+            _transforms.impact_score_expr(pcs[: ks[v]], control_col=control_col).alias(
+                out
+            )
             for v, out in zip(variances, outputs)
         )
         new = self._replace(df.drop(outputs, strict=False).hstack(impact))
@@ -601,7 +625,9 @@ class Profiles(Dataset):
         )
         coords = reducer.fit_transform(x)
         return self._replace(
-            df.with_columns(pl.Series(name, coords[:, i]) for i, name in enumerate(output_cols))
+            df.with_columns(
+                pl.Series(name, coords[:, i]) for i, name in enumerate(output_cols)
+            )
         )
 
     def cluster(
@@ -660,7 +686,9 @@ class Profiles(Dataset):
         per_variant = ovwt
         if ovwt.batch_col in ovwt.columns:
             if reference is not None:
-                per_variant = per_variant.correct(score, reference=reference, rescale=rescale)
+                per_variant = per_variant.correct(
+                    score, reference=reference, rescale=rescale
+                )
                 score = f"{score}_corrected"
             per_variant = per_variant.per_variant(score)
         per_variant._require(per_variant.variant_col, score)
@@ -695,7 +723,11 @@ def feature_info(columns: Iterable[str]) -> pl.DataFrame:
         statistic = last if base and last in STATISTICS else None
         base = base if statistic else col
         tokens = base.split("_")
-        compartment = tokens[1] if len(tokens) > 2 and tokens[0] in _COMPARTMENT_PREFIXES else None
+        compartment = (
+            tokens[1]
+            if len(tokens) > 2 and tokens[0] in _COMPARTMENT_PREFIXES
+            else None
+        )
         category = next((c for c in CATEGORIES if c in base), None)
         channels = sorted(set(_CHANNEL_RE.findall(base)), key=lambda c: int(c[2:]))
         rows.append(
@@ -725,8 +757,12 @@ def _output_metadata(
         columns = [c for c in columns if c != variant_col]
     else:
         columns = [metadata] if isinstance(metadata, str) else list(metadata)
-        _data.require_columns(pl.DataFrame(schema=lf.collect_schema()), variant_col, *columns)
-    return lf.select(variant_col, *columns).unique(variant_col, keep="first", maintain_order=True)
+        _data.require_columns(
+            pl.DataFrame(schema=lf.collect_schema()), variant_col, *columns
+        )
+    return lf.select(variant_col, *columns).unique(
+        variant_col, keep="first", maintain_order=True
+    )
 
 
 def _fit_pca(x: np.ndarray) -> tuple[Any, np.ndarray]:

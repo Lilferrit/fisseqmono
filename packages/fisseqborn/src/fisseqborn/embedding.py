@@ -107,7 +107,9 @@ class EmbeddingPlot(Plot):
             else None
         )
         self.palette = (
-            _data.resolve_palette(self.hue_order, palette) if self.hue_order is not None else None
+            _data.resolve_palette(self.hue_order, palette)
+            if self.hue_order is not None
+            else None
         )
         self.draw_order = list(draw_order) if draw_order is not None else None
         self.cmap = cmap
@@ -177,14 +179,22 @@ class EmbeddingPlot(Plot):
                 subset.get_column(plot.y).to_numpy(),
                 color=colors,
                 marker=marker,
-                label=label if hue is None else None,  # a proxy legend entry is added below
+                label=label
+                if hue is None
+                else None,  # a proxy legend entry is added below
                 **kw,
             )
             if label is not None:
                 if hue is not None:
                     handle = Line2D(
-                        [], [], linestyle="", marker=marker, markerfacecolor="lightgrey",
-                        markeredgecolor="black", markeredgewidth=0.5, markersize=7,
+                        [],
+                        [],
+                        linestyle="",
+                        marker=marker,
+                        markerfacecolor="lightgrey",
+                        markeredgecolor="black",
+                        markeredgewidth=0.5,
+                        markersize=7,
                     )
                 add_legend_entry(ax, handle, label)
 
@@ -194,7 +204,9 @@ class EmbeddingPlot(Plot):
         self, subset: pl.DataFrame, hue: str, palette: Any, missing_color: Any
     ) -> list[Any]:
         if _data.is_numeric(subset, hue) and not subset.schema[hue].is_integer():
-            raise TypeError(f"highlight hue must be categorical, got numeric column {hue!r}")
+            raise TypeError(
+                f"highlight hue must be categorical, got numeric column {hue!r}"
+            )
         values = subset.get_column(hue).to_list()
         levels = [v for v in dict.fromkeys(values) if v is not None]
 
@@ -205,12 +217,16 @@ class EmbeddingPlot(Plot):
 
         if palette is not None:
             colors = _data.resolve_palette(levels, palette)
-        elif self.palette is not None and all(lookup(self.palette, v) is not None for v in levels):
+        elif self.palette is not None and all(
+            lookup(self.palette, v) is not None for v in levels
+        ):
             colors = self.palette
         else:
             colors = _data.resolve_palette(_data.resolve_order(subset, hue), None)
         return [
-            missing_color if v is None or lookup(colors, v) is None else lookup(colors, v)
+            missing_color
+            if v is None or lookup(colors, v) is None
+            else lookup(colors, v)
             for v in values
         ]
 
@@ -283,17 +299,26 @@ class EmbeddingPlot(Plot):
         kw = {"gridsize": self.gridsize, "edgecolors": "none", "zorder": 1, **self.kw}
         fig = ax.get_figure()
         if self.hue is None:
-            hb = ax.hexbin(x, y, cmap=self.cmap or "Greys", vmin=self.vmin, vmax=self.vmax, **kw)
+            hb = ax.hexbin(
+                x, y, cmap=self.cmap or "Greys", vmin=self.vmin, vmax=self.vmax, **kw
+            )
             fig.colorbar(hb, ax=ax, label=self.colorbar_label or "count")
         elif self.numeric_hue:
             values = self.data.get_column(self.hue).cast(pl.Float64).to_numpy()
             norm, extend = self._norm(values)
             keep = np.isfinite(values)
             hb = ax.hexbin(
-                x[keep], y[keep], C=values[keep], reduce_C_function=np.mean,
-                cmap=self.cmap, norm=norm, **kw,
+                x[keep],
+                y[keep],
+                C=values[keep],
+                reduce_C_function=np.mean,
+                cmap=self.cmap,
+                norm=norm,
+                **kw,
             )
-            fig.colorbar(hb, ax=ax, label=self.colorbar_label or self.hue, extend=extend)
+            fig.colorbar(
+                hb, ax=ax, label=self.colorbar_label or self.hue, extend=extend
+            )
         else:
             levels = self.hue_order or []
             code = {lvl: i for i, lvl in enumerate(levels)}
@@ -304,12 +329,17 @@ class EmbeddingPlot(Plot):
             cmap = ListedColormap([self.palette[lvl] for lvl in levels])  # type: ignore[index]
             norm = Normalize(vmin=-0.5, vmax=len(levels) - 0.5)
             ax.hexbin(
-                x[keep], y[keep], C=codes[keep], reduce_C_function=_mode,
-                cmap=cmap, norm=norm, **kw,
+                x[keep],
+                y[keep],
+                C=codes[keep],
+                reduce_C_function=_mode,
+                cmap=cmap,
+                norm=norm,
+                **kw,
             )
             cbar = fig.colorbar(
-                ScalarMappable(norm=norm, cmap=cmap), ax=ax,
+                ScalarMappable(norm=norm, cmap=cmap),
+                ax=ax,
                 label=self.colorbar_label or self.hue,
             )
             cbar.set_ticks(range(len(levels)), labels=[str(lvl) for lvl in levels])
-

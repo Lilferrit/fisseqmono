@@ -40,7 +40,9 @@ def matches(name: str, patterns: Patterns) -> bool:
     if isinstance(patterns, (str, re.Pattern)):
         patterns = [patterns]
     return any(
-        p.search(name) is not None if isinstance(p, re.Pattern) else fnmatch.fnmatchcase(name, p)
+        p.search(name) is not None
+        if isinstance(p, re.Pattern)
+        else fnmatch.fnmatchcase(name, p)
         for p in patterns
     )
 
@@ -79,7 +81,9 @@ def batch_dirs(
     """The local ``<pipeline_dir>/<stage>/<batch>`` directories chosen by `select_batches`."""
     root = pathlib.Path(pipeline_dir) / stage
     if not root.is_dir():
-        raise FileNotFoundError(f"No {stage!r} directory in {pipeline_dir}: {root} does not exist")
+        raise FileNotFoundError(
+            f"No {stage!r} directory in {pipeline_dir}: {root} does not exist"
+        )
     found = [d.name for d in root.iterdir() if d.is_dir()]
     return [root / b for b in select_batches(found, str(root), batches, exclude)]
 
@@ -88,7 +92,9 @@ class Source:
     """Where a run's files come from: a local directory, or a remote one mirrored file by
     file into a local download directory (``root``)."""
 
-    def __init__(self, root: pathlib.Path, remote: "_remote.Remote | None" = None) -> None:
+    def __init__(
+        self, root: pathlib.Path, remote: "_remote.Remote | None" = None
+    ) -> None:
         self.root = root
         self.remote = remote
 
@@ -106,9 +112,13 @@ class Source:
         if self.remote is None:
             return [d.name for d in batch_dirs(self.root, stage, batches, exclude)]
         try:
-            found = [pathlib.PurePosixPath(p).name for p in self.remote.glob([f"{stage}/*/"])]
+            found = [
+                pathlib.PurePosixPath(p).name for p in self.remote.glob([f"{stage}/*/"])
+            ]
         except FileNotFoundError as err:
-            raise FileNotFoundError(f"No batch directories in {self.remote}/{stage}") from err
+            raise FileNotFoundError(
+                f"No batch directories in {self.remote}/{stage}"
+            ) from err
         return select_batches(found, f"{self.remote}/{stage}", batches, exclude)
 
     def glob(self, patterns: Sequence[str]) -> list[str]:
@@ -157,7 +167,11 @@ def source(
             )
         return Source(pathlib.Path(pipeline_dir))
     host, root = spec
-    local = pathlib.Path(download_dir) if download_dir is not None else _remote.temp_dir(host, root)
+    local = (
+        pathlib.Path(download_dir)
+        if download_dir is not None
+        else _remote.temp_dir(host, root)
+    )
     return Source(local, _remote.Remote(host, root, local, refresh=refresh))
 
 

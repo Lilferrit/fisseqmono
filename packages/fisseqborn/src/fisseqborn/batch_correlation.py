@@ -96,12 +96,23 @@ class BatchCorrelationHeatmap(Heatmap):
             n = len(batches)
             figsize = (max(6.0, 0.65 * n + 1.0), max(5.0, 0.6 * n + 0.6))
         kw = with_cbar_label(
-            {"cmap": "Blues", "vmin": 0, "vmax": 1, "annot": True, "nan_color": "black",
-             "linewidths": 0.5, "linecolor": "black", "row_order": order, "col_order": order,
-             **kw},
+            {
+                "cmap": "Blues",
+                "vmin": 0,
+                "vmax": 1,
+                "annot": True,
+                "nan_color": "black",
+                "linewidths": 0.5,
+                "linecolor": "black",
+                "row_order": order,
+                "col_order": order,
+                **kw,
+            },
             correlation_label(method, squared),
         )
-        super().__init__(matrix, index="batch", columns=list(batches), figsize=figsize, **kw)
+        super().__init__(
+            matrix, index="batch", columns=list(batches), figsize=figsize, **kw
+        )
 
     def _compute_pairs(self) -> pl.DataFrame:
         batches = self._scores.columns
@@ -112,12 +123,19 @@ class BatchCorrelationHeatmap(Heatmap):
             (batches[i], batches[j], float(corr[i, j]), int(n_shared[i, j]))
             for i, j in combinations_with_replacement(range(len(batches)), 2)
         ]
-        return pl.DataFrame(
-            rows, schema={"batch_a": pl.String, "batch_b": pl.String, "r": pl.Float64,
-                          "n_shared": pl.Int64},
-            orient="row",
-        ).with_columns(r_squared=pl.col("r") ** 2).select(
-            "batch_a", "batch_b", "r", "r_squared", "n_shared"
+        return (
+            pl.DataFrame(
+                rows,
+                schema={
+                    "batch_a": pl.String,
+                    "batch_b": pl.String,
+                    "r": pl.Float64,
+                    "n_shared": pl.Int64,
+                },
+                orient="row",
+            )
+            .with_columns(r_squared=pl.col("r") ** 2)
+            .select("batch_a", "batch_b", "r", "r_squared", "n_shared")
         )
 
     def pairs(self) -> pl.DataFrame:

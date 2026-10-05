@@ -75,7 +75,9 @@ def intersect_features(present: Mapping[str, Sequence[str]]) -> list[str]:
                 ", ".join(dropped),
             )
     if not common:
-        raise ValueError("features='intersection': no feature is present in every batch")
+        raise ValueError(
+            "features='intersection': no feature is present in every batch"
+        )
     first = next(iter(present.values()))
     return [c for c in first if c in common]
 
@@ -91,7 +93,8 @@ def features_by_batch(
         .collect()
     )
     return {
-        row[batch_col]: [f for f in features if row[f] > 0] for row in counts.iter_rows(named=True)
+        row[batch_col]: [f for f in features if row[f] > 0]
+        for row in counts.iter_rows(named=True)
     }
 
 
@@ -160,7 +163,9 @@ def impact_score_expr(features: Sequence[str], *, control_col: str) -> pl.Expr:
     valid = [a.is_not_null() & b.is_not_null() for a, b in zip(rows, refs)]
 
     def masked_sum(terms: list[pl.Expr]) -> pl.Expr:
-        return pl.sum_horizontal([pl.when(v).then(t).otherwise(0.0) for t, v in zip(terms, valid)])
+        return pl.sum_horizontal(
+            [pl.when(v).then(t).otherwise(0.0) for t, v in zip(terms, valid)]
+        )
 
     norm_a = masked_sum([a.pow(2) for a in rows]).sqrt()
     norm_b = masked_sum([b.pow(2) for b in refs]).sqrt()
@@ -201,7 +206,9 @@ def cluster_labels(
             raise ValueError("method='kmeans' requires n_clusters")
         from sklearn.cluster import KMeans
 
-        return KMeans(n_clusters=n_clusters, random_state=seed, n_init="auto").fit_predict(x)
+        return KMeans(
+            n_clusters=n_clusters, random_state=seed, n_init="auto"
+        ).fit_predict(x)
     if method != "leiden":
         raise ValueError(f"Unknown method {method!r}; expected 'leiden' or 'kmeans'")
     if n_clusters is not None:

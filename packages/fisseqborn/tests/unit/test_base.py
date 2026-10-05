@@ -45,13 +45,21 @@ def test_plot_onto_existing_axes(profiles):
     import matplotlib.pyplot as plt
 
     fig, axes = plt.subplots(1, 2)
-    got_fig, got_ax = fb.BoxPlot(profiles, x="meta_variant_type", y="meta_impact_score").plot(ax=axes[1])
+    got_fig, got_ax = fb.BoxPlot(
+        profiles, x="meta_variant_type", y="meta_impact_score"
+    ).plot(ax=axes[1])
     assert got_fig is fig and got_ax is axes[1]
 
 
 def test_resolve_order_known_then_natural(profiles):
     df = pl.DataFrame({"c": ["Frameshift", "Synonymous", "10", "2", "Single Missense"]})
-    assert _data.resolve_order(df, "c") == ["Synonymous", "Single Missense", "Frameshift", "2", "10"]
+    assert _data.resolve_order(df, "c") == [
+        "Synonymous",
+        "Single Missense",
+        "Frameshift",
+        "2",
+        "10",
+    ]
     assert _data.resolve_order(df, "c", ["2"]) == ["2"]
 
 

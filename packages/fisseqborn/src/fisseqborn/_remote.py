@@ -109,7 +109,9 @@ class Remote:
         if not lines:
             shown = ", ".join(f"{self.host}:{self._remote(p)}" for p in patterns)
             detail = result.stderr.strip()
-            raise FileNotFoundError(f"Nothing matches {shown}" + (f" ({detail})" if detail else ""))
+            raise FileNotFoundError(
+                f"Nothing matches {shown}" + (f" ({detail})" if detail else "")
+            )
         return lines
 
     def fetch(self, rel_paths: Sequence[str]) -> list[pathlib.Path]:

@@ -31,7 +31,10 @@ class Blocklists(Dataset):
     """
 
     def __init__(
-        self, data: "pl.DataFrame | pl.LazyFrame | Dataset", *, batch_col: str = "meta_experiment"
+        self,
+        data: "pl.DataFrame | pl.LazyFrame | Dataset",
+        *,
+        batch_col: str = "meta_experiment",
     ) -> None:
         super().__init__(data, variant_col="feature")
         self.batch_col = batch_col
@@ -60,14 +63,20 @@ class Blocklists(Dataset):
             found = src.glob([f"{stage}/{b}/blocklists/*.parquet" for b in names])
             rels = []
             for b in names:
-                mine = sorted(r for r in found if r.startswith(f"{stage}/{b}/blocklists/"))
+                mine = sorted(
+                    r for r in found if r.startswith(f"{stage}/{b}/blocklists/")
+                )
                 if not mine:
-                    raise FileNotFoundError(f"No blocklists in {src}/{stage}/{b}/blocklists")
+                    raise FileNotFoundError(
+                        f"No blocklists in {src}/{stage}/{b}/blocklists"
+                    )
                 rels += mine
         else:
             rels = [f"{stage}/{b}/blocklists/{t}.parquet" for b in names for t in types]
         frames = [
-            _pipeline.tag(_pipeline.scan(path), rel.split("/")[1], batch_col).with_columns(
+            _pipeline.tag(
+                _pipeline.scan(path), rel.split("/")[1], batch_col
+            ).with_columns(
                 pl.lit(path.stem, dtype=pl.String).alias("meta_feature_type")
             )
             for rel, path in zip(rels, src.files(rels))
@@ -109,8 +118,12 @@ class Blocklists(Dataset):
         elif missing == "ignore":
             required = pl.col("n_batches")
         else:
-            required = pl.lit(lf.select(pl.col(self.batch_col).n_unique()).collect().item())
-        return counts.with_columns((pl.col("n_ok") >= required).alias("feature_ok")).collect()
+            required = pl.lit(
+                lf.select(pl.col(self.batch_col).n_unique()).collect().item()
+            )
+        return counts.with_columns(
+            (pl.col("n_ok") >= required).alias("feature_ok")
+        ).collect()
 
     def consensus(
         self,

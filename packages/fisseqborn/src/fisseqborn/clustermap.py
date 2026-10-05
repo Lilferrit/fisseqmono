@@ -122,7 +122,10 @@ class FeatureGroup:
         return (
             (self.palette is not None and self.palette is not False)
             or isinstance(self.cmap, Mapping)
-            or any(isinstance(v, Mapping) for v in (self.vmin, self.vmax, self.center, self.clip))
+            or any(
+                isinstance(v, Mapping)
+                for v in (self.vmin, self.vmax, self.center, self.clip)
+            )
         )
 
 
@@ -131,7 +134,9 @@ def _limit(value: Limit, feature: str) -> float | None:
 
 
 def _as_cmap(cmap: str | Colormap) -> Colormap:
-    return (mpl.colormaps[cmap] if isinstance(cmap, str) else cmap).with_extremes(bad="lightgrey")
+    return (mpl.colormaps[cmap] if isinstance(cmap, str) else cmap).with_extremes(
+        bad="lightgrey"
+    )
 
 
 def _color_scales(
@@ -139,6 +144,7 @@ def _color_scales(
 ) -> list[tuple[Colormap, Normalize, str]]:
     """``(cmap, norm, colorbar extend)`` per feature column of ``mat``; the same scale
     for every feature unless the group is `per_feature`."""
+
     def default_cmap(center: float | None) -> str | Colormap:
         if group.cmap is not None and not isinstance(group.cmap, Mapping):
             return group.cmap
@@ -147,14 +153,19 @@ def _color_scales(
     if not group.per_feature:
         center = _limit(group.center, "")
         norm, extend = _data.color_norm(
-            mat, vmin=_limit(group.vmin, ""), vmax=_limit(group.vmax, ""),
-            center=center, clip=_limit(group.clip, ""),
+            mat,
+            vmin=_limit(group.vmin, ""),
+            vmax=_limit(group.vmax, ""),
+            center=center,
+            clip=_limit(group.clip, ""),
         )
         return [(_as_cmap(default_cmap(center)), norm, extend)] * len(feats)
 
     palette: dict[str, Any] = {}
     if group.palette is not None and group.palette is not False:
-        palette = _data.resolve_palette(feats, None if group.palette is True else group.palette)
+        palette = _data.resolve_palette(
+            feats, None if group.palette is True else group.palette
+        )
     cmaps = group.cmap if isinstance(group.cmap, Mapping) else {}
     scales = []
     for j, f in enumerate(feats):
@@ -166,8 +177,11 @@ def _color_scales(
         else:
             cmap = default_cmap(center)
         norm, extend = _data.color_norm(
-            mat[:, j], vmin=_limit(group.vmin, f), vmax=_limit(group.vmax, f),
-            center=center, clip=_limit(group.clip, f),
+            mat[:, j],
+            vmin=_limit(group.vmin, f),
+            vmax=_limit(group.vmax, f),
+            center=center,
+            clip=_limit(group.clip, f),
         )
         scales.append((_as_cmap(cmap), norm, extend))
     return scales
@@ -238,7 +252,9 @@ def _text_width(text: str, fontsize: float) -> float:
 
 def _longest_word_width(title: str) -> float:
     """Width a block needs so every word of ``title`` fits at the smallest title font."""
-    return max((_text_width(w, _TITLE_FONTSIZES[-1]) for w in title.split()), default=0.0)
+    return max(
+        (_text_width(w, _TITLE_FONTSIZES[-1]) for w in title.split()), default=0.0
+    )
 
 
 def _wrap_title(title: str, width_in: float) -> tuple[list[str], float]:
@@ -258,7 +274,8 @@ def _title_height(lines: list[str], fontsize: float) -> float:
 def _finite_columns(data: pl.DataFrame, columns: list[str]) -> list[bool]:
     return list(
         data.select(
-            pl.col(c).cast(pl.Float64).is_finite().fill_null(False).all() for c in columns
+            pl.col(c).cast(pl.Float64).is_finite().fill_null(False).all()
+            for c in columns
         ).row(0)
     )
 
@@ -346,7 +363,11 @@ class ClusterMap(FigurePlot):
                     "",
                     ~cs.starts_with("meta_") if features is None else features,
                     cluster_features=True,
-                    cmap=cmap, vmin=vmin, vmax=vmax, center=center, labels=False,
+                    cmap=cmap,
+                    vmin=vmin,
+                    vmax=vmax,
+                    center=center,
+                    labels=False,
                 )
             ]
         elif features is not None:
@@ -373,30 +394,38 @@ class ClusterMap(FigurePlot):
                 owner[c] = group.name
             non_numeric = [c for c in cols if not _data.is_numeric(data, c)]
             if non_numeric:
-                raise ValueError(f"Non-numeric features in group {group.name!r}: {non_numeric}")
+                raise ValueError(
+                    f"Non-numeric features in group {group.name!r}: {non_numeric}"
+                )
             if drop_nonfinite and (group.cluster or group.cluster_features) and cols:
                 ok = _finite_columns(data, cols)
                 n_dropped = ok.count(False)
                 if n_dropped:
                     logger.warning(
                         "Dropping %d feature column(s) with null/NaN/inf values from group %r",
-                        n_dropped, group.name,
+                        n_dropped,
+                        group.name,
                     )
                 cols = [c for c, keep in zip(cols, ok) if keep]
             if not cols:
-                raise ValueError(f"Feature group {group.name!r} has no usable feature columns")
+                raise ValueError(
+                    f"Feature group {group.name!r} has no usable feature columns"
+                )
             self.groups.append((group, cols))
 
         self.features = [c for _, cols in self.groups for c in cols]
         self.row_colors, self.row_labels = row_colors, row_labels
         self.row_levels = _data.resolve_order(data, row_colors) if row_colors else None
         self.row_palette = (
-            _data.resolve_palette(self.row_levels, row_palette) if self.row_levels else None
+            _data.resolve_palette(self.row_levels, row_palette)
+            if self.row_levels
+            else None
         )
         self.col_colors = dict(col_colors) if col_colors else None
         self.col_palette = (
             _data.resolve_palette(
-                sorted(set(self.col_colors.values()), key=_data._natural_key), col_palette
+                sorted(set(self.col_colors.values()), key=_data._natural_key),
+                col_palette,
             )
             if self.col_colors
             else None
@@ -456,7 +485,9 @@ class ClusterMap(FigurePlot):
         order = list(range(self.data.height)) if z is None else leaves_list(z).tolist()
         n_rows = self.data.height
         vertical = self.orientation == "vertical"
-        feature_orders = {g.name: self._feature_order(g, cols) for g, cols in self.groups}
+        feature_orders = {
+            g.name: self._feature_order(g, cols) for g, cols in self.groups
+        }
 
         # --- layout, in inches -------------------------------------------------------
         # "Outer" tracks run along the groups: the dendrogram, the row colors and the
@@ -465,8 +496,10 @@ class ClusterMap(FigurePlot):
         if vertical:
             units = [len(cols) for _, cols in self.groups]
             span = min(max(4.0, 0.3 * sum(units)), 14.0)
-            titles = [_wrap_title(g.name, _TITLE_W) if g.name else ([], 10.0)
-                      for g, _ in self.groups]
+            titles = [
+                _wrap_title(g.name, _TITLE_W) if g.name else ([], 10.0)
+                for g, _ in self.groups
+            ]
             group_sizes = [
                 max(span * u / sum(units), _title_height(*t) + 0.1)
                 for u, t in zip(units, titles)
@@ -478,8 +511,10 @@ class ClusterMap(FigurePlot):
                 max(span * u / sum(units), _MIN_GROUP_W, _longest_word_width(g.name))
                 for u, (g, _) in zip(units, self.groups)
             ]
-            titles = [_wrap_title(g.name, w) if g.name else ([], 10.0)
-                      for (g, _), w in zip(self.groups, group_sizes)]
+            titles = [
+                _wrap_title(g.name, w) if g.name else ([], 10.0)
+                for (g, _), w in zip(self.groups, group_sizes)
+            ]
 
         outer: list[float] = []
         dendro_i = rc_i = None
@@ -535,9 +570,16 @@ class ClusterMap(FigurePlot):
             fig_w, fig_h = self.figsize
         fig = plt.figure(figsize=(fig_w, fig_h), dpi=self.dpi or config.dpi)
         gs = fig.add_gridspec(
-            len(heights), len(widths), width_ratios=widths, height_ratios=heights,
-            left=left / fig_w, right=1 - right / fig_w,
-            bottom=bottom / fig_h, top=1 - top / fig_h, wspace=0, hspace=0,
+            len(heights),
+            len(widths),
+            width_ratios=widths,
+            height_ratios=heights,
+            left=left / fig_w,
+            right=1 - right / fig_w,
+            bottom=bottom / fig_h,
+            top=1 - top / fig_h,
+            wspace=0,
+            hspace=0,
         )
 
         def cell(i: int, j: int) -> Any:
@@ -547,8 +589,14 @@ class ClusterMap(FigurePlot):
         dendro_ax = rc_ax = None
         if z is not None and dendro_i is not None:
             dendro_ax = fig.add_subplot(cell(dendro_i, heat_j))
-            dendrogram(z, orientation="top" if vertical else "left", ax=dendro_ax,
-                       no_labels=True, color_threshold=0, above_threshold_color="black")
+            dendrogram(
+                z,
+                orientation="top" if vertical else "left",
+                ax=dendro_ax,
+                no_labels=True,
+                color_threshold=0,
+                above_threshold_color="black",
+            )
             for coll in dendro_ax.collections:
                 coll.set_linewidth(0.75 if n_rows <= 100 else 0.4)
             if vertical:
@@ -559,10 +607,16 @@ class ClusterMap(FigurePlot):
         if self.row_colors is not None and rc_i is not None:
             rc_ax = fig.add_subplot(cell(rc_i, heat_j))
             values = self.data.get_column(self.row_colors).to_list()
-            rgb = np.array([[to_rgb(self.row_palette.get(values[i], "white"))]  # type: ignore[union-attr]
-                            for i in order])
+            rgb = np.array(
+                [
+                    [to_rgb(self.row_palette.get(values[i], "white"))]  # type: ignore[union-attr]
+                    for i in order
+                ]
+            )
             if vertical:
-                rc_ax.imshow(rgb.transpose(1, 0, 2), aspect="auto", interpolation="nearest")
+                rc_ax.imshow(
+                    rgb.transpose(1, 0, 2), aspect="auto", interpolation="nearest"
+                )
                 rc_ax.set_yticks([0], [self.row_colors])
                 rc_ax.set_xticks([])
             else:
@@ -604,9 +658,14 @@ class ClusterMap(FigurePlot):
             if vertical:
                 ax.yaxis.tick_right()
                 ax.set_yticks(*feature_ticks)
-                ax.set_xticks(*row_ticks, **({"rotation": 90} if len(row_ticks) > 1 else {}))
+                ax.set_xticks(
+                    *row_ticks, **({"rotation": 90} if len(row_ticks) > 1 else {})
+                )
             else:
-                ax.set_xticks(*feature_ticks, **({"rotation": 90} if len(feature_ticks) > 1 else {}))
+                ax.set_xticks(
+                    *feature_ticks,
+                    **({"rotation": 90} if len(feature_ticks) > 1 else {}),
+                )
                 ax.yaxis.tick_right()
                 ax.set_yticks(*row_ticks)
 
@@ -617,8 +676,12 @@ class ClusterMap(FigurePlot):
             else:
                 cmap, norm, extend = scales[0]
                 cax = fig.add_subplot(cell(gi, cbar_j))
-                fig.colorbar(ScalarMappable(norm=norm, cmap=cmap), cax=cax,
-                             orientation="vertical" if vertical else "horizontal", extend=extend)
+                fig.colorbar(
+                    ScalarMappable(norm=norm, cmap=cmap),
+                    cax=cax,
+                    orientation="vertical" if vertical else "horizontal",
+                    extend=extend,
+                )
                 axis = cax.yaxis if vertical else cax.xaxis
                 axis.set_ticks_position("left" if vertical else "top")
                 axis.set_major_locator(MaxNLocator(3))
@@ -628,30 +691,58 @@ class ClusterMap(FigurePlot):
                 tax = fig.add_subplot(cell(gi, title_j))
                 tax.axis("off")
                 text_kw = (
-                    {"x": 1.0, "y": 0.5, "ha": "right", "va": "center", "multialignment": "right"}
+                    {
+                        "x": 1.0,
+                        "y": 0.5,
+                        "ha": "right",
+                        "va": "center",
+                        "multialignment": "right",
+                    }
                     if vertical
                     else {"x": 0.5, "y": 0.0, "ha": "center", "va": "bottom"}
                 )
-                tax.text(s="\n".join(lines), fontsize=fontsize, linespacing=_TITLE_LINE / 1.2,
-                         transform=tax.transAxes, **text_kw)
+                tax.text(
+                    s="\n".join(lines),
+                    fontsize=fontsize,
+                    linespacing=_TITLE_LINE / 1.2,
+                    transform=tax.transAxes,
+                    **text_kw,
+                )
                 title_axes[group.name] = tax
 
             if self.col_colors is not None and cc_j is not None:
                 cc_ax = fig.add_subplot(cell(gi, cc_j))
-                rgb = np.array([[to_rgb(self.col_palette.get(self.col_colors.get(f), "white"))  # type: ignore[union-attr]
-                                 for f in feats]])
-                cc_ax.imshow(rgb.transpose(1, 0, 2) if vertical else rgb, aspect="auto",
-                             interpolation="nearest")
+                rgb = np.array(
+                    [
+                        [
+                            to_rgb(
+                                self.col_palette.get(self.col_colors.get(f), "white")
+                            )  # type: ignore[union-attr]
+                            for f in feats
+                        ]
+                    ]
+                )
+                cc_ax.imshow(
+                    rgb.transpose(1, 0, 2) if vertical else rgb,
+                    aspect="auto",
+                    interpolation="nearest",
+                )
                 cc_ax.set_xticks([])
                 cc_ax.set_yticks([])
             heatmap_axes[group.name] = ax
 
         self._add_legends(fig)
         result = ClusterMapAxes(
-            heatmap_axes=heatmap_axes, colorbar_axes=cbar_axes, title_axes=title_axes,
+            heatmap_axes=heatmap_axes,
+            colorbar_axes=cbar_axes,
+            title_axes=title_axes,
             feature_colorbar_axes=feature_cbar_axes,
-            row_dendrogram_ax=dendro_ax, row_colors_ax=rc_ax, row_order=order,
-            feature_order=feature_orders, row_linkage=z, orientation=self.orientation,
+            row_dendrogram_ax=dendro_ax,
+            row_colors_ax=rc_ax,
+            row_order=order,
+            feature_order=feature_orders,
+            row_linkage=z,
+            orientation=self.orientation,
         )
         return fig, result
 
@@ -678,17 +769,24 @@ class ClusterMap(FigurePlot):
         axes: dict[str, Axes] = {}
         for j, (f, (cmap, norm, extend)) in enumerate(zip(feats, scales)):
             cax = fig.add_subplot(sub[3 * j + 1, 0] if vertical else sub[0, 3 * j + 1])
-            cbar = fig.colorbar(ScalarMappable(norm=norm, cmap=cmap), cax=cax,
-                                orientation="vertical" if vertical else "horizontal",
-                                extend=extend, extendfrac=0.15)
+            cbar = fig.colorbar(
+                ScalarMappable(norm=norm, cmap=cmap),
+                cax=cax,
+                orientation="vertical" if vertical else "horizontal",
+                extend=extend,
+                extendfrac=0.15,
+            )
             axis = cax.yaxis if vertical else cax.xaxis
             axis.set_ticks_position("left" if vertical else "top")
             if norm.vmin is not None and norm.vmax is not None:
-                cbar.set_ticks([norm.vmin, norm.vmax], labels=[
-                    format(norm.vmin, ".2g"), format(norm.vmax, ".2g")
-                ])
+                cbar.set_ticks(
+                    [norm.vmin, norm.vmax],
+                    labels=[format(norm.vmin, ".2g"), format(norm.vmax, ".2g")],
+                )
             # rotated when horizontal, so neighbouring features' labels don't collide
-            cax.tick_params(labelsize=6, length=2, pad=1, labelrotation=0 if vertical else 90)
+            cax.tick_params(
+                labelsize=6, length=2, pad=1, labelrotation=0 if vertical else 90
+            )
             axes[f] = cax
         return axes
 
@@ -699,7 +797,15 @@ class ClusterMap(FigurePlot):
                 continue
             r, g, b, _ = rgba[i, j]
             color = "white" if 0.299 * r + 0.587 * g + 0.114 * b < 0.5 else "black"
-            ax.text(j, i, format(v, fmt), ha="center", va="center", fontsize=6.5, color=color)
+            ax.text(
+                j,
+                i,
+                format(v, fmt),
+                ha="center",
+                va="center",
+                fontsize=6.5,
+                color=color,
+            )
 
     def _add_legends(self, fig: Figure) -> None:
         legends: list[tuple[str | None, dict[Any, Any]]] = []
@@ -710,8 +816,13 @@ class ClusterMap(FigurePlot):
         y = 1.0
         for title, palette in legends:
             handles = [Patch(facecolor=c, label=str(k)) for k, c in palette.items()]
-            fig.legend(handles=handles, title=title, loc="upper left",
-                       bbox_to_anchor=(1.0, y), frameon=False)
+            fig.legend(
+                handles=handles,
+                title=title,
+                loc="upper left",
+                bbox_to_anchor=(1.0, y),
+                frameon=False,
+            )
             y -= 0.03 * (len(handles) + 2)
 
     def _main_ax(self, handle: ClusterMapAxes) -> Axes:

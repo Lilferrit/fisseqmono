@@ -80,14 +80,23 @@ class PairPlot(FigurePlot):
         _data.require_columns(data, hue)
         self.hue = hue
         categorical = hue is not None and not _data.is_numeric(data, hue)
-        self.hue_order = _data.resolve_order(data, hue, hue_order) if categorical else None
+        self.hue_order = (
+            _data.resolve_order(data, hue, hue_order) if categorical else None
+        )
         self.palette = (
             _data.resolve_palette(self.hue_order, palette)  # type: ignore[arg-type]
             if self.hue_order is not None
             else palette
         )
-        self.kind, self.diag_kind, self.corner, self.height = kind, diag_kind, corner, height
-        default_kws = {"alpha": 0.6, "s": 15, "linewidth": 0} if kind == "scatter" else {}
+        self.kind, self.diag_kind, self.corner, self.height = (
+            kind,
+            diag_kind,
+            corner,
+            height,
+        )
+        default_kws = (
+            {"alpha": 0.6, "s": 15, "linewidth": 0} if kind == "scatter" else {}
+        )
         self.plot_kws = {**default_kws, **(plot_kws or {})}
         self.diag_kws = dict(diag_kws or {})
         self.pairplot_kw = pairplot_kw

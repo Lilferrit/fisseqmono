@@ -29,7 +29,9 @@ class FakeSsh:
                 ["sh", "-c", argv[-1]], capture_output=True, text=True, check=False
             )
         assert argv[0] == "scp"
-        *sources, target = [a for a in argv[1:] if not a.startswith("-") and "=" not in a]
+        *sources, target = [
+            a for a in argv[1:] if not a.startswith("-") and "=" not in a
+        ]
         if self.fail:
             return subprocess.CompletedProcess(argv, 1, "", self.fail)
         for src in sources:
@@ -67,7 +69,9 @@ def remote(pipeline_dir):
 
 
 def _fs(*files):
-    return {f"feature_select_batchwise/{b}/{f}" for b in PIPELINE_BATCHES for f in files}
+    return {
+        f"feature_select_batchwise/{b}/{f}" for b in PIPELINE_BATCHES for f in files
+    }
 
 
 @pytest.mark.parametrize(
@@ -93,13 +97,21 @@ def test_profiles_download_only_what_they_read(fake, remote, pipeline_dir, tmp_p
     assert fake.rel(pipeline_dir) == _fs("aggregates/median.parquet")
     assert len(fake.listings) == 1
     # files mirror the run's layout and give the same profiles as a local load
-    assert (dl / "feature_select_batchwise" / "T1_R1" / "aggregates" / "median.parquet").is_file()
-    assert profiles.df.equals(fb.Profiles.from_pipeline(pipeline_dir, types=["median"]).df)
+    assert (
+        dl / "feature_select_batchwise" / "T1_R1" / "aggregates" / "median.parquet"
+    ).is_file()
+    assert profiles.df.equals(
+        fb.Profiles.from_pipeline(pipeline_dir, types=["median"]).df
+    )
     assert not list(dl.glob(".part-*"))
 
     fake.copied.clear()
     fb.Profiles.from_pipeline(
-        remote, types=["median"], passthrough=["KSnegLogP"], metadata=True, download_dir=dl
+        remote,
+        types=["median"],
+        passthrough=["KSnegLogP"],
+        metadata=True,
+        download_dir=dl,
     ).collect()
     # median is cached; only the newly requested files are copied
     assert fake.rel(pipeline_dir) == _fs(
@@ -107,9 +119,13 @@ def test_profiles_download_only_what_they_read(fake, remote, pipeline_dir, tmp_p
     )
 
 
-def test_batches_and_exclude_filter_before_downloading(fake, remote, pipeline_dir, tmp_path):
+def test_batches_and_exclude_filter_before_downloading(
+    fake, remote, pipeline_dir, tmp_path
+):
     fb.Profiles.from_pipeline(remote, exclude="T1*", download_dir=tmp_path / "a")
-    assert fake.rel(pipeline_dir) == {"feature_select_batchwise/T2_R1/aggregates/median.parquet"}
+    assert fake.rel(pipeline_dir) == {
+        "feature_select_batchwise/T2_R1/aggregates/median.parquet"
+    }
     fake.copied.clear()
     ovwt = fb.OvwtScores.from_pipeline(
         remote, batches=["T10_R1", "T2_R1"], exclude="T2_*", download_dir=tmp_path / "b"
@@ -117,7 +133,9 @@ def test_batches_and_exclude_filter_before_downloading(fake, remote, pipeline_di
     assert fake.rel(pipeline_dir) == {"ovwt_batchwise/T10_R1/results.parquet"}
     assert set(ovwt.df["meta_experiment"]) == {"T10_R1"}
     with pytest.raises(FileNotFoundError, match="T99"):
-        fb.OvwtScores.from_pipeline(remote, batches=["T99"], download_dir=tmp_path / "c")
+        fb.OvwtScores.from_pipeline(
+            remote, batches=["T99"], download_dir=tmp_path / "c"
+        )
 
 
 def test_refresh_and_temp_dir_reuse(fake, remote, pipeline_dir):
@@ -125,22 +143,30 @@ def test_refresh_and_temp_dir_reuse(fake, remote, pipeline_dir):
     first = set(_remote._TEMP_DIRS.values())
     assert len(fake.copied) == len(PIPELINE_BATCHES)
     fb.OvwtScores.from_pipeline(remote)
-    assert len(fake.copied) == len(PIPELINE_BATCHES)  # reused from the session's temp dir
+    assert len(fake.copied) == len(
+        PIPELINE_BATCHES
+    )  # reused from the session's temp dir
     assert set(_remote._TEMP_DIRS.values()) == first
     fb.OvwtScores.from_pipeline(remote, refresh=True)
     assert len(fake.copied) == 2 * len(PIPELINE_BATCHES)
 
 
-def test_blocklists_list_once_and_download_only_blocklists(fake, remote, pipeline_dir, tmp_path):
+def test_blocklists_list_once_and_download_only_blocklists(
+    fake, remote, pipeline_dir, tmp_path
+):
     blocklists = fb.Blocklists.from_pipeline(remote, download_dir=tmp_path)
-    assert fake.rel(pipeline_dir) == _fs("blocklists/median.parquet", "blocklists/KS.parquet")
+    assert fake.rel(pipeline_dir) == _fs(
+        "blocklists/median.parquet", "blocklists/KS.parquet"
+    )
     assert len(fake.listings) == 2  # the batches, then every batch's blocklists at once
     local = fb.Blocklists.from_pipeline(pipeline_dir)
     assert blocklists.df.sort(pl.all()).equals(local.df.sort(pl.all()))
 
 
 def test_write_global_from_remote(fake, remote, pipeline_dir, tmp_path):
-    written = fb.write_global(remote, tmp_path / "out", operations=(), download_dir=tmp_path / "dl")
+    written = fb.write_global(
+        remote, tmp_path / "out", operations=(), download_dir=tmp_path / "dl"
+    )
     assert fake.rel(pipeline_dir) == _fs(
         "aggregates/median.parquet", "blocklists/median.parquet"
     ) | {f"ovwt_batchwise/{b}/results.parquet" for b in PIPELINE_BATCHES}

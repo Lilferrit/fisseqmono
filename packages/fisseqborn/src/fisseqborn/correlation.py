@@ -78,11 +78,15 @@ class CorrelationPlot(Plot):
         if kind not in ("scatter", "kde"):
             raise ValueError(f"kind must be 'scatter' or 'kde', got {kind!r}")
         if stat not in (None, *_STAT_NAMES):
-            raise ValueError(f"stat must be None, 'pearson' or 'spearman', got {stat!r}")
+            raise ValueError(
+                f"stat must be None, 'pearson' or 'spearman', got {stat!r}"
+            )
         if fit not in (None, "linear", "lowess"):
             raise ValueError(f"fit must be None, 'linear' or 'lowess', got {fit!r}")
         if stat_loc not in _CORNERS:
-            raise ValueError(f"stat_loc must be one of {list(_CORNERS)}, got {stat_loc!r}")
+            raise ValueError(
+                f"stat_loc must be one of {list(_CORNERS)}, got {stat_loc!r}"
+            )
         self.x, self.y, self.hue = x, y, hue
         self.hue_order = _data.resolve_order(data, hue, hue_order) if hue else None
         self.palette = _data.resolve_palette(self.hue_order, palette) if hue else None
@@ -114,25 +118,49 @@ class CorrelationPlot(Plot):
         pdf = _data.to_pandas(df, self.x, self.y, self.hue)
         if self.kind == "scatter":
             sns.scatterplot(
-                data=pdf, x=self.x, y=self.y, hue=self.hue, hue_order=self.hue_order,
-                palette=self.palette, ax=ax, **{"alpha": 0.8, "linewidth": 0, **self.kw},
+                data=pdf,
+                x=self.x,
+                y=self.y,
+                hue=self.hue,
+                hue_order=self.hue_order,
+                palette=self.palette,
+                ax=ax,
+                **{"alpha": 0.8, "linewidth": 0, **self.kw},
             )
         else:
             kde_kw: dict[str, Any] = {"fill": True, **self.kw}
             if self.hue is None:
-                kde_kw = {"cmap": "viridis", "cbar": True,
-                          "cbar_kws": {"label": "Density"}, **kde_kw}
+                kde_kw = {
+                    "cmap": "viridis",
+                    "cbar": True,
+                    "cbar_kws": {"label": "Density"},
+                    **kde_kw,
+                }
             sns.kdeplot(
-                data=pdf, x=self.x, y=self.y, hue=self.hue, hue_order=self.hue_order,
-                palette=self.palette, ax=ax, **kde_kw,
+                data=pdf,
+                x=self.x,
+                y=self.y,
+                hue=self.hue,
+                hue_order=self.hue_order,
+                palette=self.palette,
+                ax=ax,
+                **kde_kw,
             )
 
         if self.fit is not None:
             sns.regplot(
-                data=pdf, x=self.x, y=self.y, scatter=False, ax=ax,
+                data=pdf,
+                x=self.x,
+                y=self.y,
+                scatter=False,
+                ax=ax,
                 lowess=self.fit == "lowess",
-                **{"color": "black", "ci": None,
-                   "line_kws": {"linestyle": "--", "linewidth": 1}, **self.fit_kw},
+                **{
+                    "color": "black",
+                    "ci": None,
+                    "line_kws": {"linestyle": "--", "linewidth": 1},
+                    **self.fit_kw,
+                },
             )
 
         if self.lims is not None:
@@ -150,7 +178,9 @@ class CorrelationPlot(Plot):
             r, p, n = self.correlation()
             p_text = "p < 1e-300" if p == 0 else f"p = {p:.2e}"
             self._corner_text(
-                ax, self.stat_loc, f"{_STAT_NAMES[self.stat]} = {r:.2f}, {p_text}\nn = {n}",
+                ax,
+                self.stat_loc,
+                f"{_STAT_NAMES[self.stat]} = {r:.2f}, {p_text}\nn = {n}",
                 boxed=True,
             )
         if self.count_sides:
@@ -171,10 +201,23 @@ class CorrelationPlot(Plot):
         if raised:
             y += 0.12
         bbox = (
-            {"boxstyle": "round", "facecolor": "white", "alpha": 0.7, "edgecolor": "gray"}
+            {
+                "boxstyle": "round",
+                "facecolor": "white",
+                "alpha": 0.7,
+                "edgecolor": "gray",
+            }
             if boxed
             else None
         )
-        ax.text(x, y, text, transform=ax.transAxes, ha=ha, va=va, fontsize=9,
-                bbox=bbox, zorder=10)
-
+        ax.text(
+            x,
+            y,
+            text,
+            transform=ax.transAxes,
+            ha=ha,
+            va=va,
+            fontsize=9,
+            bbox=bbox,
+            zorder=10,
+        )

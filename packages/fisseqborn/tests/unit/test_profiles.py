@@ -18,7 +18,9 @@ def raw(pipeline_dir) -> fb.Profiles:
 
 
 def _read(pipeline_dir, batch, folder, stat):
-    path = pipeline_dir / "feature_select_batchwise" / batch / folder / f"{stat}.parquet"
+    path = (
+        pipeline_dir / "feature_select_batchwise" / batch / folder / f"{stat}.parquet"
+    )
     return pl.read_parquet(path)
 
 
@@ -199,7 +201,9 @@ def test_impact_score_matches_numpy():
         {"meta_aa_changes": ["A1A", "C2C", "G3G", "D4V", "E5K", "F6L"]}
         | {f"f{i}": x[:, i] for i in range(4)}
     )
-    scored = fb.Profiles(df).variant_type().impact_score().df["meta_impact_score"].to_numpy()
+    scored = (
+        fb.Profiles(df).variant_type().impact_score().df["meta_impact_score"].to_numpy()
+    )
     ref = np.median(x[:3], axis=0)
     cosine = x @ ref / (np.linalg.norm(x, axis=1) * np.linalg.norm(ref))
     np.testing.assert_allclose(scored, (1 - cosine) / 2)
@@ -221,7 +225,10 @@ def test_pca_and_pca_reduce(raw):
     med = raw.normalize(by="meta_experiment").median_across_batches().drop_nonfinite()
     with_pcs = med.pca(n_components=2)
     assert {"meta_pc_1", "meta_pc_2"} <= set(with_pcs.columns)
-    assert with_pcs.pca_loadings.columns[:2] == ["component", "explained_variance_ratio"]
+    assert with_pcs.pca_loadings.columns[:2] == [
+        "component",
+        "explained_variance_ratio",
+    ]
     assert with_pcs.features == med.features
 
     reduced = med.pca_reduce(variance=0.5)
@@ -255,9 +262,9 @@ def test_leiden_cluster(profiles):
 
 def test_umap(profiles):
     pytest.importorskip("umap")
-    embedded = fb.Profiles(profiles.drop("meta_notebook_umap_1", "meta_notebook_umap_2")).umap(
-        n_neighbors=10
-    )
+    embedded = fb.Profiles(
+        profiles.drop("meta_notebook_umap_1", "meta_notebook_umap_2")
+    ).umap(n_neighbors=10)
     assert {"meta_notebook_umap_1", "meta_notebook_umap_2"} <= set(embedded.columns)
 
 
@@ -324,7 +331,9 @@ def test_from_pipeline_exclude_globs_and_regexes(pipeline_dir):
         fb.Profiles.from_pipeline(pipeline_dir, exclude=[re.compile(r"^T10_")])
     ) == ["T1_R1", "T2_R1"]
     assert _batches(
-        fb.Profiles.from_pipeline(pipeline_dir, batches=["T2_R1", "T10_R1"], exclude="T2_*")
+        fb.Profiles.from_pipeline(
+            pipeline_dir, batches=["T2_R1", "T10_R1"], exclude="T2_*"
+        )
     ) == ["T10_R1"]
     with pytest.raises(ValueError, match="excludes every batch"):
         fb.Profiles.from_pipeline(pipeline_dir, exclude="*")
@@ -337,7 +346,13 @@ def test_from_pipeline_exclude_globs_and_regexes(pipeline_dir):
 
 
 def _drop_from_batch(pipeline_dir, batch, stat, column):
-    path = pipeline_dir / "feature_select_batchwise" / batch / "aggregates" / f"{stat}.parquet"
+    path = (
+        pipeline_dir
+        / "feature_select_batchwise"
+        / batch
+        / "aggregates"
+        / f"{stat}.parquet"
+    )
     pl.read_parquet(path).drop(column).write_parquet(path)
 
 
@@ -348,7 +363,9 @@ def test_from_pipeline_feature_intersection(pipeline_dir, caplog):
     _drop_from_batch(pipeline_dir, "T10_R1", "median", CONSTANT)
     union = fb.Profiles.from_pipeline(pipeline_dir)
     assert CONSTANT in union.features
-    assert union.filter(pl.col("meta_experiment") == "T10_R1").df[CONSTANT].is_null().all()
+    assert (
+        union.filter(pl.col("meta_experiment") == "T10_R1").df[CONSTANT].is_null().all()
+    )
 
     with caplog.at_level("WARNING"):
         common = fb.Profiles.from_pipeline(pipeline_dir, features="intersection")
@@ -396,7 +413,9 @@ def test_median_across_batches_intersection(pipeline_dir, caplog):
 
 def test_from_pipeline_metadata(pipeline_dir):
     with_meta = fb.Profiles.from_pipeline(pipeline_dir, metadata=True)
-    assert {"meta_num_cells", "meta_barcode_num_unique", "meta_label"} <= set(with_meta.meta)
+    assert {"meta_num_cells", "meta_barcode_num_unique", "meta_label"} <= set(
+        with_meta.meta
+    )
     # output.parquet's feature columns are not joined
     assert with_meta.features == fb.Profiles.from_pipeline(pipeline_dir).features
     df = with_meta.df
@@ -408,7 +427,9 @@ def test_from_pipeline_metadata(pipeline_dir):
     # 10, 20 and 30 cells in the three batches
     assert med["meta_num_cells"].to_list() == [60] * len(PIPELINE_VARIANTS)
     first = counts.median_across_batches().df
-    assert first["meta_num_cells"].to_list() == [30] * len(PIPELINE_VARIANTS)  # T1_R1 first
+    assert first["meta_num_cells"].to_list() == [30] * len(
+        PIPELINE_VARIANTS
+    )  # T1_R1 first
 
     with pytest.raises(ValueError, match="meta_nope"):
         fb.Profiles.from_pipeline(pipeline_dir, metadata=["meta_nope"]).collect()
@@ -430,7 +451,9 @@ def test_umap_n_components(profiles):
 
 
 def test_save_pca_loadings(raw, tmp_path):
-    finite = raw.normalize(by="meta_experiment").median_across_batches().drop_nonfinite()
+    finite = (
+        raw.normalize(by="meta_experiment").median_across_batches().drop_nonfinite()
+    )
     with pytest.raises(ValueError, match="pca"):
         finite.save_pca_loadings(tmp_path / "x.parquet")
     fitted = finite.pca(2)
