@@ -62,22 +62,19 @@ Generates one stratified 50/50 pseudo-replicate split.
 
 | Field | Default | Description |
 | ----- | ------- | ----------- |
-| `cells_file` | **required** | QC_FILTER's `filtered_cells.parquet`. |
 | `filtered_keys_file` | **required** | NORMALIZE's `filtered_keys.parquet`. |
-| `normalizer_file` | **required** | NORMALIZE's `normalizer.parquet`. |
-| `input_file` | `null` | Deprecated: a pre-normalized cell table (or glob), instead of the three files above. |
 | `label_column` | `"meta_aa_changes"` | Column identifying variant labels. |
-| `random_seed` | `0` | Seed for the stratified split (the common config field). Nextflow passes `params.random_seed + bootstrap_idx`, so each replicate is distinct and reproducible. |
+| `bootstrap_idx` | `0` | Bootstrap replicate number. The split is seeded with `random_seed + bootstrap_idx`; Nextflow passes `params.random_seed` and the replicate number, so each replicate is distinct and reproducible. |
+| `input_file` | `null` | Deprecated: a normalized cell table, instead of `filtered_keys_file`; writes the old positional split files. |
 
-**Output**: `half1.parquet`, `half2.parquet` (single-column row-index files).
+**Output**: `half1.parquet`, `half2.parquet`: each half's cells as `(meta_cell_index, meta_variant_tag)` keys. The stage is shared with the embeddings pipeline (`fisseq_common.stages.generatesplit`).
 
 ```bash
 uv run python -m fisseq_data_pipeline.generatesplit \
     output_dir=./out \
-    cells_file=out/qc_filter/batch1/filtered_cells.parquet \
     filtered_keys_file=out/normalization/batch1/filtered_keys.parquet \
-    normalizer_file=out/normalization/batch1/normalizer.parquet \
-    random_seed=3
+    bootstrap_idx=3 \
+    random_seed=0
 ```
 
 ## 2. `python -m fisseq_data_pipeline.correlatefeatures` (`CORRELATE_FEATURES`)
@@ -90,8 +87,11 @@ feature type.
 | `half1_file` | **required** | First half's per-feature-type aggregate parquet. |
 | `half2_file` | **required** | Second half's per-feature-type aggregate parquet. |
 | `label_column` | `"meta_aa_changes"` | Column identifying variant labels. |
+| `output_name` | `"correlations"` | Basename of the output file. |
 
-**Output**: `correlations.parquet` (columns: `feature`, `r`, `r_squared`, `p_value`).
+**Output**: `correlations.parquet` (columns: `feature`, `r`, `r_squared`). An undefined
+correlation (a constant column) is stored as null, so BLOCKLIST's median skips it instead of
+propagating NaN.
 
 ```bash
 uv run python -m fisseq_data_pipeline.correlatefeatures \
@@ -110,8 +110,14 @@ median `r` across replicates.
 | ----- | ------- | ----------- |
 | `correlation_files` | **required** | Glob pattern matching all bootstrap-replicate correlation parquet files for one feature type. |
 | `minimum_correlation` | `0.5` | Minimum median Pearson `r` required for a feature to pass. |
+| `output_name` | `"blocklist"` | Basename of the output file. |
 
-**Output**: `blocklist.parquet` (columns: `feature`, `median_r`, `feature_ok`).
+**Output**: `blocklist.parquet` (columns: `feature`, `median_r`, `feature_ok`), sorted by
+`feature`. A feature whose correlation was undefined in every replicate has a null `median_r`
+and `feature_ok = false`: it is blocked.
+
+CORRELATE_FEATURES, BLOCKLIST and COMBINE_BLOCKLISTS are shared with the embeddings pipeline
+(`fisseq_common.stages`).
 
 ```bash
 uv run python -m fisseq_data_pipeline.blocklist \
@@ -159,7 +165,8 @@ variants.
 | `input_file` | `null` | Deprecated: a pre-normalized cell table (or glob), instead of the three files above. |
 | `label_column` | `"meta_aa_changes"` | Column identifying variant labels. |
 | `feature_type_files` | **required** | Glob pattern matching per-feature-type full aggregate parquet files. |
-| `block_list_file` | **required** | Combined blocklist parquet, with `feature` and `feature_ok` columns. |
+| `block_list_file` | **required** | Combined blocklist parquet, with `feature` and `feature_ok` columns. Features with `feature_ok` false or null are dropped; features the blocklist doesn't mention are kept. |
+| `pycytominer_operations` | `["variance_threshold", "blocklist", "correlation_threshold"]` | pycytominer feature-selection operations run after the blocklist; `[]` skips pycytominer. |
 | `compute_impact_score` | `true` | Compute per-variant impact score (cosine distance vs. synonymous baseline) after feature selection. |
 | `run_pca` | `false` | Compute PCA on the final selected/normalized feature matrix, appending `meta_pc_1..meta_pc_{pca_n_components}` and writing a separate PCA-components output file. |
 | `pca_n_components` | `10` | Number of principal components to compute and retain. |

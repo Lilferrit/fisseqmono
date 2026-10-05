@@ -11,16 +11,16 @@ import dataclasses
 import glob
 import logging
 import pathlib
-from typing import Optional
+from typing import List, Optional
 
 import hydra
 import polars as pl
-import pycytominer
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 
 from fisseq_common.normalizer import Normalizer
-from fisseq_common.schema import FEATURE_SELECTOR
+from fisseq_common.stages.filter_aggregate import apply_blocklist, join_passthrough
+from fisseq_common.stages.pycytominer import DEFAULT_OPERATIONS, pyc_feature_select
 from fisseq_common.utils.log import setup_logging
 from fisseq_common.utils.metadata import get_aggregate_meta_data
 from fisseq_common.utils.vectors import compute_impact_score
@@ -32,38 +32,6 @@ from .utils.dimreduction import compute_pca, compute_umap
 from .utils.featuretypes import join_feature_type_files
 
 _cs = ConfigStore.instance()
-
-
-def pyc_feature_select(agg_df: pl.DataFrame) -> pl.DataFrame:
-    """
-    Select informative features from a per-variant aggregate DataFrame using
-    pycytominer.
-
-    Applies three sequential filters via :func:`pycytominer.feature_select`:
-    low-variance removal (``variance_threshold``), pycytominer's built-in
-    blocklist, and redundancy removal (``correlation_threshold``).
-
-    Parameters
-    ----------
-    agg_df : pl.DataFrame
-        Per-variant aggregate DataFrame. Feature columns must match
-        ``FEATURE_SELECTOR`` (i.e. no ``meta_`` prefix).
-
-    Returns
-    -------
-    pl.DataFrame
-        Subset of ``agg_df`` retaining only the features that pass all three
-        filters. Non-feature (``meta_``) columns are preserved unchanged.
-    """
-    select_agg_df_pd = pycytominer.feature_select(
-        profiles=agg_df.to_pandas(),
-        features=agg_df.select(FEATURE_SELECTOR).columns,
-        image_features=False,
-        samples="all",
-        operation=["variance_threshold", "blocklist", "correlation_threshold"],
-    )
-
-    return pl.from_pandas(select_agg_df_pd)
 
 
 @dataclasses.dataclass
@@ -120,11 +88,16 @@ class FinalizeFeatureSelectConfig(CellsInput, LabeledInputConfig):
         Optional glob pattern matching per-feature-type aggregate parquet
         files to join onto the output *without* running them through feature
         selection. Defaults to ``None`` (no passthrough columns).
+    pycytominer_operations : list of str
+        pycytominer feature-selection operations run after the blocklist
+        (:func:`fisseq_common.stages.pycytominer.pyc_feature_select`). Defaults to
+        ``["variance_threshold", "blocklist", "correlation_threshold"]``; empty skips
+        pycytominer.
 
     Notes
     -----
     UMAP's fit is seeded from
-    :attr:`~fisseq_data_pipeline.config.app.AppConfig.random_seed`. It used to
+    :attr:`~fisseq_common.stages.config.AppConfig.random_seed`. It used to
     have its own nullable ``umap_random_state`` (``None`` opting into faster
     nondeterministic multithreaded fitting); that knob is gone, so UMAP is now
     always seeded.
@@ -153,6 +126,9 @@ class FinalizeFeatureSelectConfig(CellsInput, LabeledInputConfig):
     umap_metric: str = "cosine"
     umap_min_dist: float = 0.1
     passthrough_feature_type_files: Optional[str] = None
+    pycytominer_operations: List[str] = dataclasses.field(
+        default_factory=lambda: list(DEFAULT_OPERATIONS)
+    )
 
 
 _cs.store(name="feature_select_main", node=FinalizeFeatureSelectConfig)
@@ -229,15 +205,12 @@ def main(cfg: DictConfig) -> None:
     agg_df = join_feature_type_files(ft_paths, feat_cfg.label_column)
 
     logging.info("Loading block list from %s", feat_cfg.block_list_file)
-    bl_df = pl.read_parquet(feat_cfg.block_list_file)
-    block_list = set(bl_df.filter(~pl.col("feature_ok"))["feature"].to_list())
-    logging.info(
-        "Dropping %d blocked feature(s)", len(block_list & set(agg_df.columns))
-    )
-    agg_df = agg_df.drop([c for c in block_list if c in agg_df.columns])
+    agg_df = apply_blocklist(agg_df, pl.read_parquet(feat_cfg.block_list_file))
 
-    logging.info("Running pycytominer feature selection")
-    selected_df = pyc_feature_select(agg_df)
+    logging.info(
+        "Running pycytominer feature selection (%s)", feat_cfg.pycytominer_operations
+    )
+    selected_df = pyc_feature_select(agg_df, feat_cfg.pycytominer_operations)
 
     logging.info(
         "Classifying variants and marking synonymous as normalization reference"
@@ -294,43 +267,11 @@ def main(cfg: DictConfig) -> None:
     # passthrough aggregates out of all of them. Moving this join earlier
     # silently turns them back into ordinary features.
     if feat_cfg.passthrough_feature_type_files:
-        logging.info(
-            "Loading passthrough aggregates from %s",
+        selected_lf = join_passthrough(
+            selected_lf.collect(),
             feat_cfg.passthrough_feature_type_files,
-        )
-        pt_paths = sorted(glob.glob(feat_cfg.passthrough_feature_type_files))
-        if not pt_paths:
-            # A warning, not the ValueError feature_type_files raises: an empty
-            # feature_select_passthrough_types is the default and arrives here
-            # as an empty staging directory. Nextflow validates every entry by
-            # name, so a typo cannot reach this branch.
-            logging.warning(
-                "No files matched passthrough glob pattern: %r; "
-                "no passthrough columns will be joined",
-                feat_cfg.passthrough_feature_type_files,
-            )
-        else:
-            pt_df = join_feature_type_files(pt_paths, feat_cfg.label_column)
-            collisions = set(pt_df.columns) & set(selected_lf.collect_schema().names())
-            collisions.discard(feat_cfg.label_column)
-            if collisions:
-                raise ValueError(
-                    f"Passthrough aggregates collide with selected columns: "
-                    f"{sorted(collisions)}. A feature type must not appear in "
-                    f"both feature_select_types and "
-                    f"feature_select_passthrough_types"
-                )
-            logging.info(
-                "Joining %d passthrough column(s) from %d file(s)",
-                len(pt_df.columns) - 1,
-                len(pt_paths),
-            )
-            # Left join: both tables aggregate the same cells, so the label
-            # sets should match -- a mismatch should surface as nulls, not as
-            # variants quietly vanishing from the output.
-            selected_lf = selected_lf.join(
-                pt_df.lazy(), on=feat_cfg.label_column, how="left"
-            )
+            feat_cfg.label_column,
+        ).lazy()
 
     if feat_cfg.output_root is not None:
         out_path = pathlib.Path(f"{feat_cfg.output_root}.{output_stem}.parquet")

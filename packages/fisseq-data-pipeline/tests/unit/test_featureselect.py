@@ -15,72 +15,6 @@ from fisseq_common.schema import (
     META_BATCH_COL,
 )
 
-# ---------------------------------------------------------------------------
-# pyc_feature_select
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def agg_df() -> pl.DataFrame:
-    return pl.DataFrame(
-        {
-            "meta_aa_changes": ["A", "B", "C"],
-            "f1": [1.0, 2.0, 3.0],
-            "f2": [4.0, 5.0, 6.0],
-        }
-    )
-
-
-def test_pyc_feature_select_returns_polars_dataframe(
-    agg_df: pl.DataFrame,
-) -> None:
-    with patch("pycytominer.feature_select") as mock_fs:
-        mock_fs.return_value = agg_df.to_pandas()
-        result = m.pyc_feature_select(agg_df)
-    assert isinstance(result, pl.DataFrame)
-
-
-def test_pyc_feature_select_passes_feature_columns(agg_df: pl.DataFrame) -> None:
-    with patch("pycytominer.feature_select") as mock_fs:
-        mock_fs.return_value = agg_df.to_pandas()
-        m.pyc_feature_select(agg_df)
-    features_arg = mock_fs.call_args.kwargs["features"]
-    assert "f1" in features_arg
-    assert "f2" in features_arg
-    assert "meta_aa_changes" not in features_arg
-
-
-def test_pyc_feature_select_passes_correct_operations(agg_df: pl.DataFrame) -> None:
-    with patch("pycytominer.feature_select") as mock_fs:
-        mock_fs.return_value = agg_df.to_pandas()
-        m.pyc_feature_select(agg_df)
-    ops = mock_fs.call_args.kwargs["operation"]
-    assert "variance_threshold" in ops
-    assert "blocklist" in ops
-    assert "correlation_threshold" in ops
-
-
-def test_pyc_feature_select_dropped_features_absent_from_output(
-    agg_df: pl.DataFrame,
-) -> None:
-    with patch("pycytominer.feature_select") as mock_fs:
-        mock_fs.return_value = agg_df.drop("f2").to_pandas()
-        result = m.pyc_feature_select(agg_df)
-    assert "f1" in result.columns
-    assert "f2" not in result.columns
-
-
-def test_pyc_feature_select_meta_columns_preserved(agg_df: pl.DataFrame) -> None:
-    with patch("pycytominer.feature_select") as mock_fs:
-        mock_fs.return_value = agg_df.to_pandas()
-        result = m.pyc_feature_select(agg_df)
-    assert "meta_aa_changes" in result.columns
-
-
-# ---------------------------------------------------------------------------
-# main() — stage 4, final feature selection
-# ---------------------------------------------------------------------------
-
 
 def write_feat_input_parquet(tmp_path) -> None:
     """Raw cell-level parquet used only for the metadata join in main()."""
@@ -280,11 +214,6 @@ def test_main_pyc_feature_select_dropped_feature_absent(tmp_path) -> None:
     assert "f1_mean" not in result.columns
 
 
-# ---------------------------------------------------------------------------
-# compute_impact_score — main() integration
-# ---------------------------------------------------------------------------
-
-
 def test_main_impact_score_column_present_by_default(tmp_path) -> None:
     _write_default_fixtures(tmp_path)
     with patch("fisseq_data_pipeline.featureselect.setup_logging"):
@@ -364,11 +293,6 @@ def test_main_output_features_are_synonymous_normalized(tmp_path) -> None:
         assert row["f2_mean"][0] == pytest.approx((raw_f2 - f2_mean) / f2_std, abs=1e-9)
 
 
-# ---------------------------------------------------------------------------
-# aggregate meta data — main() integration
-# ---------------------------------------------------------------------------
-
-
 def _run_main(tmp_path, **kwargs) -> pl.DataFrame:
     """Run main() and return the output parquet."""
     _write_default_fixtures(tmp_path)
@@ -411,11 +335,6 @@ def test_main_meta_batch_num_unique_is_one_for_single_file(tmp_path) -> None:
     # single input file → all cells share the same batch label
     result = _run_main(tmp_path)
     assert (result[f"{META_BATCH_COL}_num_unique"] == 1).all()
-
-
-# ---------------------------------------------------------------------------
-# PCA / UMAP — main() integration
-# ---------------------------------------------------------------------------
 
 
 def test_main_pca_off_by_default_no_pc_columns(tmp_path) -> None:
@@ -621,10 +540,6 @@ def test_main_impact_score_unaffected_by_pca_or_umap(tmp_path) -> None:
         with_embeddings_sorted[IMPACT_SCORE_COL].to_list()
     )
 
-
-# ---------------------------------------------------------------------------
-# main() — passthrough aggregates (feature_select_passthrough_types)
-# ---------------------------------------------------------------------------
 
 # Deliberately lopsided: A1C's value is an order of magnitude off the rest, so
 # a synonymous-baseline z-score would be unmistakable if one were ever applied.

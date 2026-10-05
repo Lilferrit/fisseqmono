@@ -11,7 +11,7 @@ process GENERATE_SPLIT {
     publishDir { "${params.pipeline_dir}/${publish_subdir}/splits/bootstrap_${bootstrap_idx}" }, mode: 'copy'
 
     input:
-    tuple val(batch_key), path(cells), path(filtered_keys), path(normalizer), val(bootstrap_idx), val(publish_subdir)
+    tuple val(batch_key), path(filtered_keys), val(bootstrap_idx), val(publish_subdir)
 
     output:
     tuple val(batch_key), val(bootstrap_idx), path("half1.parquet"), path("half2.parquet")
@@ -24,9 +24,8 @@ process GENERATE_SPLIT {
     echo "Starting GENERATE_SPLIT for ${batch_key} / bootstrap ${bootstrap_idx}"
     python -m fisseq_data_pipeline.generatesplit \\
         output_dir=. \\
-        cells_file=${cells} \\
         filtered_keys_file=${filtered_keys} \\
-        normalizer_file=${normalizer} \\
-        random_seed=${(params.random_seed as int) + (bootstrap_idx as int)}
+        bootstrap_idx=${bootstrap_idx} \\
+        random_seed=${params.random_seed}
     """
 }

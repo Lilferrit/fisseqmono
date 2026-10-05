@@ -74,7 +74,7 @@ Extends `LabeledInputConfig` plus the [common config fields](qcfilter.md#common-
 | `input_file` | `null` | Deprecated: a pre-normalized cell table (or glob), instead of the three files above. |
 | `label_column` | `"meta_aa_changes"` | Column identifying variant labels. |
 | `aggregator` | **required** | One of the eight aggregators above. |
-| `index_file` | `null` | Optional path to a single-column row-index parquet (as written by `python -m fisseq_data_pipeline.generatesplit`) restricting aggregation to a pseudo-replicate half. |
+| `index_file` | `null` | Optional split file written by `python -m fisseq_data_pipeline.generatesplit` (the half's `meta_cell_index`/`meta_variant_tag` keys), restricting aggregation to a pseudo-replicate half. Old positional split files (a `tmp_cell_idx` column) are still read, with a warning. |
 | `downsample_wt` | `null` | Optional downsample of control (wildtype) rows before aggregation. A float in `(0, 1)` keeps that fraction; an int keeps that many. `null` disables downsampling. |
 | `feature_chunk_size` | `32` | Feature columns aggregated per Polars query; `null` disables chunking. Driven by `params.aggregate_feature_chunk_size`. See [Feature chunking](#feature-chunking). |
 | `normalize_to_synonymous` | `false` | Z-score every output stat column against the synonymous variants' rows. See [Synonymous normalization](#synonymous-normalization). |

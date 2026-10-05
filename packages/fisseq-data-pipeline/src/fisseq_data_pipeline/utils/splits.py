@@ -1,14 +1,21 @@
-"""Row-index-based filtering helpers for the bootstrap feature-selection pipeline.
+"""Restricting a cell-level LazyFrame to one pseudo-replicate half.
 
-Defines the ``TMP_IDX_COL`` row-index convention and :func:`filter_by_index_file`,
-used to restrict a cell-level LazyFrame to one pseudo-replicate half written by
-:func:`fisseq_data_pipeline.generatesplit.main`.
+GENERATE_SPLIT writes each half as the cells' keys (``meta_cell_index``,
+``meta_variant_tag``; :mod:`fisseq_common.utils.splits`). Older split files held positional
+row indices in a ``TMP_IDX_COL`` column instead; :func:`filter_by_index_file` still reads
+those, but they are deprecated, since they are only right when the reader sees the cells in
+exactly the writer's row order.
 """
 
+import logging
 import os
 from typing import Optional, Union
 
 import polars as pl
+
+from fisseq_common.utils.splits import filter_by_split_file
+
+from ..cells import JOIN_KEYS
 
 TMP_IDX_COL = "tmp_cell_idx"
 
@@ -73,31 +80,22 @@ def filter_by_index_file(
     lf: pl.LazyFrame, index_file: Optional[os.PathLike]
 ) -> pl.LazyFrame:
     """
-    Filter a cell-level LazyFrame to the row indices stored in a single-column
-    integer parquet file.
+    Restrict ``lf`` to the cells of a split file, or keep every row for ``None``.
 
-    Adds ``TMP_IDX_COL`` via :func:`add_row_index`. If ``index_file`` is
-    given, it is read as a parquet file with a single integer column named
-    ``TMP_IDX_COL`` (as written by
-    :func:`fisseq_data_pipeline.generatesplit.main`), and ``lf`` is
-    filtered to those rows via :func:`get_replicate_lf`. If ``index_file`` is
-    ``None``, all rows are kept. ``TMP_IDX_COL`` is dropped from the result
-    either way.
-
-    Parameters
-    ----------
-    lf : pl.LazyFrame
-        Cell-level LazyFrame.
-    index_file : PathLike or None
-        Path to an index parquet file, or ``None`` to keep all rows.
-
-    Returns
-    -------
-    pl.LazyFrame
-        ``lf``, optionally filtered, with ``TMP_IDX_COL`` removed.
+    A split file of cell keys (GENERATE_SPLIT's output) is applied with a semi-join on
+    ``(meta_cell_index, meta_variant_tag)``. A deprecated positional file (a single
+    ``TMP_IDX_COL`` column) selects rows by their position in ``lf``.
     """
+    if index_file is None:
+        return lf
+    columns = pl.read_parquet_schema(index_file)
+    if TMP_IDX_COL not in columns:
+        return filter_by_split_file(lf, index_file, JOIN_KEYS)
+    logging.warning(
+        "%s holds positional row indices (%s); split files of cell keys replace them",
+        index_file,
+        TMP_IDX_COL,
+    )
     lf = add_row_index(lf)
-    if index_file is not None:
-        idx = pl.read_parquet(index_file).get_column(TMP_IDX_COL)
-        lf = get_replicate_lf(lf, idx)
-    return lf.drop(TMP_IDX_COL)
+    idx = pl.read_parquet(index_file).get_column(TMP_IDX_COL)
+    return get_replicate_lf(lf, idx).drop(TMP_IDX_COL)

@@ -1,84 +1,53 @@
-"""Combine per-feature-type blocklists.
+"""COMBINE_BLOCKLISTS: one experiment's per-method blocklists in one table.
 
-Hydra entry point backing the Nextflow process ``COMBINE_BLOCKLISTS``:
-concatenates all per-feature-type blocklists (outputs of
-:func:`fisseq_data_pipeline.blocklist.main`) into one combined blocklist, part of
-the bootstrap feature-selection pipeline.
+Hydra entry point (``python -m fisseq_data_pipeline.combineblocklists``). The stage is shared with fisseq-embeddings-pipeline and documented
+in :mod:`fisseq_common.stages.combineblocklists`.
 """
 
 import dataclasses
-import glob
-import logging
 import pathlib
 
 import hydra
-import polars as pl
 from hydra.core.config_store import ConfigStore
-from omegaconf import MISSING, DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf
 
+from fisseq_common.stages.combineblocklists import (  # noqa: F401 (re-exported)
+    CombineBlocklistsParams,
+    run_combine_blocklists,
+)
 from fisseq_common.utils.log import setup_logging
-
-from .config import AppConfig
-
-_cs = ConfigStore.instance()
 
 
 @dataclasses.dataclass
-class CombineBlocklistsConfig(AppConfig):
-    """
-    Hydra structured configuration for the blocklist-combination entry point.
-
-    Attributes
-    ----------
-    blocklist_files : str
-        Glob pattern matching all per-feature-type blocklist parquet files
-        (outputs of :func:`fisseq_data_pipeline.blocklist.main`). Required.
-    """
-
-    blocklist_files: str = MISSING
+class CombineBlocklistsConfig(CombineBlocklistsParams):
+    """Hydra structured configuration for COMBINE_BLOCKLISTS; every field is
+    :class:`~fisseq_common.stages.combineblocklists.CombineBlocklistsParams`'."""
 
 
+_cs = ConfigStore.instance()
 _cs.store(name="combine_blocklists_main", node=CombineBlocklistsConfig)
 
 
 @hydra.main(version_base=None, config_path=None, config_name="combine_blocklists_main")
 def main(cfg: DictConfig) -> None:
+    """Hydra entry point: see :func:`fisseq_common.stages.combineblocklists.run_combine_blocklists`.
+
+    Configuration
+    -------------
+    Override any field on the command line, e.g.::
+
+        python -m fisseq_data_pipeline.combineblocklists \\
+            output_dir=./out \\
+            'blocklist_files=./blocklists/*.parquet'
     """
-    Hydra entry point: concatenate all per-feature-type blocklists into one
-    combined blocklist.
+    stage_cfg: CombineBlocklistsConfig = OmegaConf.to_object(cfg)
 
-    Globs ``blocklist_files`` and concatenates them with no deduplication —
-    each feature type's blocklist covers a disjoint set of feature columns
-    (stat-suffixed column names like ``f1_mean`` and ``f1_KS`` never
-    collide across feature types), so a plain concat is correct.
-
-    Output file
-    -----------
-    - ``{output_dir}/blocklist.parquet``
-
-    Raises
-    ------
-    ValueError
-        If ``blocklist_files`` matches no files.
-    """
-    cb_cfg: CombineBlocklistsConfig = OmegaConf.to_object(cfg)
-
-    output_dir = pathlib.Path(cb_cfg.output_dir)
+    output_dir = pathlib.Path(stage_cfg.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    cb_cfg.output_dir = output_dir
-    setup_logging(cb_cfg, "combine_blocklists")
+    stage_cfg.output_dir = str(output_dir)
+    setup_logging(stage_cfg, "combine_blocklists")
 
-    paths = sorted(glob.glob(cb_cfg.blocklist_files))
-    if not paths:
-        raise ValueError(f"No files matched glob pattern: {cb_cfg.blocklist_files!r}")
-    logging.info("Found %d per-feature-type blocklist file(s)", len(paths))
-    combined = pl.concat([pl.read_parquet(p) for p in paths])
-
-    out_path = output_dir / "blocklist.parquet"
-    logging.info("Writing combined blocklist to %s", out_path)
-    combined.write_parquet(out_path)
-
-    logging.info("Done")
+    run_combine_blocklists(stage_cfg)
 
 
 if __name__ == "__main__":

@@ -79,3 +79,27 @@ def test_main_random_seed_is_deterministic(tmp_path) -> None:
     )
 
     assert half1_first == half1_second
+
+
+def test_main_with_filtered_keys_writes_cell_key_halves(tmp_path) -> None:
+    keys_path = tmp_path / "filtered_keys.parquet"
+    pl.DataFrame(
+        {
+            "meta_cell_index": list(range(8)),
+            "meta_variant_tag": pl.Series([None] * 8, dtype=pl.String),
+            "meta_aa_changes": ["WT", "M1K"] * 4,
+        }
+    ).write_parquet(keys_path)
+    cfg = OmegaConf.structured(
+        m.GenerateSplitConfig(
+            output_dir=str(tmp_path / "out"), filtered_keys_file=str(keys_path)
+        )
+    )
+    with patch("fisseq_data_pipeline.generatesplit.setup_logging"):
+        m.main.__wrapped__(cfg)
+    half1 = pl.read_parquet(tmp_path / "out" / "half1.parquet")
+    half2 = pl.read_parquet(tmp_path / "out" / "half2.parquet")
+    assert half1.columns == ["meta_cell_index", "meta_variant_tag"]
+    assert sorted(
+        half1["meta_cell_index"].to_list() + half2["meta_cell_index"].to_list()
+    ) == list(range(8))

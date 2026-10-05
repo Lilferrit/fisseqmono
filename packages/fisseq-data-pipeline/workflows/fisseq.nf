@@ -280,9 +280,8 @@ workflow FisseqPipeline {
         // Stage 2a: one 50/50 split per (experiment, bootstrap replicate).
         split_input_ch = norm_ch
             .combine(bootstrap_ch)
-            .map { batch_stem, cells, keys, normalizer, bootstrap_idx ->
-                tuple(batch_stem, cells, keys, normalizer, bootstrap_idx,
-                      "feature_select_batchwise/${batch_stem}")
+            .map { batch_stem, _cells, keys, _normalizer, bootstrap_idx ->
+                tuple(batch_stem, keys, bootstrap_idx, "feature_select_batchwise/${batch_stem}")
             }
         GENERATE_SPLIT_BATCHWISE(split_input_ch)
         split_ch = GENERATE_SPLIT_BATCHWISE.out  // (batch_stem, bootstrap_idx, half1, half2)

@@ -46,10 +46,9 @@ def filter_by_split_file(
         same call site serves AGGREGATE_HALF (a half) and
         AGGREGATE_PASSTHROUGH (every cell).
     join_keys : list of str
-        The composite cell key --
-        join keys. Passed in
-        rather than imported to keep this module free of a circular
-        dependency on ``filter``.
+        The pipeline's cell identity (the filter stage's join keys). Null key values
+        match each other (the data pipeline's untagged cells have a null
+        ``meta_variant_tag``).
 
     Returns
     -------
@@ -61,4 +60,4 @@ def filter_by_split_file(
         return lf
     logging.info("Restricting to the cells named by %s", split_file)
     split_lf = pl.scan_parquet(split_file).select(join_keys)
-    return lf.join(split_lf, on=join_keys, how="semi")
+    return lf.join(split_lf, on=join_keys, how="semi", nulls_equal=True)
