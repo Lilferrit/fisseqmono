@@ -1,0 +1,115 @@
+# Aggregation (`AGGREGATE_EMBEDDINGS`)
+
+`python -m fisseq_embeddings_pipeline.aggregate` (Nextflow process `AGGREGATE_EMBEDDINGS`) reconstructs the QC-passed, synonymous-corrected
+embedding table (via `load_filtered_embeddings()`) and computes per-variant
+pooling of the cell-level embeddings via one or more of:
+
+- **`mean`** / **`median`** -- per-group mean/median for each embedding
+  dimension.
+- **`KS`** -- per-group two-sample Kolmogorov-Smirnov statistic against
+  the synonymous reference distribution.
+- **`AUROC`** -- per-group AUROC against the synonymous reference
+  distribution (`P(variant > reference) + 0.5 * P(variant == reference)`,
+  not symmetrized to `[0.5, 1]`, so the sign of separation is preserved).
+- **`KSnegLogP`** / **`AUROCnegLogP`** -- `-log10(p)` for those same two
+  statistics: evidence strength against "this variant is drawn from the
+  reference distribution" rather than effect size, so larger means more
+  significant. Both are closed-form asymptotic approximations (the
+  classical limiting Kolmogorov distribution, and the tie-corrected
+  normal approximation to Mann-Whitney U) computed entirely in log space,
+  which is what keeps the most-significant hits finite instead of
+  underflowing to `-inf`. Two caveats: they are **raw, uncorrected**
+  per-(variant, dimension) p-values with no multiple-testing correction,
+  and they are imprecise near `p = 1` (`-log10(p)` near 0) -- don't read
+  precision into small values. Both cost meaningfully more than their
+  base statistic (~5.6x for KS, ~2.9x for AUROC), so neither is in the
+  default `aggregate_methods`; opt in explicitly.
+
+Every aggregator, including mean/median, excludes control (synonymous,
+untagged) rows before grouping by variant -- required structurally for
+KS/AUROC (comparing the reference pool to itself is meaningless) and
+applied uniformly here as one consistent rule. Literal `"WT"` rows are
+unaffected (never classified as synonymous) -- only genuinely-synonymous
+variant labels drop out of the per-variant output, since they exist only
+to define the reference baseline.
+
+When `aggregators` is exactly `["median"]`, output embedding
+columns are bare `emb_0000..emb_{D-1}`; any other selection (multiple
+methods, or a single non-median method) suffixes each column by its
+aggregator (`emb_0000_mean`, `emb_0000_KS`, ...).
+
+## Config fields
+
+Extends the [common config fields](#common-config-fields) below.
+
+| Field | Default | Description |
+| ----- | ------- | ----------- |
+| `embeddings_file` | **required** | Path to `EMBED_CELLS`' `embeddings.parquet`. |
+| `filtered_keys_file` | **required** | Path to `FILTER_EMBEDDINGS`' `filtered_keys.parquet`. |
+| `normalizer_file` | **required** | Path to `FILTER_EMBEDDINGS`' `normalizer.parquet`. |
+| `label_column` | `"meta_aa_changes"` | Name of the variant label column. |
+| `aggregators` | `["median", "KS", "AUROC"]` | One or more of `"mean"`, `"median"`, `"KS"`, `"AUROC"`, `"KSnegLogP"`, `"AUROCnegLogP"`. |
+| `feature_chunk_size` | `32` | Embedding dimensions evaluated per Polars query. A memory dial only -- identical output at every value. `null` disables chunking. See below. |
+
+## Column batching (`feature_chunk_size`)
+
+Each aggregator evaluates `feature_chunk_size` dimensions per Polars query,
+projecting the input down to the label column, the control flag and that
+chunk's dimensions *before* grouping. That projection is the point: it lets
+the Parquet scan read only those columns and keeps both the grouped list
+columns and the reference-based aggregators' cross-joined control pool
+proportional to the chunk width rather than to the total dimension count.
+The per-chunk results -- one row per variant, a few hundred columns -- are
+joined back together on the label.
+
+It is a **pure memory dial**: the output is identical at every chunk size,
+which `tests/unit/test_aggregate.py` asserts directly across every
+aggregator. Runtime is dominated by the *number* of chunks rather than their
+width, so raising it only helps until memory runs out.
+
+Peak memory scales with `chunk_size x n_variant_labels`, and for the
+reference-based aggregators with the control pool on top. Size it to the
+memory one task is granted -- roughly
+`chunk_size ~= (memory_per_task_GB - 1) / 4.5` -- and see
+[`params.yaml`](../configuration.md)'s own `aggregate_feature_chunk_size`
+comment for the measured per-aggregator costs behind that rule. If `KS`/`AUROC`
+tasks come back OOM-killed, halve it first.
+
+## Output file
+
+`aggregate.parquet` -- one row per non-control variant, **sorted by
+`label_column`** (Polars' `group_by` and joins are not order-preserving under
+multithreaded execution, so without the sort the same input would produce the
+same numbers in a different order run to run). With
+`aggregators=["median"]`: `emb_0000..emb_{D-1}` (variant-level,
+median-pooled and synonymous-corrected) plus `meta_num_cells`,
+`meta_barcode_num_unique`, etc.
+
+This file is **not** the final per-experiment feature table. It carries every
+dimension, reproducible or not; the reproducibility verdict is applied
+downstream by [FILTER_AGGREGATE](filter_aggregate.md), which writes
+`filtered_aggregate.parquet`. See [Architecture](../architecture.md).
+
+## Example
+
+```bash
+uv run python -m fisseq_embeddings_pipeline.aggregate \
+    output_dir=./out \
+    embeddings_file=embeddings.parquet \
+    filtered_keys_file=filtered_keys.parquet \
+    normalizer_file=normalizer.parquet \
+    'aggregators=[mean,median]'
+```
+
+## Common config fields
+
+Every CLI tool's config extends `AppConfig`, which supplies:
+
+| Field | Default | Description |
+| ----- | ------- | ----------- |
+| `output_dir` | **required** | Directory for all output files; created if absent. |
+| `output_root` | `null` | If set, output files are prefixed `{output_root}.{name}` instead of being placed directly under `output_dir`. |
+| `log_level` | `"info"` | Logging verbosity (`debug`, `info`, `warning`, `error`, `critical`). |
+| `random_seed` | `0` | Shared seed for every stochastic pipeline stage (unused by this stage -- every aggregator is deterministic). |
+
+See [API Reference: aggregate](../api/aggregate.md) for full function documentation.

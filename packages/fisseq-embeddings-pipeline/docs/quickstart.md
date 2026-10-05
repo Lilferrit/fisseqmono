@@ -1,0 +1,91 @@
+# Quickstart
+
+## 1. Lay out one experiment's inputs
+
+Each experiment needs an entry in `params.yaml`'s `experiments:` list, plus
+a `--pipeline_dir` directory holding that experiment's raw data:
+
+```yaml
+# params.yaml
+window: 224   # must match your Cell-DINO checkpoint's crop size -- global
+              # default, used by every experiment below that doesn't set
+              # its own `window`
+
+experiments:
+  - batch_stem: experiment1
+    starcall_workflow_dir: /data/experiment1   # starcall's working directory for this
+                                                # experiment: its config.yaml and data
+                                                # trees (starcall's code comes from the
+                                                # image's pinned commit, not from here).
+                                                # IS this experiment's root, no separate
+                                                # folder needed
+    # phenotyping_dir/segmentation_dir/sequencing_dir omitted -- each is
+    # auto-resolved: starcall_workflow_dir's own config.yaml (or
+    # default-config.yaml) is consulted first if present, else it falls
+    # back to a subdirectory of starcall_workflow_dir
+    # (phenotyping/segmentation/sequencing); set one explicitly only if
+    # your lab's data for that tree isn't colocated under
+    # starcall_workflow_dir at all.
+    wells: [well1, well2]
+    # grid_size omitted -- auto-detected per well from phenotyping_dir's
+    # own {well}_grid<N> directory naming. Set it explicitly (e.g.
+    # grid_size: 12) when starting from raw input, with nothing under
+    # phenotyping_dir yet: every tile of the grid is then requested.
+    # window omitted -- falls back to the global `window` default above.
+```
+
+These starcall-workflow-facing fields all belong to `BUILD_CELL_IMAGES`,
+the one stage that touches `starcall-workflow`'s tree -- see
+[`BUILD_CELL_IMAGES`' section of the Architecture doc](architecture.md#cell-images-build_cell_images-output-from-starcall-workflow)
+for every field it accepts, including `window` (the crop size each tile's
+shard is cut at -- see [Cell Shards](cli/tile_shard.md)). The remaining
+`*_col_name` fields go to `BUILD_CELL_METADATA` and `BUILD_CP_FEATURES`.
+
+## 2. Get a Cell-DINO checkpoint
+
+`--cell_dino_checkpoint` is required, with no default (a checkpoint path is
+inherently deployment-specific). Point it at a real `.pth` file; see
+[Architecture](architecture.md#embed_cells-cell-dino-inference-internals)
+for what checkpoint shapes are supported.
+
+## 3. Run the pipeline
+
+```bash
+nextflow run . -params-file params.yaml \
+    --pipeline_dir /path/to/experiment1 \
+    --cell_dino_checkpoint /path/to/checkpoint.pth
+```
+
+`-params-file params.yaml` is mandatory -- there is no embedded fallback
+for pipeline defaults (see [Configuration](configuration.md)). Any field in
+`params.yaml` can be overridden on the command line as `--key value`, e.g.
+`--ovwt_min_cells 500`.
+
+That runs every task inside the image named by `container_image`, under
+Docker. Add `-profile apptainer` to use Apptainer instead (the usual choice
+on a cluster), and `-c site.config` for your cluster's executor settings --
+see [Nextflow Workflow](nextflow.md#running-on-a-cluster-bring-your-own-profiles).
+On a GPU-less Docker host, also pass `--starcall_gpu false --cell_dino_device cpu`
+(Docker's `--gpus` fails outright without a GPU).
+
+Add `-resume` to a rerun to reuse every task whose inputs haven't changed.
+`BUILD_CELL_IMAGES`' own nested starcall run is mtime-based on its own, so
+already-computed starcall outputs are reused either way.
+
+## 4. Read the outputs
+
+Every stage's output lands under `<pipeline_dir>/`, one subdirectory per
+stage (`cell_images/`, `dataset/`, `qc_filter/`, `embeddings/`,
+`filter_embeddings/`, `feature_select_batchwise/`, `ovwt_batchwise/`,
+`global/`). See
+[Nextflow Workflow](nextflow.md#output-directory-layout) for the full tree
+and [Architecture](architecture.md#data-contracts) for what each Parquet
+file's columns mean.
+
+## Running multiple experiments together
+
+Add another map to `params.yaml`'s `experiments:` list (with its own
+unique `batch_stem`) -- every per-experiment stage runs once per entry,
+and the two global stages (`GLOBAL_VARIANT_EMBEDDINGS`,
+`GLOBAL_VARIANT_DISTINGUISHABILITY`) automatically pool across however
+many experiments are present.
