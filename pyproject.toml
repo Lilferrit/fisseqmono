@@ -40,6 +40,12 @@ docs = [
 testpaths = ["tests"]
 # importlib mode: test modules with the same basename in different packages don't collide.
 addopts = ["--import-mode=importlib"]
+# Root tests import their helpers (_fixtures, _compare) as plain modules.
+pythonpath = ["tests"]
+markers = [
+    # Declared by the embeddings pipeline's integration module, which tests/_fixtures.py loads.
+    "container: containerized real-starcall integration test",
+]
 
 [tool.ruff]
 # ruff >= 0.16 formats fenced code blocks inside Markdown by default, which would rewrite the
