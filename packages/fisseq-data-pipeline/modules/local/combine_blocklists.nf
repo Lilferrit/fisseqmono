@@ -1,0 +1,29 @@
+nextflow.enable.dsl = 2
+
+// COMBINE_BLOCKLISTS: wraps python -m fisseq_data_pipeline.combineblocklists. Feature-selection
+// stage 3 — concatenates every feature type's BLOCKLIST output (for one
+// batch) into a single combined blocklist, consumed by
+// FINALIZE_FEATURE_SELECT.
+process COMBINE_BLOCKLISTS {
+    errorStrategy 'ignore'
+    label 'process_low'
+    container "${params.container_image}"
+    publishDir { "${params.pipeline_dir}/${publish_subdir}" }, mode: 'copy'
+
+    input:
+    tuple val(batch_key), path(blocklist_files), val(publish_subdir)
+
+    output:
+    tuple val(batch_key), path("blocklist.parquet")
+
+    when:
+    task.ext.when == null || task.ext.when
+
+    script:
+    """
+    echo "Starting COMBINE_BLOCKLISTS for ${batch_key}"
+    python -m fisseq_data_pipeline.combineblocklists \\
+        output_dir=. \\
+        "blocklist_files=*.parquet"
+    """
+}

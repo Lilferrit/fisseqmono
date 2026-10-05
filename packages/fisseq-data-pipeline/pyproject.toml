@@ -1,0 +1,54 @@
+[project]
+name = "fisseq-data-pipeline"
+version = "1.0.0"
+description = "Nextflow + Python pipeline for single-cell CellProfiler morphological profiling of FISSEQ variant data"
+readme = "README.md"
+authors = [
+    { email = "gwenneth.straub@gmail.com" }
+]
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "hydra-core>=1.3.2",
+    "joblib>=1.5.1",
+    "llvmlite>=0.44.0",
+    "numba>=0.61.0",
+    "pandas>=2.3.2",
+    "polars>=1.32.3",
+    "pyarrow>=21.0.0",
+    "pycytominer>=1.4.0",
+    "pyyaml>=6.0.2",
+    "scikit-learn>=1.7.1",
+    "scipy>=1.16.1",
+    "tqdm>=4.67.3",
+    "umap-learn>=0.5.12",
+    "xgboost>=2.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit", "tests/integration"]
+
+[tool.ruff]
+# ruff >= 0.16 formats fenced code blocks inside Markdown by default, which
+# would silently rewrite every page under docs/ on the next pre-commit run.
+extend-exclude = ["*.md"]
+
+[tool.ruff.lint]
+# Ruff's default select ("E4", "E7", "E9", "F") plus "I" (isort-equivalent
+# import sorting) so ruff fully replaces isort -- both formatting and import
+# order then come from the same tool, avoiding an isort/ruff-format conflict.
+select = ["E4", "E7", "E9", "F", "I"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "mkdocs>=1.6.1",
+    "mkdocs-material>=9.6.20",
+    "mkdocstrings>=0.30.1",
+    "mkdocstrings-python>=1.16.0",
+    "pre-commit>=4.5.1",
+    "pytest>=8.4.1",
+    "ruff>=0.15.12",
+]

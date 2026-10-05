@@ -1,0 +1,378 @@
+nextflow.enable.dsl = 2
+
+// FisseqPipeline: the single end-to-end DAG.
+//
+//   INPUT -> QC_FILTER -> NORMALIZE
+//                            |
+//                            +-> OVWT_BATCHWISE (per experiment, gated by
+//                            |     params.run_ovwt)
+//                            |
+//                            `-> bootstrap feature selection (per experiment,
+//                                  gated by params.run_feature_selection)
+//
+// Every output is per experiment. Cross-experiment aggregation (combining
+// blocklists, medians across experiments, AUROC re-centering) is left to the
+// downstream fisseqborn package, which reads these published outputs.
+//
+// Experiments are declared as a list of maps under `experiments:` in
+// params.yaml (loaded with -params-file); there is no <pipeline_dir>/configs/
+// directory and no per-experiment override of arbitrary pipeline params. Each
+// entry carries only batch_stem, input_paths, and the three optional INPUT-stage fields, which fall back to their
+// pipeline-wide defaults when omitted. Every other parameter -- including
+// every run gate and the single params.random_seed -- is pipeline-wide.
+
+include { INPUT                  } from '../modules/local/input'
+include { QC_FILTER              } from '../modules/local/qc_filter'
+include { NORMALIZE              } from '../modules/local/normalize'
+include { OVWT_BATCHWISE         } from '../modules/local/ovwt_batchwise'
+include { AGGREGATE_FEATURE_TYPE  as AGGREGATE_FEATURE_TYPE_BATCHWISE  } from '../modules/local/aggregate_feature_type'
+include { AGGREGATE_FEATURE_TYPE  as AGGREGATE_FEATURE_TYPE_PASSTHROUGH } from '../modules/local/aggregate_feature_type'
+include { GENERATE_SPLIT          as GENERATE_SPLIT_BATCHWISE          } from '../modules/local/generate_split'
+include { AGGREGATE_HALF          as AGGREGATE_HALF_BATCHWISE          } from '../modules/local/aggregate_half'
+include { CORRELATE_FEATURES      as CORRELATE_FEATURES_BATCHWISE      } from '../modules/local/correlate_features'
+include { BLOCKLIST               as BLOCKLIST_BATCHWISE               } from '../modules/local/blocklist'
+include { COMBINE_BLOCKLISTS      as COMBINE_BLOCKLISTS_BATCHWISE      } from '../modules/local/combine_blocklists'
+include { FINALIZE_FEATURE_SELECT as FINALIZE_FEATURE_SELECT_BATCHWISE } from '../modules/local/finalize_feature_select'
+
+// The only keys an `experiments:` entry may carry. Anything else is a typo
+// or an attempt to set a pipeline-wide param per experiment -- both are
+// rejected with a clear message rather than silently ignored. A function, not
+// a top-level `def` binding: DSL2 forbids bare statements at script scope.
+def experimentKeys() {
+    [
+        'batch_stem',
+        'input_paths',
+        'feature_allowlist_file',
+        'feature_blocklist_file',
+        'csv_schema_scan_rows',
+    ] as Set
+}
+
+// Every key of aggregate.py's _AGGREGATORS registry -- the only legal entries
+// of params.feature_select_types. Kept in step with the Python side by
+// tests/unit/test_nextflow_params.py, which parses this function and asserts it
+// matches _AGGREGATORS exactly.
+//
+// This list has to exist here because the value is interpolated straight into
+// AGGREGATE_FEATURE_TYPE / AGGREGATE_HALF's shell script. aggregate() does
+// raise a clear "Unknown aggregator" ValueError, but that code never runs: a
+// malformed entry (a stray quote from a mis-quoted params.yaml list, say)
+// breaks the generated .command.sh at the bash level first, and
+// errorStrategy 'ignore' then swallows the task. Validating here fails the
+// whole run, before a single task is submitted, with a message that names the
+// offending value.
+def aggregatorKeys() {
+    [
+        'mean',
+        'median',
+        'MAD',
+        'std',
+        'KS',
+        'signedKS',
+        'QQ',
+        'AUROC',
+        'KSnegLogP',
+        'AUROCnegLogP',
+    ] as Set
+}
+
+// Every accepted value of params.ovwt_cv_mode, mirroring ovwt.py's CV_MODES.
+def ovwtCvModes() {
+    ['kfold', 'barcode_holdout'] as Set
+}
+
+// params.ovwt_n_folds as an Integer, or null for "one fold per barcode".
+// A -params-file null arrives as a real null, but a CLI override
+// (--ovwt_n_folds 5) arrives as a String, so both spellings of null and of an
+// integer have to be understood here.
+def ovwtNFolds() {
+    def raw = params.ovwt_n_folds
+    if (raw == null || raw.toString().trim() in ['', 'null']) {
+        return null
+    }
+    if (!(raw.toString() ==~ /-?\d+/)) {
+        error "ERROR: params.ovwt_n_folds must be an integer or null, got '${raw}'."
+    }
+    return raw.toString() as Integer
+}
+
+// Nextflow CLI overrides (--run_ovwt false) arrive as the Groovy-truthy
+// String "false", so every gate must be coerced before use. Replaces
+// lib/BatchParams.groovy's asBool(), which went away with per-batch overrides.
+def asBool(v) {
+    v == null ? false : v.toString().toBoolean()
+}
+
+workflow FisseqPipeline {
+    // -params-file params.yaml is mandatory (nextflow.config carries no
+    // parameter defaults), so fail fast with a specific message for every
+    // required-with-no-default param rather than letting Nextflow's generic
+    // "no such property" surface first.
+    if (params.pipeline_dir == null) {
+        error "ERROR: --pipeline_dir is required.\n  Usage: nextflow run . --pipeline_dir /path/to/data -params-file params.yaml"
+    }
+    if (!(params.experiments instanceof List) || params.experiments.isEmpty()) {
+        error "ERROR: params.experiments must be a non-empty list of experiment maps (see params.yaml)."
+    }
+    // Only meaningful when the feature-selection chain actually runs, but
+    // checked before any of it is wired up.
+    if (asBool(params.run_feature_selection)) {
+        if (!(params.feature_select_types instanceof List) || params.feature_select_types.isEmpty()) {
+            error "ERROR: params.feature_select_types must be a non-empty list of aggregator names. " +
+                  "Valid names: ${aggregatorKeys().sort().join(', ')}."
+        }
+        def badTypes = params.feature_select_types.findAll { t -> !aggregatorKeys().contains(t) }
+        if (badTypes) {
+            error "ERROR: params.feature_select_types has unrecognized entry/entries: " +
+                  "${badTypes.join(' | ')}. Valid names: ${aggregatorKeys().sort().join(', ')}. " +
+                  "(A stray quote in one of those usually means a mis-quoted YAML list -- " +
+                  "[median\", \"KS\"] instead of [\"median\", \"KS\"].)"
+        }
+        // The passthrough list may be empty -- that is the default -- but the
+        // same name validation applies, and it has to be disjoint from
+        // feature_select_types: the two lists publish <type>.parquet under the
+        // same stem into sibling directories, and FINALIZE_FEATURE_SELECT
+        // would then be asked to join two identically-named column sets.
+        if (!(params.feature_select_passthrough_types instanceof List)) {
+            error "ERROR: params.feature_select_passthrough_types must be a list of aggregator " +
+                  "names (use [] for none). Valid names: ${aggregatorKeys().sort().join(', ')}."
+        }
+        def badPassthrough = params.feature_select_passthrough_types.findAll { t ->
+            !aggregatorKeys().contains(t)
+        }
+        if (badPassthrough) {
+            error "ERROR: params.feature_select_passthrough_types has unrecognized entry/entries: " +
+                  "${badPassthrough.join(' | ')}. Valid names: ${aggregatorKeys().sort().join(', ')}."
+        }
+        def overlap = params.feature_select_passthrough_types.findAll { t ->
+            params.feature_select_types.contains(t)
+        }
+        if (overlap) {
+            error "ERROR: params.feature_select_passthrough_types overlaps params.feature_select_types: " +
+                  "${overlap.join(' | ')}. A feature type is either selected on or passed through, " +
+                  "not both."
+        }
+    }
+    if (!ovwtCvModes().contains(params.ovwt_cv_mode)) {
+        error "ERROR: params.ovwt_cv_mode must be one of ${ovwtCvModes().sort().join(', ')}, " +
+              "got '${params.ovwt_cv_mode}'."
+    }
+    // Mirrors ovwt_batchwise()'s own guards, but at construction time -- a
+    // bad fold count would otherwise die inside a task that
+    // errorStrategy 'ignore' then swallows.
+    def nFolds = ovwtNFolds()
+    if (nFolds == null && params.ovwt_cv_mode != 'barcode_holdout') {
+        error "ERROR: params.ovwt_n_folds = null (one fold per barcode) is only valid with " +
+              "params.ovwt_cv_mode = 'barcode_holdout', not '${params.ovwt_cv_mode}'."
+    }
+    if (nFolds != null && nFolds < 2) {
+        error "ERROR: params.ovwt_n_folds must be at least 2, got ${nFolds}."
+    }
+
+    // Validate and resolve every experiment map once, here, at
+    // workflow-construction time. Global defaults fill in only the keys an
+    // entry omits; an entry's own value always wins.
+    def allowedKeys = experimentKeys()
+    def resolvedExperiments = [:]
+    params.experiments.eachWithIndex { entry, i ->
+        if (!(entry instanceof Map)) {
+            error "ERROR: params.experiments[${i}] must be a map, got ${entry?.getClass()?.simpleName}."
+        }
+        if (!(entry.batch_stem instanceof String) || entry.batch_stem.trim().isEmpty()) {
+            error "ERROR: params.experiments[${i}] is missing a required, non-empty 'batch_stem' field."
+        }
+        def unknown = entry.keySet() - allowedKeys
+        if (unknown) {
+            error "ERROR: params.experiments[${i}] ('${entry.batch_stem}') has unrecognized key(s): " +
+                  "${unknown.sort().join(', ')}. An experiment entry may only set " +
+                  "${allowedKeys.sort().join(', ')} -- every other parameter is pipeline-wide, " +
+                  "set it at the top level of params.yaml instead."
+        }
+        if (!(entry.input_paths instanceof List) || entry.input_paths.isEmpty()) {
+            error "ERROR: params.experiments[${i}] ('${entry.batch_stem}') is missing a required, " +
+                  "non-empty 'input_paths' list."
+        }
+        resolvedExperiments[entry.batch_stem] = [
+            input_paths           : entry.input_paths,
+            feature_allowlist_file: entry.containsKey('feature_allowlist_file') ? entry.feature_allowlist_file : params.feature_allowlist_file,
+            feature_blocklist_file: entry.containsKey('feature_blocklist_file') ? entry.feature_blocklist_file : params.feature_blocklist_file,
+            csv_schema_scan_rows  : entry.containsKey('csv_schema_scan_rows') ? entry.csv_schema_scan_rows : params.csv_schema_scan_rows,
+        ]
+    }
+    def batch_stems = params.experiments.collect { experiment -> experiment.batch_stem }
+    def duplicate_stems = batch_stems.findAll { s -> batch_stems.count(s) > 1 }.unique()
+    if (duplicate_stems) {
+        error "ERROR: params.experiments has duplicate batch_stem value(s): ${duplicate_stems.join(', ')}. " +
+              "Every experiment's batch_stem must be unique."
+    }
+
+    // Step 0: INPUT -- one input/<batch_stem>.parquet per experiment.
+    config_ch = channel.fromList(resolvedExperiments.keySet() as List).map { batch_stem ->
+        def cfg = resolvedExperiments[batch_stem]
+        tuple(batch_stem, cfg.input_paths, cfg.feature_allowlist_file,
+              cfg.feature_blocklist_file, cfg.csv_schema_scan_rows)
+    }
+    input_ch = INPUT(config_ch)
+
+    // Step 1: QC filter (per experiment).
+    qc_ch = QC_FILTER(input_ch).qc_outputs
+
+    // Step 2: normalization (per experiment) -- z-score fit on wildtype cells.
+    // qc_ch carries: (batch_stem, filtered_cells, barcode_counts, variants_per_barcode)
+    norm_input_ch = qc_ch.map { batch_stem, fc, _bc, _vpb -> tuple(batch_stem, fc) }
+    NORMALIZE(norm_input_ch)
+    norm_ch = NORMALIZE.out.normalized  // tuple(batch_stem, normalized_parquet)
+
+    // Step 3: OvWT -- per experiment, k-fold cross-validated one-vs-wildtype
+    // scoring. Every cell gets exactly one out-of-fold score; each variant
+    // gets a pooled AUROC and a median-of-per-barcode AUROC.
+    if (asBool(params.run_ovwt)) {
+        OVWT_BATCHWISE(norm_ch)
+    }
+
+    // Step 4: feature selection -- decomposed bootstrap + per-feature-type
+    // pipeline.
+    //   Stage 1:    per-feature-type full aggregation.
+    //   Stage 2a-d: per-bootstrap split -> per-half aggregation -> correlation
+    //               -> per-feature-type blocklist (gathered over bootstraps).
+    //   Stage 3:    combine per-feature-type blocklists.
+    //   Stage 4:    join stage-1 aggregates, apply combined blocklist,
+    //               pycytominer select.
+    if (asBool(params.run_feature_selection)) {
+        feature_types_ch = channel.fromList(params.feature_select_types)
+        // Explicit cast: CLI overrides (--feature_select_bootstrap_reps 3)
+        // arrive as Strings and silently produce a bogus range if left
+        // uncoerced in a Groovy IntRange.
+        bootstrap_ch = channel.of(1..(params.feature_select_bootstrap_reps as int))
+
+        // Stage 1: full per-feature-type aggregation, one task per
+        // (experiment, feature_type). The published aggregates are z-scored
+        // against the experiment's synonymous variants.
+        agg_input_ch = norm_ch
+            .map { batch_stem, normalized_parquet -> tuple(batch_stem, normalized_parquet.toString()) }
+            .combine(feature_types_ch)
+            .map { batch_stem, cells_glob, feature_type ->
+                tuple(batch_stem, cells_glob, feature_type, true,
+                      "feature_select_batchwise/${batch_stem}/aggregates")
+            }
+        AGGREGATE_FEATURE_TYPE_BATCHWISE(agg_input_ch)
+        agg_ch = AGGREGATE_FEATURE_TYPE_BATCHWISE.out  // (batch_stem, feature_type, agg_file)
+
+        // Stage 1b: passthrough aggregation. Same process, and deliberately
+        // nothing downstream of it but the stage-4 join -- passthrough types
+        // never reach the bootstrap halves, the correlation, or the
+        // blocklist, which is the whole point of the second list. They are
+        // not z-scored (p-values must keep their own scale) and publish to
+        // their own directory, so no aggregates/ glob ever mixes the two.
+        passthrough_types_ch = channel.fromList(params.feature_select_passthrough_types)
+        pt_agg_input_ch = norm_ch
+            .map { batch_stem, normalized_parquet -> tuple(batch_stem, normalized_parquet.toString()) }
+            .combine(passthrough_types_ch)
+            .map { batch_stem, cells_glob, feature_type ->
+                tuple(batch_stem, cells_glob, feature_type, false,
+                      "feature_select_batchwise/${batch_stem}/passthrough_aggregates")
+            }
+        AGGREGATE_FEATURE_TYPE_PASSTHROUGH(pt_agg_input_ch)
+        pt_agg_ch = AGGREGATE_FEATURE_TYPE_PASSTHROUGH.out  // (batch_stem, feature_type, agg_file)
+
+        // Stage 2a: one 50/50 split per (experiment, bootstrap replicate).
+        split_input_ch = norm_ch
+            .map { batch_stem, normalized_parquet -> tuple(batch_stem, normalized_parquet.toString()) }
+            .combine(bootstrap_ch)
+            .map { batch_stem, cells_glob, bootstrap_idx ->
+                tuple(batch_stem, cells_glob, bootstrap_idx, "feature_select_batchwise/${batch_stem}")
+            }
+        GENERATE_SPLIT_BATCHWISE(split_input_ch)
+        split_ch = GENERATE_SPLIT_BATCHWISE.out  // (batch_stem, bootstrap_idx, half1, half2)
+
+        // Stage 2b: expand each split into two per-half tuples, cross with
+        // feature types, and re-attach the experiment's normalized cells via
+        // .combine(norm_ch, by: 0) (keyed on batch_stem -- norm_ch has exactly
+        // one entry per experiment, so this is a per-experiment broadcast,
+        // not a fan-out).
+        // NOTE: .join() is NOT a broadcast operator -- for a many-to-one key
+        // relationship like this one it silently keeps only one match per key
+        // and drops the rest, starving every downstream stage. Only use
+        // .join() where both sides are already collapsed to exactly one item
+        // per key (see the finalize-stage joins below).
+        half_ch = split_ch.flatMap { batch_stem, bootstrap_idx, half1, half2 ->
+            [
+                tuple(batch_stem, bootstrap_idx, 1, half1),
+                tuple(batch_stem, bootstrap_idx, 2, half2),
+            ]
+        }
+        agg_half_input_ch = half_ch
+            .combine(feature_types_ch)
+            // (batch_stem, bootstrap_idx, half_num, index_file, feature_type)
+            .combine(norm_ch, by: 0)
+            // (batch_stem, bootstrap_idx, half_num, index_file, feature_type, normalized_parquet)
+            .map { batch_stem, bootstrap_idx, half_num, index_file, feature_type, normalized_parquet ->
+                tuple(batch_stem, bootstrap_idx, half_num, index_file, feature_type,
+                      normalized_parquet.toString(), "feature_select_batchwise/${batch_stem}")
+            }
+        AGGREGATE_HALF_BATCHWISE(agg_half_input_ch)
+        half_agg_ch = AGGREGATE_HALF_BATCHWISE.out
+        // (batch_stem, bootstrap_idx, feature_type, half_num, half_agg_file)
+
+        // Stage 2c: group by (batch_stem, bootstrap_idx, feature_type) --
+        // exactly 2 per group -- pair by half_num (not arrival order) before
+        // correlating.
+        corr_input_ch = half_agg_ch
+            .groupTuple(by: [0, 1, 2])
+            .map { batch_stem, bootstrap_idx, feature_type, half_nums, half_files ->
+                def pairs = [half_nums, half_files].transpose().sort { pair -> pair[0] }
+                tuple(batch_stem, bootstrap_idx, feature_type, pairs[0][1], pairs[1][1],
+                      "feature_select_batchwise/${batch_stem}")
+            }
+        CORRELATE_FEATURES_BATCHWISE(corr_input_ch)
+        corr_ch = CORRELATE_FEATURES_BATCHWISE.out  // (batch_stem, feature_type, bootstrap_idx, corr_file)
+
+        // Stage 2d: group by (batch_stem, feature_type) -- gathers all
+        // bootstrap replicates. THE one intentional synchronization point,
+        // scoped to this stage only.
+        blocklist_input_ch = corr_ch
+            .map { batch_stem, feature_type, _bootstrap_idx, correlation_file ->
+                tuple(batch_stem, feature_type, correlation_file)
+            }
+            .groupTuple(by: [0, 1])
+            .map { batch_stem, feature_type, correlation_files ->
+                tuple(batch_stem, feature_type, correlation_files,
+                      "feature_select_batchwise/${batch_stem}")
+            }
+        BLOCKLIST_BATCHWISE(blocklist_input_ch)
+        bl_ch = BLOCKLIST_BATCHWISE.out  // (batch_stem, feature_type, blocklist_file)
+
+        // Stage 3: group by batch_stem -- gathers all feature types.
+        combine_bl_input_ch = bl_ch
+            .map { batch_stem, _feature_type, blocklist_file -> tuple(batch_stem, blocklist_file) }
+            .groupTuple(by: 0)
+            .map { batch_stem, blocklist_files ->
+                tuple(batch_stem, blocklist_files, "feature_select_batchwise/${batch_stem}")
+            }
+        COMBINE_BLOCKLISTS_BATCHWISE(combine_bl_input_ch)
+        combined_bl_ch = COMBINE_BLOCKLISTS_BATCHWISE.out  // (batch_stem, combined_blocklist_file)
+
+        // Stage 4: group stage-1 output by batch_stem (all feature types'
+        // full aggregates), join norm_ch (raw cells, for metadata), join
+        // stage-3's combined blocklist.
+        // groupTuple() on an empty channel emits nothing, so with an empty
+        // params.feature_select_passthrough_types this side of the join has no
+        // entry for any batch. `remainder: true` is what keeps that from
+        // starving FINALIZE_FEATURE_SELECT entirely (the stage would silently
+        // never run); the null it yields instead becomes an empty file list.
+        pt_files_ch = pt_agg_ch
+            .map { batch_stem, _feature_type, agg_file -> tuple(batch_stem, agg_file) }
+            .groupTuple(by: 0)
+        finalize_input_ch = agg_ch
+            .map { batch_stem, _feature_type, agg_file -> tuple(batch_stem, agg_file) }
+            .groupTuple(by: 0)
+            .join(norm_ch)
+            .join(combined_bl_ch)
+            .join(pt_files_ch, remainder: true)
+            .map { batch_stem, agg_files, normalized_parquet, combined_bl_file, pt_files ->
+                tuple(batch_stem, agg_files, pt_files ?: [], normalized_parquet.toString(),
+                      combined_bl_file, "feature_select_batchwise/${batch_stem}")
+            }
+        FINALIZE_FEATURE_SELECT_BATCHWISE(finalize_input_ch)
+    }
+}

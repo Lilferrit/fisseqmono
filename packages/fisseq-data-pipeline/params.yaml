@@ -1,0 +1,223 @@
+# params.yaml -- every default pipeline parameter, nothing else. Load
+# explicitly:
+#
+#   nextflow run . --pipeline_dir /path/to/experiment -params-file params.yaml
+#
+# Per-run overrides: a bare CLI flag (--ovwt_min_cells 500) wins over this
+# file; a second -params-file layers a whole alternate parameter set.
+# nextflow.config carries executor/profile/container settings only -- never
+# default parameter values.
+
+# ── Required, no default (fail fast if unset) ──────────────────────────────
+pipeline_dir: null
+container_image: "ghcr.io/lilferrit/fisseq-data-pipeline:latest"
+experiments: []
+
+# ── Experiments ─────────────────────────────────────────────────────────────
+# A list of maps, one per experiment. This replaces the old mandatory
+# <pipeline_dir>/configs/*.yaml directory -- there is no per-experiment config
+# file any more, and no per-experiment override of arbitrary pipeline
+# parameters. An entry may set ONLY these keys:
+#
+#   batch_stem              REQUIRED. Unique experiment id. Names every output
+#                           subdirectory (input/<batch_stem>.parquet,
+#                           qc_filter/<batch_stem>/, ...). Previously derived
+#                           from the config file's own name; there is no
+#                           filename to derive it from any more, so it must be
+#                           given explicitly and must be unique across the list.
+#   input_paths             REQUIRED. List of raw CSV/parquet source files that
+#                           INPUT merges into this experiment's input parquet.
+#                           There is deliberately no pipeline-wide default --
+#                           a list of raw data files is inherently per-experiment.
+#   feature_allowlist_file  OPTIONAL, INPUT-stage. Falls back to the
+#   feature_blocklist_file  pipeline-wide default below when omitted; an
+#   csv_schema_scan_rows    entry's own value always wins.
+#
+# Any other key is rejected with an error naming it, rather than silently
+# ignored -- if you want to change a QC threshold or an OvWT hyperparameter,
+# set it at the top level of this file (it applies pipeline-wide).
+#
+# The empty list above is deliberate -- every real run supplies its own
+# `experiments:` list by editing this file (or a full copy of it; Nextflow only
+# accepts one -params-file at a time).
+#
+# experiments:
+#   - batch_stem: plate1
+#     input_paths:
+#       - /data/plate1/cellprofiler_features.csv
+#       - /data/plate1/barcode_calls.parquet
+#   - batch_stem: plate2
+#     input_paths: [/data/plate2/cellprofiler_features.csv]
+#     csv_schema_scan_rows: null             # per-experiment override: scan every row
+#   - batch_stem: plate3
+#     input_paths: [/data/plate3/features.parquet]
+
+# ── Reproducibility ─────────────────────────────────────────────────────────
+# THE seed. Every stochastic step in the pipeline derives from this single
+# value: QC pseudo-variant downsampling, the feature-selection bootstrap
+# splits and their per-half wildtype subsampling, OvWT's StratifiedKFold
+# shuffle / inner calibration split / XGBoost `seed`, PCA's solver, and UMAP's
+# fit. There is deliberately no stage-local `random_state` anywhere -- see
+# AGENTS.md.
+#
+# Stages that need to differ from each other still do, by deriving a fixed
+# offset from this seed rather than owning a seed of their own (e.g.
+# GENERATE_SPLIT uses random_seed + bootstrap_idx so each bootstrap replicate
+# draws an independent split). Changing this value changes every one of them
+# coherently.
+random_seed: 0
+
+# ── Run gates ───────────────────────────────────────────────────────────────
+# Pipeline-wide, not per-experiment.
+run_ovwt: true               # OVWT_BATCHWISE
+run_feature_selection: true  # the whole batchwise feature-selection chain
+
+# ── Label column, shared pipeline-wide ──────────────────────────────────────
+# Read by QC_FILTER, CORRELATE_FEATURES, FINALIZE_FEATURE_SELECT and
+# OVWT_BATCHWISE -- one override changes
+# the variant label column everywhere at once.
+filter_label_column: "meta_aa_changes"
+
+# ── INPUT stage ─────────────────────────────────────────────────────────────
+# Pipeline-wide defaults for the three optional per-experiment INPUT fields.
+feature_allowlist_file: null
+feature_blocklist_file: null
+# Rows of each CSV input_paths source scanned to infer column dtypes
+# (forwarded to polars scan_csv's infer_schema_length). null = scan every row
+# (slower, but avoids mis-inferred dtypes on sparse/late-appearing values). No
+# effect on parquet sources.
+csv_schema_scan_rows: 100
+
+# ── QC filtering (QC_FILTER) ────────────────────────────────────────────────
+barcode_count_threshold: 10
+variant_barcode_count_threshold: 4
+edit_distance_threshold: 1
+# Optional int: restrict qc_variant_downsample_classes to at most this many
+# distinct variants (see qc_variant_downsample_mode), applied before QC
+# thresholding; null = disabled.
+qc_n_variants: null
+# classify_variant() categories eligible for the qc_n_variants restriction.
+qc_variant_downsample_classes: ["Single Missense"]
+# "top" (highest cell count) or "random" (seeded by random_seed).
+qc_variant_downsample_mode: "top"
+# Optional single float (0,1] / int, or a list of floats/ints: pseudo-variant
+# downsampling per label_column group, drawn from post-QC cells. A float keeps
+# that fraction of a group; an int keeps that many rows and skips any group
+# with fewer. Each amount gets its own `:downsample-{amount}` tag on
+# meta_aa_changes, with the base label preserved and the tag exposed separately
+# as meta_variant_tag. null = disabled.
+qc_downsample_amounts: null
+# classify_variant() categories eligible for pseudo-variant generation.
+qc_downsample_classes: ["Synonymous", "Single Missense"]
+
+# ── OvWT distinguishability (OVWT_BATCHWISE) ────────────────────────────────
+# Per variant, k-fold cross-validated one-vs-wildtype scoring: every cell gets
+# exactly one out-of-fold score, and each variant gets both a pooled AUROC and
+# a median-of-per-barcode AUROC.
+ovwt_wt_label: "WT"
+# Fold scheme, "kfold" or "barcode_holdout".
+#   kfold           -- ovwt_n_folds folds, stratified jointly on
+#                      (meta_barcode, is_wt); every fold's model has seen every
+#                      barcode.
+#   barcode_holdout -- whole barcodes are held out of training a fold at a
+#                      time, so no model is ever trained on a barcode it later
+#                      scores and the AUROCs measure generalization to an
+#                      unseen barcode. Wildtype cells are still split across
+#                      the folds. A variant with only one barcode is skipped
+#                      (nothing left to train on).
+ovwt_cv_mode: "kfold"
+# Folds per variant. Under "kfold" this is the fold count outright. Under
+# "barcode_holdout" it caps the folds: the variant's barcodes are packed into
+# at most this many cell-count-balanced groups, one group held out per fold, so
+# a variant with fewer barcodes than this simply gets one fold per barcode.
+# null = one fold per barcode always (pure leave-one-barcode-out); it is an
+# error under "kfold", which has no barcode count to fall back on.
+ovwt_n_folds: 5
+# Per-fold sigmoid (Platt) calibration, fit on a slice held out of that fold's
+# own training data.
+ovwt_calibrate: true
+# Minimum cells a variant needs to be scored at all; wildtype is always kept
+# regardless of count. null disables the filter.
+ovwt_min_cells: 250
+# true = downsample wildtype cells (barcode-proportionally) to the size of the
+# largest remaining variant group. A plain boolean -- an explicit integer
+# target is not exposed.
+ovwt_downsample_wt: true
+
+# ── Feature selection (bootstrap + aggregation + correlation) ───────────────
+# All _AGGREGATORS keys that make sense as a reproducibility statistic. Their
+# published per-variant aggregates (feature_select_batchwise/<batch>/aggregates/)
+# are z-scored against the experiment's synonymous variants, so every
+# experiment needs at least two synonymous variants.
+feature_select_types: ["mean", "median", "MAD", "std", "KS", "QQ", "AUROC"]
+# Aggregates that are computed and joined onto the final per-variant table but
+# kept out of feature selection entirely: no bootstrap halves, no correlation
+# blocklist, no pycytominer filters, and no synonymous-baseline normalization.
+# Intended for the p-value statistics (KSnegLogP, AUROCnegLogP), which are
+# wanted in the output but are not reproducibility statistics -- left in
+# feature_select_types, pycytominer's correlation_threshold will happily drop a
+# real feature for correlating with its own p-value. Must not overlap
+# feature_select_types; [] = none.
+feature_select_passthrough_types: []
+feature_select_bootstrap_reps: 10
+# Optional float (0,1) or int; null = no wildtype downsampling in
+# AGGREGATE_HALF / AGGREGATE_FEATURE_TYPE.
+feature_select_downsample_wt: null
+feature_select_min_correlation: 0.5
+# Number of feature columns AGGREGATE_FEATURE_TYPE / AGGREGATE_HALF evaluate
+# per Polars query. Aggregating all ~1731 features in one query is what
+# OOM-killed (exit 137) every KS/AUROC/QQ task on the 111925 run; chunking caps
+# peak memory at roughly chunk_size x n_variant_labels (x the control pool, for
+# the reference-based aggregators KS/signedKS/QQ/AUROC and the two p-value
+# variants).
+#
+# THIS VALUE IS SIZED TO THE MEMORY ONE TASK IS GRANTED. Measured at production
+# shape (500k cells x 1731 features x 1900 variants, ~25k control cells):
+# mean/median/std/MAD cost ~1.5 GB at ANY chunk size in this range and are not
+# the constraint. The reference-based aggregators cost roughly 3 GB (AUROC) to
+# 4.5 GB (KS, the worst) PER FEATURE IN THE CHUNK -- AUROC measured 3.3 GB at
+# chunk 1 and was killed above 5.6 GB at chunk 4. So:
+#
+#     chunk_size ~= (memory_per_task_GB - 1) / 4.5
+#
+#   16 GB/task -> 4      64 GB/task -> 14
+#   32 GB/task -> 8     128 GB/task -> 32   <- the default below
+#
+# Those per-feature costs scale with n_variant_labels x control_pool_size, so a
+# batch with twice the labels or twice the WT pool wants half the chunk. If
+# KS/AUROC/QQ tasks still come back killed, halve this first.
+#
+# Raising it only speeds things up until memory runs out: runtime per task is
+# dominated by the number of chunks, so 1731 features at chunk 32 is 55 queries
+# where chunk 1 is 1731 (AUROC took ~17 min at chunk 1 at the shape above). A
+# run using only mean/median/std/MAD can raise this to 128-256 freely.
+#
+# null disables chunking entirely -- every feature in one query, which is the
+# pre-chunking behaviour and therefore the shape that OOM-killed the 111925
+# run. It is an escape hatch for small inputs (or for reproducing the old
+# numbers), not a setting for a full-size batch.
+#
+# NOTE: every AGGREGATE_* process declares `label 'process_medium'`, which
+# nextflow.config deliberately leaves unsized -- this default assumes a site
+# config granting these tasks >=128 GB (e.g. a
+# `withLabel:process_medium { memory = '128 GB' }` selector in your -c file).
+aggregate_feature_chunk_size: 32
+
+# ── Dimensionality reduction (FINALIZE_FEATURE_SELECT) ──────────────────────
+# PCA and UMAP are computed independently of each other, both on the same
+# final selected/normalized feature matrix -- UMAP does not run on PCA output.
+run_pca: false
+# Must be <= min(n_rows, n_retained_features) after all-null feature columns
+# are dropped, or the run fails. Tune to the dataset's real post-selection
+# feature count.
+pca_n_components: 10
+run_umap: false
+umap_n_components: 2
+umap_n_neighbors: 10
+umap_metric: "cosine"
+# umap-learn's min_dist: minimum embedded distance between points.
+umap_min_dist: 0.1
+# NOTE: UMAP's fit is seeded from random_seed above. It used to have its own
+# umap_random_state (default 42, nullable to opt into faster multithreaded
+# nondeterministic fitting); that knob is gone, so UMAP output from this
+# release will not match a pre-release run's.
