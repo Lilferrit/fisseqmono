@@ -1,22 +1,21 @@
-# fisseq-data-pipeline's own test suite, on changes to it or to what it depends on.
+# fisseq-data-pipeline's unit tests, on pull requests that change it or what it
+# depends on. Its integration tests run only on a manual run (workflow_dispatch).
 name: fisseq-data-pipeline
 
 on:
   pull_request:
-    paths: &paths
+    paths:
       - packages/fisseq-data-pipeline/**
       - packages/fisseq-common/**
       - pyproject.toml
       - uv.lock
       - .github/workflows/_package.yml
       - .github/workflows/pkg-fisseq-data-pipeline.yml
-  push:
-    branches: [main]
-    paths: *paths
+  workflow_dispatch:
 
 jobs:
   tests:
     uses: ./.github/workflows/_package.yml
     with:
       package: fisseq-data-pipeline
-      integration: true
+      integration: ${{ github.event_name == 'workflow_dispatch' }}

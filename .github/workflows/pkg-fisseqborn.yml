@@ -1,18 +1,16 @@
-# fisseqborn's own test suite, on changes to it or to what it depends on.
+# fisseqborn's unit tests, on pull requests that change it or what it depends on.
 name: fisseqborn
 
 on:
   pull_request:
-    paths: &paths
+    paths:
       - packages/fisseqborn/**
       - packages/fisseq-common/**
       - pyproject.toml
       - uv.lock
       - .github/workflows/_package.yml
       - .github/workflows/pkg-fisseqborn.yml
-  push:
-    branches: [main]
-    paths: *paths
+  workflow_dispatch:
 
 jobs:
   tests:

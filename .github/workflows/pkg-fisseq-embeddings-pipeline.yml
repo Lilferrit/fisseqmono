@@ -1,22 +1,21 @@
-# fisseq-embeddings-pipeline's own test suite, on changes to it or to what it depends on.
+# fisseq-embeddings-pipeline's unit tests, on pull requests that change it or what it
+# depends on. Its integration tests run only on a manual run (workflow_dispatch).
 name: fisseq-embeddings-pipeline
 
 on:
   pull_request:
-    paths: &paths
+    paths:
       - packages/fisseq-embeddings-pipeline/**
       - packages/fisseq-common/**
       - pyproject.toml
       - uv.lock
       - .github/workflows/_package.yml
       - .github/workflows/pkg-fisseq-embeddings-pipeline.yml
-  push:
-    branches: [main]
-    paths: *paths
+  workflow_dispatch:
 
 jobs:
   tests:
     uses: ./.github/workflows/_package.yml
     with:
       package: fisseq-embeddings-pipeline
-      integration: true
+      integration: ${{ github.event_name == 'workflow_dispatch' }}

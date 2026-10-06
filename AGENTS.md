@@ -80,16 +80,21 @@ uv run pytest tests                                          # cross-package (ne
 
 ## CI (`.github/workflows/`)
 
-- `pkg-<package>.yml` (via `_package.yml`): that package's suite, alone, when the package or
-  `fisseq-common` (which holds the shared Nextflow modules) changes.
+Pull requests run lint and unit tests; pushes to `main` build the docs and the images. The
+integration and root tests run in CI only on a manual run (`workflow_dispatch`, the "Run
+workflow" button), so run them locally before merging.
+
+- `pkg-<package>.yml` (via `_package.yml`): that package's unit tests, alone, on a PR that
+  changes the package or `fisseq-common` (which holds the shared Nextflow modules). A manual
+  run adds the pipelines' integration tests.
 - `root.yml`: lint, `uv lock --check`, Nextflow lint (`packages/fisseq-common/nextflow` and the
-  pipelines), root tests — every change.
+  pipelines) on every PR; a manual run adds the root tests.
 - `docker-<pipeline>.yml` (via `_docker.yml`): one pipeline image, from the root context
-  (`docker build -f packages/<pipeline>/Dockerfile .`), pushed to `ghcr.io/<owner>/<pipeline>`
-  from `main` and `v*` tags. Its `paths` filter lists exactly the files the Dockerfile copies
-  (Nextflow files, tests and docs never reach an image; keep the filter in step when a
-  Dockerfile changes). Tag pushes always build.
-- `docs.yml`: strict build on PRs, gh-pages deploy from `main`.
+  (`docker build -f packages/<pipeline>/Dockerfile .`), built and pushed to
+  `ghcr.io/<owner>/<pipeline>` from `main` and `v*` tags (never on PRs). Its `paths` filter
+  lists exactly the files the Dockerfile copies (Nextflow files, tests and docs never reach an
+  image; keep the filter in step when a Dockerfile changes). Tag pushes always build.
+- `docs.yml`: strict build and gh-pages deploy on every push to `main`.
 
 ## Releases
 

@@ -1,17 +1,15 @@
-# fisseq-common's own test suite, on changes to it or to what it depends on.
+# fisseq-common's unit tests, on pull requests that change it or what it depends on.
 name: fisseq-common
 
 on:
   pull_request:
-    paths: &paths
+    paths:
       - packages/fisseq-common/**
       - pyproject.toml
       - uv.lock
       - .github/workflows/_package.yml
       - .github/workflows/pkg-fisseq-common.yml
-  push:
-    branches: [main]
-    paths: *paths
+  workflow_dispatch:
 
 jobs:
   tests:

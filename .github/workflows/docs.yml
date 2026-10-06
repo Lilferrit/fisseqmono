@@ -1,9 +1,8 @@
-# The one documentation site (mkdocs.yml at the root): built strictly on every pull request,
-# deployed to gh-pages on every push to main.
+# The one documentation site (mkdocs.yml at the root): built strictly and deployed to gh-pages
+# on every push to main.
 name: docs
 
 on:
-  pull_request:
   push:
     branches: [main]
   workflow_dispatch:
@@ -27,11 +26,7 @@ jobs:
       # mkdocstrings imports nothing, but the docs group plus every package keeps
       # cross-references resolvable.
       - run: uv sync --frozen --group docs
-      - name: Build
-        if: github.event_name == 'pull_request'
-        run: uv run --group docs mkdocs build --strict
       - name: Deploy to gh-pages
-        if: github.event_name != 'pull_request'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

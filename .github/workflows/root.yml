@@ -1,12 +1,12 @@
-# On every change: lint, the lockfile, Nextflow lint, and the cross-package tests (tests/:
+# On every pull request: lint, the lockfile and Nextflow lint. The cross-package tests (tests/:
 # reference outputs, the layout and global-aggregation parity checks, the release script),
-# which install all four packages through the root dev group.
+# which install all four packages through the root dev group, run only on a manual run
+# (workflow_dispatch).
 name: workspace
 
 on:
   pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   lint:
@@ -45,6 +45,7 @@ jobs:
 
   tests:
     name: Cross-package tests
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

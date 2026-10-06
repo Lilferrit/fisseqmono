@@ -234,15 +234,16 @@ repo's temp directories (see the test module's container-section comment).
 ## CI
 
 CI (the workspace's `.github/workflows/`; see the root `AGENTS.md`):
-- `pkg-<package>.yml` — that package's unit (and, for the pipelines, integration)
-  tests, alone in its own venv, when it or `fisseq-common` changes
-- `root.yml` — lint, `uv lock --check`, Nextflow lint and the cross-package tests
-  (`tests/`), on every change
+- `pkg-<package>.yml` — that package's unit tests, alone in its own venv, on a PR that
+  changes it or `fisseq-common`; a manual run (`workflow_dispatch`) adds the integration
+  tests
+- `root.yml` — lint, `uv lock --check` and Nextflow lint on every PR; a manual run adds the
+  cross-package tests (`tests/`)
 - `docker-fisseq-embeddings-pipeline.yml` (via the reusable `_docker.yml`) — builds this
-  image on PRs and pushes `:latest` + `:<short-sha>` from `main`, `:<version>` from a `v*`
+  image (never on PRs) and pushes `:latest` + `:<short-sha>` from `main`, `:<version>` from a `v*`
   tag; its `paths` filter lists exactly the files the `Dockerfile` copies (Nextflow files,
   tests and docs never reach the image), and every tag push builds
-- `docs.yml` — builds the one MkDocs site on PRs, deploys it on push to `main`
+- `docs.yml` — builds and deploys the one MkDocs site on push to `main`
 
 Release with `scripts/release.py X.Y.Z` (one version for the whole workspace), then tag
 `vX.Y.Z`.

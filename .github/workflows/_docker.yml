@@ -1,13 +1,12 @@
-# Build one pipeline's image from the workspace root (it needs fisseq-common and uv.lock), and
-# push it from main and v* tags. Called by docker-<pipeline>.yml, whose `paths` filter lists
-# exactly the files that image is built from.
+# Build one pipeline's image from the workspace root (it needs fisseq-common and uv.lock) and
+# push it, on pushes to main and v* tags only (not on pull requests). Called by
+# docker-<pipeline>.yml, whose `paths` filter lists exactly the files that image is built from.
 #
 #   - Registry: ghcr.io/<owner>/<pipeline>, the names params.yaml's container_image uses.
 #     The packages must grant this repository write access (package settings → Manage
 #     Actions access) if they were first published from the pipelines' old repositories.
 #   - Tags, on every push to main: `:latest` and `:<short-sha>`. On a pushed `v*` tag: also
 #     `:<version>` (`v2.0.0` -> `2.0.0`).
-#   - Pull requests: build only, no push.
 name: docker image
 
 on:
@@ -29,7 +28,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
       - name: Log in to ghcr.io
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -48,5 +46,5 @@ jobs:
         with:
           context: .
           file: packages/${{ inputs.pipeline }}/Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.tags.outputs.tags }}
