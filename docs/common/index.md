@@ -18,7 +18,7 @@ The base install needs only polars, pyarrow and numpy:
 | `fisseq_common.global_aggregation` | cross-experiment aggregation: the blocklist vote, median pooling, OvWT z-score-then-median, the reduced PCA view |
 | `fisseq_common.utils` | `batches`, `log`, `metadata`, `splits`, `vectors` |
 
-The `stages` extra (scikit-learn, xgboost, hydra, scipy, pycytominer) adds
+The `stages` extra (scikit-learn, xgboost, hydra, scipy) adds
 `fisseq_common.stages`, the per-experiment stages both pipelines run. Each pipeline's
 `python -m` module is a thin Hydra entry point over one of them:
 
@@ -30,8 +30,7 @@ The `stages` extra (scikit-learn, xgboost, hydra, scipy, pycytominer) adds
 | GENERATE_SPLIT | `stages.generatesplit` | `join_keys` |
 | AGGREGATE_FEATURE_TYPE / AGGREGATE_HALF / AGGREGATE_EMBEDDINGS / ... | `stages.aggregate` | `feature_selector`; `downsample_controls`; `normalize_to_synonymous`; `bare_median` |
 | CORRELATE_FEATURES, BLOCKLIST, COMBINE_BLOCKLISTS | `stages.correlatefeatures`, `stages.blocklist`, `stages.combineblocklists` | — |
-| FILTER_AGGREGATE / FINALIZE_FEATURE_SELECT | `stages.filter_aggregate`, `stages.pycytominer` | `pycytominer_operations` (data: variance, blocklist, correlation; embeddings: none) |
-| PCA / UMAP | `stages.dimreduction` | `random_state` |
+| FILTER_AGGREGATE / FINALIZE_FEATURE_SELECT | `stages.filter_aggregate` | — |
 
 The Nextflow processes for these stages also have one copy each, in the repository's
 `nextflow/modules/local/<stage>/main.nf`; each pipeline's `conf/modules.config` sets its entry

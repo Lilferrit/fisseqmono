@@ -80,7 +80,7 @@ random_seed: 0
 This is the only seed in the pipeline. Every stochastic step derives from it:
 QC pseudo-variant downsampling, the feature-selection bootstrap splits and their
 wildtype subsampling, OvWT's fold shuffle / inner calibration split / XGBoost
-`seed`, PCA's solver, and UMAP's fit. Changing it moves all of them coherently.
+`seed`. Changing it moves all of them coherently.
 
 Stages that must differ from one another derive a fixed offset rather than
 owning a seed of their own (`GENERATE_SPLIT` uses `random_seed + bootstrap_idx`;
@@ -98,8 +98,6 @@ All pipeline-wide.
 | --------- | ------- | ------------------- |
 | `run_ovwt` | `true` | Skips `OVWT_BATCHWISE`. |
 | `run_feature_selection` | `true` | Skips the whole batchwise feature-selection chain. |
-| `run_pca` | `false` | (Enable to add PCA to the feature-selection outputs.) |
-| `run_umap` | `false` | (Enable to add UMAP.) |
 
 ## Parameter reference
 
@@ -157,7 +155,7 @@ See [One-vs-WT](cli/ovwt.md) for what these actually do.
 | Parameter | Default | Meaning |
 | --------- | ------- | ------- |
 | `feature_select_types` | `["mean","median","MAD","std","KS","QQ","AUROC"]` | Aggregators to compute and correlate. Their published aggregates (`feature_select_batchwise/<batch>/aggregates/`) are z-scored against the experiment's synonymous variants. |
-| `feature_select_passthrough_types` | `[]` | Aggregators computed and joined onto the final per-variant table but excluded from every selection step — no bootstrap, no blocklist, no pycytominer filters, no normalization; published raw to `passthrough_aggregates/`. Intended for the p-value statistics (`KSnegLogP`, `AUROCnegLogP`). Must not overlap `feature_select_types`. |
+| `feature_select_passthrough_types` | `[]` | Aggregators computed and joined onto the final per-variant table but excluded from every selection step — no bootstrap, no blocklist, no normalization; published raw to `passthrough_aggregates/`. Intended for the p-value statistics (`KSnegLogP`, `AUROCnegLogP`). Must not overlap `feature_select_types`. |
 | `feature_select_bootstrap_reps` | `10` | Bootstrap replicates per feature type. |
 | `feature_select_downsample_wt` | `null` | Optional wildtype downsampling during aggregation. |
 | `feature_select_min_correlation` | `0.5` | Median-`r` threshold for a feature to pass. |
@@ -170,24 +168,11 @@ See [One-vs-WT](cli/ovwt.md) for what these actually do.
     nulls every feature for that experiment; zero-variance features are null
     too.
 
-### Dimensionality reduction
+### Removed parameters
 
-PCA and UMAP are computed independently of each other, both on the same final
-selected/normalized feature matrix — UMAP does **not** run on PCA output.
-
-| Parameter | Default | Meaning |
-| --------- | ------- | ------- |
-| `pca_n_components` | `10` | Must be ≤ `min(n_rows, n_retained_features)` after all-null columns are dropped, or the run fails. |
-| `umap_n_components` | `2` | Embedding dimensionality. |
-| `umap_n_neighbors` | `10` | Local neighborhood size. |
-| `umap_metric` | `"cosine"` | Distance metric. |
-| `umap_min_dist` | `0.1` | Minimum embedded distance between points. |
-
-!!! note "UMAP is now always seeded"
-    It previously had its own nullable `umap_random_state` (default `42`), where
-    `null` opted into faster nondeterministic multithreaded fitting. That knob is
-    gone — UMAP now reads `random_seed` like everything else, so UMAP output from
-    this release will not match a pre-release run's.
+`run_pca`, `pca_n_components`, `run_umap` and `umap_*` are gone: the pipeline does no
+dimensionality reduction (cross-experiment PCA is `fisseqborn-global`'s). A run that still sets
+one logs a warning and ignores it.
 
 ## Passing list values on the CLI
 

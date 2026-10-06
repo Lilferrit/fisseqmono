@@ -146,8 +146,8 @@ class PipelineLayout(abc.ABC):
 
     @abc.abstractmethod
     def selected(self, batch: str) -> Optional[str]:
-        """The aggregates after the blocklist (and, for the data pipeline, pycytominer
-        selection, impact score and per-variant metadata)."""
+        """The aggregates after the blocklist (and, for the data pipeline, the synonymous
+        z-score, impact score and per-variant metadata)."""
 
 
 class DataPipelineLayout(PipelineLayout):

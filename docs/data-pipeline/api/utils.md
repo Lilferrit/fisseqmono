@@ -42,7 +42,3 @@ See [`fisseq_common.utils.vectors`](../../common/api.md#fisseq_common.utils.vect
 ## xgbparams
 
 See [`fisseq_common.stages.xgbparams`](../../common/api.md#fisseq_common.stages.xgbparams) (fisseq-common).
-
-## dimreduction
-
-See [`fisseq_common.stages.dimreduction`](../../common/api.md#fisseq_common.stages.dimreduction) (fisseq-common).

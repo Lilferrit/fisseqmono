@@ -2,8 +2,7 @@ nextflow.enable.dsl = 2
 
 // FINALIZE_FEATURE_SELECT: wraps python -m fisseq_data_pipeline.featureselect.
 // Feature-selection stage 4 -- joins one batch's per-type aggregates, applies
-// the combined blocklist and pycytominer selection, and z-scores to the
-// synonymous baseline; passthrough aggregates are joined in raw afterwards.
+// the combined blocklist, and z-scores to the synonymous baseline; passthrough aggregates are joined in raw afterwards.
 process FINALIZE_FEATURE_SELECT {
     errorStrategy 'ignore'
     label 'process_medium'
@@ -14,15 +13,7 @@ process FINALIZE_FEATURE_SELECT {
     tuple val(batch_key), path(feature_type_files), path(passthrough_files, stageAs: 'pt/*'), path(cells), path(filtered_keys), path(normalizer), path(block_list_file), val(publish_subdir)
 
     output:
-    // pca_components.parquet only exists when run_pca=true -- must be its
-    // own output statement, not a third element of the tuple below: Nextflow
-    // (26.04.6) does not honor per-element `optional: true` on a path()
-    // nested inside a multi-element tuple output (it still raises
-    // MissingFileException, which -- combined with errorStrategy 'ignore'
-    // above -- silently drops output.parquet too). Declared standalone like
-    // this, the optional file behaves correctly.
     tuple val(batch_key), path("output.parquet")
-    path("pca_components.parquet", optional: true)
 
     when:
     task.ext.when == null || task.ext.when
@@ -49,21 +40,7 @@ process FINALIZE_FEATURE_SELECT {
         block_list_file=${block_list_file} \\
         compute_impact_score=true \\
         label_column=${params.filter_label_column} \\
-        run_pca=${params.run_pca} \\
-        pca_n_components=${params.pca_n_components} \\
-        run_umap=${params.run_umap} \\
-        umap_n_components=${params.umap_n_components} \\
-        umap_n_neighbors=${params.umap_n_neighbors} \\
-        umap_metric=${params.umap_metric} \\
-        umap_min_dist=${params.umap_min_dist} \\
         random_seed=${params.random_seed}
-    # Rename the PCA-components file by its known exact name *before* the
-    # generic glob rename below -- once run_pca=true produces a second
-    # out.*.parquet file (out.pca_components.parquet), the glob would
-    # otherwise become ambiguous.
-    if [ -f out.pca_components.parquet ]; then
-        mv out.pca_components.parquet pca_components.parquet
-    fi
     mv out.*.parquet output.parquet
     """
 }

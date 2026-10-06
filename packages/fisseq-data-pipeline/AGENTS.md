@@ -142,8 +142,7 @@ fisseq-data-pipeline/
 │   │   ├── metadata.py            # get_aggregate_meta_data
 │   │   ├── splits.py              # row-index / index-file helpers
 │   │   ├── featuretypes.py        # join_feature_type_files
-│   │   ├── vectors.py             # impact score
-│   │   └── dimreduction.py        # re-exports fisseq_common.stages.dimreduction
+│   │   └── vectors.py             # impact score
 │   ├── input.py                   # INPUT
 │   ├── qcfilter.py                # QC_FILTER
 │   ├── normalize.py               # NORMALIZE (Normalizer class + entry point)
@@ -348,10 +347,7 @@ Lowercase verb, optional scope, PR number in parentheses:
     experiment rather than aborting the run, so a missing output may mean its
     task failed. Check the run log.
 
-15. **`pandas` is a runtime dep but barely used directly.** The codebase uses
-    Polars; pandas comes in via `pycytominer`.
-
-16. **OvWT has two cross-validation schemes**, `OvwtConfig.cv_mode`
+15. **OvWT has two cross-validation schemes**, `OvwtConfig.cv_mode`
     (`params.ovwt_cv_mode`). `"kfold"` cuts `n_folds` folds stratified on
     `(meta_barcode, is_wt)`, so every fold's model has seen every barcode.
     `"barcode_holdout"` holds whole barcodes out of training a fold at a time
@@ -372,7 +368,7 @@ Lowercase verb, optional scope, PR number in parentheses:
     before normalizing `results.parquet` as features — the `Normalizer` would
     otherwise treat it as a feature.
 
-17. **`workflows/fisseq.nf` duplicates two Python allowlists on purpose.**
+16. **`workflows/fisseq.nf` duplicates two Python allowlists on purpose.**
     `aggregatorKeys()` mirrors `aggregate.py:_AGGREGATORS` and `ovwtCvModes()`
     mirrors `ovwt.py:CV_MODES`, because both values are interpolated straight
     into a process's shell script — a malformed entry breaks the generated
@@ -383,7 +379,7 @@ Lowercase verb, optional scope, PR number in parentheses:
     both `feature_select_types` and `feature_select_passthrough_types`, and the
     two lists must be disjoint.
 
-18. **A `.join()` that may have an empty right side needs `remainder: true`.**
+17. **A `.join()` that may have an empty right side needs `remainder: true`.**
     `workflows/fisseq.nf`'s stage-4 `finalize_input_ch` joins the passthrough
     aggregates, and `params.feature_select_passthrough_types` defaults to `[]`
     — an empty channel. Without `remainder: true` that join emits nothing and
@@ -391,7 +387,7 @@ Lowercase verb, optional scope, PR number in parentheses:
     14). This is the complement of gotcha 11: `.join()` drops on the many side
     and starves on the empty side.
 
-19. **`output.parquet` is not "the selected features" any more.**
+18. **`output.parquet` is not "the selected features" any more.**
     `params.feature_select_passthrough_types` puts non-`meta_` columns into
     `feature_select_batchwise/<batch>/output.parquet` that were never
     blocklisted, variance-filtered, correlation-filtered or normalized — that
@@ -403,7 +399,7 @@ Lowercase verb, optional scope, PR number in parentheses:
     normalized and raw-scale values apart for downstream readers (fisseqborn
     globs `aggregates/`) — never publish both into one directory.
 
-20. **`.python-version` must be copied into the image before the first
+19. **`.python-version` must be copied into the image before the first
     `uv sync`.** Without it uv resolves the newest `>=3.13` interpreter, and
     Hydra 1.3.x crashes on Python 3.14's argparse, breaking every stage's CLI.
 

@@ -43,7 +43,3 @@
 ::: fisseq_common.stages.combineblocklists
 
 ::: fisseq_common.stages.filter_aggregate
-
-::: fisseq_common.stages.pycytominer
-
-::: fisseq_common.stages.dimreduction

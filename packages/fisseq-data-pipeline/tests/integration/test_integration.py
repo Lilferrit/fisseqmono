@@ -500,7 +500,7 @@ def test_bootstrap_replicates_are_not_identical(pipeline_outputs):
     splits = exp_dir / "feature_select_batchwise" / "batch1" / "splits"
     halves = sorted(splits.glob("bootstrap_*/half1.parquet"))
     assert len(halves) == _TEST_PARAM_OVERRIDES["feature_select_bootstrap_reps"]
-    seen = {pl.read_parquet(h).to_pandas().to_csv(index=False) for h in halves}
+    seen = {pl.read_parquet(h).write_csv() for h in halves}
     assert len(seen) > 1, "every bootstrap split is identical -- seed offset lost"
 
 

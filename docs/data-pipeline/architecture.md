@@ -65,7 +65,7 @@ and `ovwt_batchwise/<batch_stem>/results.parquet`.
 `params.random_seed` is the only seed in the pipeline. Every stochastic step
 reads it: QC pseudo-variant downsampling, the feature-selection bootstrap splits
 and their wildtype subsampling, OvWT's fold shuffle / inner calibration split /
-XGBoost `seed`, PCA's solver, and UMAP's fit.
+XGBoost `seed`.
 
 Stages that must differ from one another derive a fixed offset rather than
 owning a seed — `GENERATE_SPLIT` uses `random_seed + bootstrap_idx`, and

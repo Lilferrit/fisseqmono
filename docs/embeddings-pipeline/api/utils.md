@@ -19,8 +19,6 @@ See [`fisseq_common.utils.batches`](../../common/api.md#fisseq_common.utils.batc
 
 See [`fisseq_common.stages.xgbparams`](../../common/api.md#fisseq_common.stages.xgbparams) (fisseq-common).
 
-See [`fisseq_common.stages.dimreduction`](../../common/api.md#fisseq_common.stages.dimreduction) (fisseq-common).
-
 See [`fisseq_common.utils.vectors`](../../common/api.md#fisseq_common.utils.vectors) (fisseq-common).
 
 See [`fisseq_common.utils.log`](../../common/api.md#fisseq_common.utils.log) (fisseq-common).

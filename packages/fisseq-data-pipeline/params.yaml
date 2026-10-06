@@ -56,8 +56,7 @@ experiments: []
 # THE seed. Every stochastic step in the pipeline derives from this single
 # value: QC pseudo-variant downsampling, the feature-selection bootstrap
 # splits and their per-half wildtype subsampling, OvWT's StratifiedKFold
-# shuffle / inner calibration split / XGBoost `seed`, PCA's solver, and UMAP's
-# fit. There is deliberately no stage-local `random_state` anywhere -- see
+# shuffle / inner calibration split / XGBoost `seed`. There is deliberately no stage-local `random_state` anywhere -- see
 # AGENTS.md.
 #
 # Stages that need to differ from each other still do, by deriving a fixed
@@ -152,11 +151,9 @@ ovwt_downsample_wt: true
 feature_select_types: ["mean", "median", "MAD", "std", "KS", "QQ", "AUROC"]
 # Aggregates that are computed and joined onto the final per-variant table but
 # kept out of feature selection entirely: no bootstrap halves, no correlation
-# blocklist, no pycytominer filters, and no synonymous-baseline normalization.
-# Intended for the p-value statistics (KSnegLogP, AUROCnegLogP), which are
-# wanted in the output but are not reproducibility statistics -- left in
-# feature_select_types, pycytominer's correlation_threshold will happily drop a
-# real feature for correlating with its own p-value. Must not overlap
+# blocklist, and no synonymous-baseline normalization. Intended for the p-value
+# statistics (KSnegLogP, AUROCnegLogP), which are wanted in the output but are
+# not reproducibility statistics. Must not overlap
 # feature_select_types; [] = none.
 feature_select_passthrough_types: []
 feature_select_bootstrap_reps: 10
@@ -203,21 +200,3 @@ feature_select_min_correlation: 0.5
 # `withLabel:process_medium { memory = '128 GB' }` selector in your -c file).
 aggregate_feature_chunk_size: 32
 
-# ── Dimensionality reduction (FINALIZE_FEATURE_SELECT) ──────────────────────
-# PCA and UMAP are computed independently of each other, both on the same
-# final selected/normalized feature matrix -- UMAP does not run on PCA output.
-run_pca: false
-# Must be <= min(n_rows, n_retained_features) after all-null feature columns
-# are dropped, or the run fails. Tune to the dataset's real post-selection
-# feature count.
-pca_n_components: 10
-run_umap: false
-umap_n_components: 2
-umap_n_neighbors: 10
-umap_metric: "cosine"
-# umap-learn's min_dist: minimum embedded distance between points.
-umap_min_dist: 0.1
-# NOTE: UMAP's fit is seeded from random_seed above. It used to have its own
-# umap_random_state (default 42, nullable to opt into faster multithreaded
-# nondeterministic fitting); that knob is gone, so UMAP output from this
-# release will not match a pre-release run's.

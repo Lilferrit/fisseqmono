@@ -5,7 +5,7 @@
 #
 #   docker build -f packages/fisseq-data-pipeline/Dockerfile -t fisseq-data-pipeline .
 #
-# CPU-only: this pipeline is polars + XGBoost + pycytominer, with no CUDA
+# CPU-only: this pipeline is polars + XGBoost, with no CUDA
 # dependency anywhere, so a plain ubuntu base is enough (the sibling
 # fisseq-embeddings-pipeline needs nvidia/cuda for its Cell-DINO stage; nothing
 # here does).

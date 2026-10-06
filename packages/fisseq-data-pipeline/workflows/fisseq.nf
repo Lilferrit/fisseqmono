@@ -105,7 +105,27 @@ def asBool(v) {
     v == null ? false : v.toString().toBoolean()
 }
 
+// Parameters of features this pipeline no longer has. Setting one is not an error -- an
+// older params.yaml still runs -- but each is named in a warning so it isn't silently ignored.
+def removedParams() {
+    [
+        'run_pca'           : 'PCA was removed: cross-experiment PCA is fisseqborn-global\'s',
+        'pca_n_components'  : 'PCA was removed: cross-experiment PCA is fisseqborn-global\'s',
+        'run_umap'          : 'UMAP was removed from the pipeline',
+        'umap_n_components' : 'UMAP was removed from the pipeline',
+        'umap_n_neighbors'  : 'UMAP was removed from the pipeline',
+        'umap_metric'       : 'UMAP was removed from the pipeline',
+        'umap_min_dist'     : 'UMAP was removed from the pipeline',
+    ]
+}
+
 workflow FisseqPipeline {
+    removedParams().each { key, reason ->
+        if (params.containsKey(key)) {
+            log.warn "params.${key} is ignored: ${reason}."
+        }
+    }
+
     // -params-file params.yaml is mandatory (nextflow.config carries no
     // parameter defaults), so fail fast with a specific message for every
     // required-with-no-default param rather than letting Nextflow's generic
@@ -245,7 +265,7 @@ workflow FisseqPipeline {
     //               -> per-feature-type blocklist (gathered over bootstraps).
     //   Stage 3:    combine per-feature-type blocklists.
     //   Stage 4:    join stage-1 aggregates, apply combined blocklist,
-    //               pycytominer select.
+    //               z-score to the synonymous variants.
     if (asBool(params.run_feature_selection)) {
         feature_types_ch = channel.fromList(params.feature_select_types)
         // Explicit cast: CLI overrides (--feature_select_bootstrap_reps 3)
