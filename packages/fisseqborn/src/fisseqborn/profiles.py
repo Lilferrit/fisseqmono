@@ -2,6 +2,7 @@
 
 import fnmatch
 import pathlib
+import posixpath
 import re
 import warnings
 from collections.abc import Iterable, Mapping, Sequence
@@ -110,7 +111,7 @@ class Profiles(Dataset):
     def from_pipeline(
         cls,
         pipeline_dir: "str | PathLike | _pipeline.Source",
-        types: Sequence[str] = ("median",),
+        types: Sequence[str] | None = ("median",),
         passthrough: Sequence[str] = (),
         *,
         batches: Sequence[str] | None = None,
@@ -142,7 +143,8 @@ class Profiles(Dataset):
         pipeline writes every method to one ``aggregate.parquet``, from which the
         ``<feature>_<type>`` columns are taken (a median-only run's bare columns count as
         ``median``). Passthrough aggregates are ``passthrough_aggregates/<type>.parquet``
-        in both. Each batch is tagged in ``batch_col`` with its directory name, and batches
+        in both. ``types=None`` reads every method the run aggregated (see
+        `batch_aggregates`). Each batch is tagged in ``batch_col`` with its directory name, and batches
         are stacked in natural order (``T2_R1`` before ``T10_R1``). ``batches`` selects a
         subset, and ``exclude`` drops the batches matching any of its patterns
         (``fnmatch`` globs such as ``"T10_*"``, or compiled regexes such as
@@ -162,55 +164,17 @@ class Profiles(Dataset):
         nothing). The embeddings pipeline's are aggregates of cells normalized to the
         synonymous cells, not z-scored per variant. The passthrough values are raw.
         """
-        if not types and not passthrough:
+        if types is not None and not types and not passthrough:
             raise ValueError("Pass at least one aggregate type or passthrough type")
         if features not in ("union", "intersection"):
             raise ValueError(
                 f"features must be 'union' or 'intersection', got {features!r}"
             )
         src = _pipeline.source(pipeline_dir, download_dir, refresh, layout, track)
-        lay = src.layout
         names = src.batches("feature_select", batches, exclude)
-        # Per batch: [(file, methods whose columns to take from it)], plus the metadata file.
-        reads: dict[str, list[tuple[str, Sequence[str] | None]]] = {}
-        meta_file: dict[str, str] = {}
-        for b in names:
-            if lay.aggregate_per_method:
-                parts = [(lay.aggregate(b, t), None) for t in types]
-            else:
-                parts = [(lay.aggregate(b), tuple(types))] if types else []
-            for t in passthrough:
-                rel = lay.passthrough_aggregate(b, t)
-                if rel is None:
-                    raise ValueError(f"{lay!r} writes no passthrough aggregates")
-                parts.append((rel, None))
-            reads[b] = parts
-            # The data pipeline's counts are in output.parquet; the embeddings pipeline's
-            # aggregate.parquet carries them itself.
-            meta_file[b] = (
-                lay.selected(b) if lay.aggregate_per_method else lay.aggregate(b)
-            )
-        rels = sorted(
-            {rel for parts in reads.values() for rel, _ in parts}
-            | (set(meta_file.values()) if metadata is not False else set())
+        frames, meta_paths = batch_aggregates(
+            src, names, types, passthrough, variant_col, metadata=metadata is not False
         )
-        local = dict(zip(rels, src.files(rels)))
-        frames: dict[str, pl.LazyFrame] = {}
-        for b in names:
-            parts = []
-            for rel, methods in reads[b]:
-                lf = _pipeline.scan(local[rel])
-                if methods is None:
-                    parts.append(lf.select(variant_col, ~cs.starts_with("meta_")))
-                else:
-                    columns = _method_columns(
-                        lf.collect_schema().names(), methods, local[rel]
-                    )
-                    parts.append(lf.select(variant_col, *columns))
-            batch_lf = parts[0]
-            for part in parts[1:]:
-                batch_lf = batch_lf.join(part, on=variant_col)
-            frames[b] = batch_lf
         if features == "intersection":
             present = {
                 b: [c for c in lf.collect_schema().names() if c != variant_col]
@@ -221,7 +185,7 @@ class Profiles(Dataset):
         if metadata is not False:
             frames = {
                 b: lf.join(
-                    _output_metadata(local[meta_file[b]], metadata, variant_col),
+                    _output_metadata(meta_paths[b], metadata, variant_col),
                     on=variant_col,
                     how="left",
                     maintain_order="left",
@@ -246,13 +210,13 @@ class Profiles(Dataset):
         .. deprecated::
             The pipeline no longer writes ``global/``. Build the same table with the
             ``fisseqborn-global`` command (or `fisseqborn.write_global`) and read its
-            ``<out>/feature_select/aggregate.parquet`` with `Profiles.read`.
+            ``<out>/feature_select/median_aggregate.parquet`` with `Profiles.read`.
         """
         warnings.warn(
             "Profiles.from_global reads the pipeline's global/ directory, which it no longer "
             "writes. Run `fisseqborn-global <pipeline_dir> --out <dir>` (or "
             "fisseqborn.write_global) and use "
-            "Profiles.read('<dir>/feature_select/aggregate.parquet') instead.",
+            "Profiles.read('<dir>/feature_select/median_aggregate.parquet') instead.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -779,6 +743,86 @@ def feature_info(columns: Iterable[str]) -> pl.DataFrame:
         for k in ("feature", "base", "statistic", "compartment", "category", "channels")
     }
     return pl.DataFrame(rows, schema=schema)
+
+
+def batch_aggregates(
+    src: "_pipeline.Source",
+    batches: Sequence[str],
+    types: Sequence[str] | None,
+    passthrough: Sequence[str] = (),
+    variant_col: str = "meta_aa_changes",
+    *,
+    metadata: bool = False,
+) -> tuple[dict[str, pl.LazyFrame], dict[str, pathlib.Path]]:
+    """Each batch's per-variant aggregates: ``variant_col`` and the feature columns of
+    ``types`` and ``passthrough``, joined on the variant (inner).
+
+    ``types=None`` takes every method the run aggregated: every
+    ``aggregates/<type>.parquet`` of the batch (data pipeline; listed with one call) or
+    every feature column of ``aggregate.parquet`` (embeddings pipeline). With
+    ``metadata``, also returns each batch's local file holding its per-variant ``meta_``
+    counts (the data pipeline's ``output.parquet``, the embeddings pipeline's
+    ``aggregate.parquet``); otherwise that dict is empty.
+    """
+    lay = src.layout
+    per_method_types: dict[str, list[str]] = {}
+    if lay.aggregate_per_method:
+        if types is None:
+            patterns = [lay.aggregate(b, "*") for b in batches]
+            found = src.glob(patterns)
+            for b, pattern in zip(batches, patterns):
+                directory = posixpath.dirname(pattern)
+                per_method_types[b] = sorted(
+                    pathlib.PurePosixPath(r).stem
+                    for r in found
+                    if posixpath.dirname(r) == directory
+                )
+                if not per_method_types[b] and not passthrough:
+                    raise FileNotFoundError(f"No aggregates in {src}/{directory}")
+        else:
+            per_method_types = {b: list(types) for b in batches}
+    # Per batch: [(file, methods whose columns to take from it, or None for all)].
+    reads: dict[str, list[tuple[str, Sequence[str] | None]]] = {}
+    meta_file: dict[str, str] = {}
+    for b in batches:
+        if lay.aggregate_per_method:
+            parts = [(lay.aggregate(b, t), None) for t in per_method_types[b]]
+        elif types is None:
+            parts = [(lay.aggregate(b), None)]
+        else:
+            parts = [(lay.aggregate(b), tuple(types))] if types else []
+        for t in passthrough:
+            rel = lay.passthrough_aggregate(b, t)
+            if rel is None:
+                raise ValueError(f"{lay!r} writes no passthrough aggregates")
+            parts.append((rel, None))
+        reads[b] = parts
+        # The data pipeline's counts are in output.parquet; the embeddings pipeline's
+        # aggregate.parquet carries them itself.
+        meta_file[b] = lay.selected(b) if lay.aggregate_per_method else lay.aggregate(b)
+    rels = sorted(
+        {rel for parts in reads.values() for rel, _ in parts}
+        | (set(meta_file.values()) if metadata else set())
+    )
+    local = dict(zip(rels, src.files(rels)))
+    frames: dict[str, pl.LazyFrame] = {}
+    for b in batches:
+        parts = []
+        for rel, methods in reads[b]:
+            lf = _pipeline.scan(local[rel])
+            if methods is None:
+                parts.append(lf.select(variant_col, ~cs.starts_with("meta_")))
+            else:
+                columns = _method_columns(
+                    lf.collect_schema().names(), methods, local[rel]
+                )
+                parts.append(lf.select(variant_col, *columns))
+        batch_lf = parts[0]
+        for part in parts[1:]:
+            batch_lf = batch_lf.join(part, on=variant_col)
+        frames[b] = batch_lf
+    meta_paths = {b: local[meta_file[b]] for b in batches} if metadata else {}
+    return frames, meta_paths
 
 
 def _method_columns(

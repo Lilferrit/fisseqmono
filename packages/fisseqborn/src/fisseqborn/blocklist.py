@@ -7,6 +7,8 @@ from typing import Literal, Self
 
 import polars as pl
 
+from fisseq_common.global_aggregation import blocklist_vote
+
 from . import _pipeline
 from .dataset import Dataset
 
@@ -100,47 +102,52 @@ class Blocklists(Dataset):
         self,
         min_batches: int | None = None,
         *,
-        missing: Literal["fail", "ignore"] = "fail",
+        missing: Literal["ignore", "fail"] = "ignore",
     ) -> pl.DataFrame:
-        """One row per feature: ``feature``, ``n_batches`` (the batches whose blocklist
-        reports it), ``n_ok`` (those where it is OK) and the consensus ``feature_ok``.
+        """The vote across batches: one row per feature, sorted by ``feature``, with
+        ``n_batches`` (the batches whose blocklist reports it), ``n_ok`` (those where it is
+        OK) and the consensus ``feature_ok``.
 
         A feature is OK when ``n_ok >= min_batches``. Without ``min_batches`` it has to be
-        OK in every batch: with ``missing="fail"`` every batch loaded, so a batch that
-        doesn't report the feature counts against it; with ``missing="ignore"`` only the
-        batches that report it (the old pipeline's global rule).
+        OK in every batch that reports it (``missing="ignore"``, the default:
+        `fisseq_common.global_aggregation.blocklist_vote`, the embeddings pipeline's former
+        GLOBAL_BLOCKLIST rule), or with ``missing="fail"`` in every batch loaded, so a batch
+        that doesn't report the feature counts against it.
         """
         self._require("feature", "feature_ok", self.batch_col)
         if missing not in ("fail", "ignore"):
             raise ValueError(f"missing must be 'fail' or 'ignore', got {missing!r}")
         lf = self._lf
-        counts = lf.group_by("feature", maintain_order=True).agg(
+        if missing == "ignore":
+            return blocklist_vote(
+                [lf.select("feature", "feature_ok").collect()], min_batches
+            )
+        counts = lf.group_by("feature").agg(
             pl.col(self.batch_col).n_unique().cast(pl.UInt32).alias("n_batches"),
             pl.col("feature_ok").fill_null(False).sum().cast(pl.UInt32).alias("n_ok"),
         )
-        if min_batches is not None:
-            required = pl.lit(min_batches)
-        elif missing == "ignore":
-            required = pl.col("n_batches")
-        else:
-            required = pl.lit(
-                lf.select(pl.col(self.batch_col).n_unique()).collect().item()
-            )
-        return counts.with_columns(
-            (pl.col("n_ok") >= required).alias("feature_ok")
-        ).collect()
+        required = (
+            pl.lit(min_batches)
+            if min_batches is not None
+            else pl.lit(lf.select(pl.col(self.batch_col).n_unique()).collect().item())
+        )
+        return (
+            counts.with_columns((pl.col("n_ok") >= required).alias("feature_ok"))
+            .sort("feature")
+            .collect()
+        )
 
     def consensus(
         self,
         min_batches: int | None = None,
         *,
-        missing: Literal["fail", "ignore"] = "fail",
+        missing: Literal["ignore", "fail"] = "ignore",
     ) -> list[str]:
-        """Features that are OK in every batch, or in at least ``min_batches`` of them.
+        """Features that are OK in every batch that reports them, or in at least
+        ``min_batches`` batches.
 
-        With ``missing="fail"`` (the default) a feature absent from a batch's blocklist
-        counts as not OK there; ``missing="ignore"`` judges it only on the batches that
-        report it. See `table`.
+        With ``missing="fail"`` a feature absent from a batch's blocklist counts as not OK
+        there. See `table`.
         """
         table = self.table(min_batches, missing=missing)
         return table.filter("feature_ok").get_column("feature").to_list()

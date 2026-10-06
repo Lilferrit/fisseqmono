@@ -65,7 +65,7 @@ columns.
 
 There is no `global/` directory any more: the pipeline stopped running its global stages, so the
 aggregation across experiments happens here. See
-[Reproduce the old global feature select](#reproduce-the-old-global-feature-select).
+[Aggregate across experiments](#aggregate-across-experiments).
 
 Batches load in natural order (`T2_R1` before `T10_R1`). Each row is tagged with its batch
 in `meta_experiment`. A missing directory or file raises `FileNotFoundError` with the full path.
@@ -199,14 +199,13 @@ profiles = profiles.drop_nonfinite()           # drop columns with any null / Na
 
 - `rethreshold(min_r)` recomputes `feature_ok` as `median_r >= min_r`, the pipeline's
   `min_correlation` rule.
-- `consensus(min_batches=None, missing="fail")` returns the features that are OK in every batch,
-  or in at least `min_batches` of them.
-    - With `missing="fail"` (the default), a batch whose blocklist doesn't list a feature counts
-      as a failure for that feature.
-    - With `missing="ignore"`, a feature is judged only on the batches that report it. This was the
-      old pipeline's global rule.
-- `table(min_batches=None, missing="fail")` returns the counts behind the consensus, one row per
-  feature: `feature`, `n_batches` (the batches that report it), `n_ok` and `feature_ok`.
+- `consensus(min_batches=None, missing="ignore")` returns the features that are OK in every batch
+  that reports them, or in at least `min_batches` batches: the vote `fisseqborn-global` uses.
+    - With `missing="fail"`, a batch whose blocklist doesn't list a feature counts as a failure
+      for that feature.
+- `table(min_batches=None, missing="ignore")` returns the counts behind the consensus, one row per
+  feature, sorted by feature: `feature`, `n_batches` (the batches that report it), `n_ok` and
+  `feature_ok`.
 
 `feature_select()` runs `pycytominer.feature_select` over the profile values. It needs
 `fisseqborn[select]`. The default operations are the pipeline's: drop near-zero-variance features,
@@ -315,82 +314,69 @@ for you. It also joins per-variant scores as they are. For example, it can read 
 `global_scores.parquet` that `fisseqborn-global` writes:
 
 ```python
-global_scores = fb.OvwtScores.read("global/ovwt_distinguishability/global_scores.parquet")
+global_scores = fb.OvwtScores.read("global/ovwt_distinguishability/global_scores.parquet")  # data pipeline
 profiles.distinguishability(global_scores, score="meta_median_auroc_pooled")
 ```
 
 `Profiles.from_global` and `OvwtScores.from_global` still read the `global/` directory of older runs.
 They now raise a `DeprecationWarning`, because current runs don't have that directory.
 
-## Reproduce the old global feature select
+## Aggregate across experiments
 
-The pipeline's `GLOBAL_FEATURE_SELECT` and `GLOBAL_OVWT` stages are gone. The `fisseqborn-global`
-command rebuilds their artifacts from the per-batch outputs:
+Neither pipeline aggregates across experiments. The `fisseqborn-global` command does it from the
+per-experiment outputs of either pipeline, with the methods of the embeddings pipeline's former
+global stages (GLOBAL_BLOCKLIST, GLOBAL_VARIANT_EMBEDDINGS, GLOBAL_VARIANT_DISTINGUISHABILITY and
+their CellProfiler-track twins; `fisseq_common.global_aggregation`). `tests/test_global_parity.py`
+checks that it reproduces their outputs.
 
 ```bash
 fisseqborn-global /path/to/pipeline_dir --out /path/to/global \
-    --types median KS --passthrough KSnegLogP --paired median:KSnegLogP \
-    --min-correlation 0.7 --metadata --pca 5 \
     --exclude 'T10_*' --exclude-regex '_R3$'
 ```
 
 ```text
-<out>/
-  feature_select/
-    aggregate.parquet         # one row per variant: selected features + meta_impact_score
-    blocklist.parquet         # Blocklists.table(): feature, n_batches, n_ok, feature_ok
-    pca_components.parquet    # .pca_loadings, only with --pca N
-  ovwt_distinguishability/
-    global_scores.parquet     # meta_aa_changes, meta_median_<score>, meta_num_experiments
+<out>/<track>/
+  blocklist.parquet              # the vote: feature, n_batches, n_ok, feature_ok
+  median_aggregate.parquet       # per variant, each reproducible feature's median across experiments
+  pca_scores.parquet             # full-rank PCA: meta_pc_1 .. meta_pc_n
+  pca_components.parquet         # meta_component_idx + one loading column per feature
+  pca_variance_explained.parquet # meta_variance_explained, meta_cumulative_variance_explained
+  pca_reduced.parquet            # the leading PCs reaching --cumulative-variance-explained (0.9),
+                                 #   meta_is_control, meta_impact_score on those PCs
+<out>/<ovwt dir>/global_scores.parquet  # meta_median_<score>, meta_num_experiments
 ```
 
-Other flags:
+The track directories are `feature_select/` and `ovwt_distinguishability/` for a data-pipeline run;
+`embeddings/` and `distinguishability/` (Cell-DINO track) plus `cp_features/` and
+`distinguishability_cp_features/` (CellProfiler track, no blocklist) for an embeddings-pipeline run.
 
-- `--missing ignore` judges a feature only on the batches that report it.
-- `--min-batches N` relaxes the consensus to "OK in at least N batches".
-- `--features intersection` keeps only the features that every batch has.
-- `--operations ...` and `--corr-threshold` configure pycytominer.
-- `--umap N` adds an N-dimensional UMAP.
-- `--scores ...` chooses the OvWT score columns.
-- `--no-ovwt` skips the distinguishability output.
+Per track:
+
+1. **Vote.** Each experiment's combined `blocklist.parquet` (or its per-method blocklists, in an
+   older run). A feature is reproducible when every experiment that reports it marks it OK, or at
+   least `--min-batches N` do. `--min-correlation R` first recomputes each experiment's verdict as
+   `median_r >= R`; `--missing fail` counts an experiment that doesn't report a feature against it.
+2. **Pool.** Each experiment's aggregates of `--types` (default: every method the run aggregated)
+   and `--passthrough`, minus the features voted not OK, medianed per variant over the features
+   every experiment has.
+3. **PCA** at full rank, seeded with `--seed` (default 0).
+4. **Distinguishability.** Each experiment's OvWT scores z-scored against its own synonymous
+   variants, then the median across experiments (`--scores`, `--no-ovwt`).
+
+Off by default, applied to `median_aggregate` before the PCA: `--operations ...` (pycytominer
+feature selection; the pipeline's per-experiment operations are `variance_threshold blocklist
+correlation_threshold`) with `--corr-threshold`, `--impact-score` (a pre-PCA `meta_impact_score`),
+`--umap N`, `--metadata` (integer `meta_` counts summed across experiments) and
+`--paired median:KSnegLogP` (each companion from the experiment holding its value's median).
+`--no-blocklist` pools every feature; `--no-cp-features` skips the CellProfiler track.
 
 Run `fisseqborn-global --help` for the full list. `fb.write_global(run, out, ...)` does the same
-from Python and returns the paths it wrote.
+from Python and returns the paths it wrote, keyed `<dir>/<stem>`. The pooling steps are
+`fisseq_common.global_aggregation`'s `blocklist_vote`, `drop_blocked`, `median_across_batches`
+and `ovwt_global_scores`, and the PCA is `fisseqborn.global_aggregate.full_rank_pca`.
 
-The command is equivalent to this chain:
-
-```python
-blocklists = fb.Blocklists.from_pipeline(run, types=["median", "KS"]).rethreshold(0.7)
-table = blocklists.table()                                    # -> blocklist.parquet
-ok = table.filter("feature_ok")["feature"].to_list()          # = blocklists.consensus()
-
-aggregate = (
-    fb.Profiles.from_pipeline(run, types=["median", "KS"], passthrough=["KSnegLogP"],
-                              metadata=True)
-      .keep_features(ok)                                      # consensus blocklist
-      .median_across_batches(paired={"_median": "_KSnegLogP"},
-                             sum_cols=["meta_num_cells", "meta_barcode_num_unique"])
-      .variant_type()
-      .feature_select()                                       # needs fisseqborn[select]
-      .impact_score()
-)
-pcs = aggregate.drop_nonfinite().pca(5).save_pca_loadings("global/feature_select/pca_components.parquet")
-aggregate.with_columns(pcs.df.select("^meta_pc_.*$").get_columns()).save(
-    "global/feature_select/aggregate.parquet")
-
-scores = fb.ovwt.SCORES
-(fb.OvwtScores.from_pipeline(run)
-   .correct(scores, rescale=False)                            # z-score vs synonymous, per experiment
-   .per_variant([f"{s}_corrected" for s in scores], n_col="meta_num_experiments")
-   .select("meta_aa_changes",
-           *[pl.col(f"{s}_corrected").alias(f"meta_median_{s}") for s in scores],
-           "meta_num_experiments")
-   .save("global/ovwt_distinguishability/global_scores.parquet"))
-```
-
-The pipeline's global stages ran once per channel. To get the same split, run the command once per
-group of experiments, using `--exclude` to leave out the experiments that don't belong to that
-group.
+To aggregate a subset of experiments (the old pipeline's per-channel global stages), run the command
+once per group, leaving the others out with `--exclude`.
 
 ## From the notebooks
 

@@ -17,29 +17,8 @@ from typing import Optional
 import polars as pl
 from omegaconf import MISSING
 
+from ..global_aggregation import blocked_features
 from .config import AppConfig
-
-
-def blocked_features(blocklist_df: pl.DataFrame) -> set[str]:
-    """
-    The set of column names a blocklist marks as not reproducible.
-
-    Parameters
-    ----------
-    blocklist_df : pl.DataFrame
-        COMBINE_BLOCKLISTS output: ``feature``, ``median_r``,
-        ``feature_ok``.
-
-    Returns
-    -------
-    set of str
-        Every ``feature`` whose ``feature_ok`` is false. A null
-        ``feature_ok`` counts as blocked (``compute_blocklist`` already
-        fills those, so this is belt and braces).
-    """
-    return set(
-        blocklist_df.filter(~pl.col("feature_ok").fill_null(False))["feature"].to_list()
-    )
 
 
 def apply_blocklist(agg_df: pl.DataFrame, blocklist_df: pl.DataFrame) -> pl.DataFrame:

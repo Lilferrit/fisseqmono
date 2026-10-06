@@ -164,13 +164,14 @@ def test_blocklists_list_once_and_download_only_blocklists(
 
 
 def test_write_global_from_remote(fake, remote, pipeline_dir, tmp_path):
-    written = fb.write_global(
-        remote, tmp_path / "out", operations=(), download_dir=tmp_path / "dl"
-    )
+    written = fb.write_global(remote, tmp_path / "out", download_dir=tmp_path / "dl")
     assert fake.rel(pipeline_dir) == _fs(
-        "aggregates/median.parquet", "blocklists/median.parquet"
+        "aggregates/median.parquet",
+        "aggregates/KS.parquet",
+        "blocklists/median.parquet",
+        "blocklists/KS.parquet",
     ) | {f"ovwt_batchwise/{b}/results.parquet" for b in PIPELINE_BATCHES}
-    local = fb.write_global(pipeline_dir, tmp_path / "local", operations=())
+    local = fb.write_global(pipeline_dir, tmp_path / "local")
     for name, path in written.items():
         assert pl.read_parquet(path).equals(pl.read_parquet(local[name]))
 
@@ -183,7 +184,6 @@ def test_cli_download_dir(fake, remote, pipeline_dir, tmp_path):
             remote,
             "--out",
             str(tmp_path / "out"),
-            "--operations",
             "--download-dir",
             str(tmp_path / "dl"),
         ]

@@ -60,10 +60,10 @@ profiles.drop_nonfinite().umap().cluster(n_neighbors=30).save("profiles.parquet"
 A remote run can be loaded in place: `from_pipeline("me@cluster:/path/to/run", download_dir="data")`
 copies only the files that call reads, over scp.
 
-The pipeline no longer writes `global/`. `fisseqborn-global <pipeline_dir> --out <dir>` rebuilds
-`feature_select/aggregate.parquet`, `feature_select/blocklist.parquet` and
-`ovwt_distinguishability/global_scores.parquet` from the per-batch outputs (see
-[Loading pipeline outputs](docs/data.md#reproduce-the-old-global-feature-select)).
+Neither pipeline aggregates across experiments. `fisseqborn-global <pipeline_dir> --out <dir>` does it
+from the per-batch outputs: per track, the blocklist vote, `median_aggregate.parquet`, a full-rank
+PCA (`pca_*.parquet`) and the distinguishability `global_scores.parquet` (see
+[Aggregate across experiments](docs/data.md#aggregate-across-experiments)).
 
 | Class | For |
 |---|---|

@@ -191,16 +191,16 @@ def test_blocklist_table_and_missing(pipeline_dir):
         pl.col("feature") != "AreaShape_Area_median"
     ).write_parquet(path)
     partial = fb.Blocklists.from_pipeline(pipeline_dir, types=["median"])
-    assert "AreaShape_Area_median" not in partial.consensus()
-    assert "AreaShape_Area_median" in partial.consensus(missing="ignore")
+    assert "AreaShape_Area_median" in partial.consensus()
+    assert "AreaShape_Area_median" not in partial.consensus(missing="fail")
     area = partial.table(missing="ignore").filter(
         pl.col("feature") == "AreaShape_Area_median"
     )
     assert area.row(0) == ("AreaShape_Area_median", 2, 2, True)
     assert (
-        partial.table().filter(pl.col("feature") == "AreaShape_Area_median")[
-            "feature_ok"
-        ][0]
+        partial.table(missing="fail").filter(
+            pl.col("feature") == "AreaShape_Area_median"
+        )["feature_ok"][0]
         is False
     )
     with pytest.raises(ValueError, match="missing"):

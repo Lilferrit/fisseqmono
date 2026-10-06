@@ -13,18 +13,17 @@ from pathlib import Path
 import pytest
 
 from _compare import compare_trees
-from _fixtures import REFERENCE_DIR, SCENARIOS, published_parquets, run_scenario
+from _fixtures import REFERENCE_DIR, SCENARIOS, published_parquets
 
 
 @pytest.fixture(scope="module", params=SCENARIOS)
-def scenario_run(request, tmp_path_factory) -> tuple[str, Path, Path]:
+def scenario_run(request, scenario_runs) -> tuple[str, Path, Path]:
     scenario = request.param
     if not (REFERENCE_DIR / scenario).exists():
         pytest.fail(
             f"no reference outputs for {scenario}; run tests/reference/capture.py"
         )
-    run_root = tmp_path_factory.mktemp(scenario)
-    return scenario, run_root, run_scenario(scenario, run_root)
+    return scenario, *scenario_runs(scenario)
 
 
 def test_outputs_match_reference(scenario_run) -> None:

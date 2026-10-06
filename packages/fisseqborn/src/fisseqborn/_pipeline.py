@@ -161,6 +161,20 @@ class Source:
             self._layout = resolve_layout(self._layout_spec, top_level, self._track)
         return self._layout
 
+    def with_layout(self, layout: PipelineLayout) -> "Source":
+        """The same run read through another layout (e.g. the embeddings pipeline's other
+        track), sharing this one's remote listing."""
+        other = Source(self.root, self.remote, layout)
+        other._remote_dirs = self._remote_dirs
+        return other
+
+    def has_stage(self, stage: Stage) -> bool:
+        """Whether the run has ``stage``'s directory (a remote run: from its listing)."""
+        stage_dir = self.layout.stage_dir(stage)
+        if self.remote is None:
+            return (self.root / stage_dir).is_dir()
+        return stage_dir in self._remote_listing()
+
     def _remote_listing(self) -> list[str]:
         """A remote run's directories two levels deep (``<stage>`` and
         ``<stage>/<batch>``), listed once with one ``ssh ls``: enough to detect the layout
