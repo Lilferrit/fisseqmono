@@ -1,4 +1,6 @@
-# The pipelines' images, built from the workspace root (each needs fisseq-common and uv.lock).
+# Build one pipeline's image from the workspace root (it needs fisseq-common and uv.lock), and
+# push it from main and v* tags. Called by docker-<pipeline>.yml, whose `paths` filter lists
+# exactly the files that image is built from.
 #
 #   - Registry: ghcr.io/<owner>/<pipeline>, the names params.yaml's container_image uses.
 #     The packages must grant this repository write access (package settings → Manage
@@ -6,35 +8,23 @@
 #   - Tags, on every push to main: `:latest` and `:<short-sha>`. On a pushed `v*` tag: also
 #     `:<version>` (`v2.0.0` -> `2.0.0`).
 #   - Pull requests: build only, no push.
-name: docker
+name: docker image
 
 on:
-  push:
-    branches: [main]
-    tags: ["v*"]
-    paths: &paths
-      - packages/fisseq-common/**
-      - packages/fisseq-data-pipeline/**
-      - packages/fisseq-embeddings-pipeline/**
-      - pyproject.toml
-      - uv.lock
-      - .python-version
-      - .dockerignore
-      - .github/workflows/docker.yml
-  pull_request:
-    paths: *paths
+  workflow_call:
+    inputs:
+      pipeline:
+        description: The package directory under packages/ (also the image name).
+        required: true
+        type: string
 
 jobs:
   build:
-    name: ${{ matrix.pipeline }}
+    name: ${{ inputs.pipeline }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        pipeline: [fisseq-data-pipeline, fisseq-embeddings-pipeline]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -48,7 +38,7 @@ jobs:
       - name: Compute tags
         id: tags
         run: |
-          image="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/${{ matrix.pipeline }}"
+          image="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/${{ inputs.pipeline }}"
           tags="${image}:latest,${image}:${GITHUB_SHA::7}"
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             tags="${tags},${image}:${GITHUB_REF#refs/tags/v}"
@@ -57,6 +47,6 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: packages/${{ matrix.pipeline }}/Dockerfile
+          file: packages/${{ inputs.pipeline }}/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.tags.outputs.tags }}

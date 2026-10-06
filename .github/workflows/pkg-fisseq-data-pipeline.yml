@@ -6,7 +6,6 @@ on:
     paths: &paths
       - packages/fisseq-data-pipeline/**
       - packages/fisseq-common/**
-      - nextflow/**
       - pyproject.toml
       - uv.lock
       - .github/workflows/_package.yml

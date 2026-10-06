@@ -1,0 +1,37 @@
+# fisseq-embeddings-pipeline's image (_docker.yml), built only when a file it is built from
+# changes: the paths below are exactly what packages/fisseq-embeddings-pipeline/Dockerfile
+# copies (plus the Dockerfile, .dockerignore and these workflows). Nextflow files, tests and
+# docs never reach the image. GitHub doesn't apply path filters to tag pushes, so every v* tag
+# builds.
+name: docker fisseq-embeddings-pipeline
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths: &paths
+      - packages/fisseq-embeddings-pipeline/Dockerfile
+      - packages/fisseq-embeddings-pipeline/README.md
+      - packages/fisseq-embeddings-pipeline/src/**
+      - packages/fisseq-embeddings-pipeline/snakemake/**
+      - packages/fisseq-common/README.md
+      - packages/fisseq-common/src/**
+      - packages/*/pyproject.toml
+      - pyproject.toml
+      - uv.lock
+      - .python-version
+      - .dockerignore
+      - .github/workflows/_docker.yml
+      - .github/workflows/docker-fisseq-embeddings-pipeline.yml
+  pull_request:
+    paths: *paths
+  workflow_dispatch:
+
+jobs:
+  image:
+    uses: ./.github/workflows/_docker.yml
+    with:
+      pipeline: fisseq-embeddings-pipeline
+    permissions:
+      contents: read
+      packages: write

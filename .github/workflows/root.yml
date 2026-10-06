@@ -37,7 +37,7 @@ jobs:
         with:
           version: "latest-stable"
       - run: >-
-          nextflow lint nextflow
+          nextflow lint packages/fisseq-common/nextflow
           packages/fisseq-data-pipeline/workflows packages/fisseq-data-pipeline/modules
           packages/fisseq-data-pipeline/conf
           packages/fisseq-embeddings-pipeline/workflows packages/fisseq-embeddings-pipeline/modules
