@@ -22,6 +22,8 @@ from fisseq_common.stages.qcfilter import (  # noqa: F401 (re-exported)
 )
 from fisseq_common.utils.log import setup_logging
 
+from .filter import JOIN_KEYS
+
 
 @dataclasses.dataclass
 class QcFilterConfig(QcFilterParams):
@@ -69,7 +71,9 @@ def main(cfg: DictConfig) -> None:
     qc_cfg.output_dir = str(output_dir)
     setup_logging(qc_cfg, "qc_filter")
 
-    run_qc_filter(qc_cfg)
+    # A stable row order for every seeded step downstream (OvWT folds, bootstrap splits):
+    # sort on the cell keys, as the data pipeline does on its own.
+    run_qc_filter(qc_cfg, sort_output_by=JOIN_KEYS)
 
 
 if __name__ == "__main__":

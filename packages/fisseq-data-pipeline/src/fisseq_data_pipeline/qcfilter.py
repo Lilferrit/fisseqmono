@@ -93,7 +93,11 @@ def main(cfg: DictConfig) -> None:
     qc_cfg.output_dir = str(output_dir)
     setup_logging(qc_cfg, "qc_filter")
 
-    run_qc_filter(qc_cfg, sort_output_by=[META_CELL_INDEX_COL, META_VARIANT_TAG_COL])
+    run_qc_filter(
+        qc_cfg,
+        sort_output_by=[META_CELL_INDEX_COL, META_VARIANT_TAG_COL],
+        assign_cell_index=True,
+    )
 
 
 if __name__ == "__main__":

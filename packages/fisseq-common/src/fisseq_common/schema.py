@@ -31,7 +31,8 @@ META_EDIT_DISTANCE_COL: str = "meta_edit_distance"
 #
 # The embeddings pipeline has a column of the same name with a different meaning: the cell's
 # index within its tile (fisseq_embeddings_pipeline.utils.cell_table), unique only together
-# with meta_batch, meta_well and meta_tile.
+# with meta_batch, meta_well and meta_tile. Its QC_FILTER and filter stage sort on those four
+# columns for the same reason.
 META_CELL_INDEX_COL: str = "meta_cell_index"
 META_VARIANT_TAG_COL: str = "meta_variant_tag"
 META_VARIANT_CLASS: str = "meta_variant_class"

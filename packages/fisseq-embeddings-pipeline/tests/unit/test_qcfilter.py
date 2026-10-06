@@ -88,6 +88,44 @@ def test_main_composite_join_key_survives_end_to_end(tmp_path: Path):
     assert filtered.height == 3
 
 
+def test_main_sorts_on_the_cell_keys_and_keeps_meta_cell_index(tmp_path: Path):
+    """filtered_cells.parquet is sorted on JOIN_KEYS (a stable row order for every seeded
+    step downstream), and meta_cell_index keeps its per-tile values: QC doesn't reassign
+    it, unlike in the data pipeline."""
+    source = tmp_path / "metadata.parquet"
+    n = 6
+    pl.DataFrame(
+        {
+            "meta_batch": ["batch1"] * n,
+            "meta_well": ["well1"] * n,
+            "meta_tile": ["tile1", "tile0", "tile1", "tile0", "tile1", "tile0"],
+            "meta_cell_index": [2, 7, 0, 3, 1, 5],
+            "meta_barcode": [f"bc{i}" for i in range(n)],
+            "meta_aa_changes": ["A1A"] * n,
+            "meta_edit_distance": [0] * n,
+        }
+    ).write_parquet(source)
+    output_dir = tmp_path / "out"
+    result = _run_qcfilter(
+        tmp_path,
+        f"output_dir={output_dir}",
+        f"cell_files={source}",
+        "bc_threshold=1",
+        "variant_bc_threshold=1",
+        "random_seed=0",
+    )
+    assert result.returncode == 0, result.stderr
+    filtered = pl.read_parquet(output_dir / "filtered_cells.parquet")
+    assert filtered.select("meta_tile", "meta_cell_index").rows() == [
+        ("tile0", 3),
+        ("tile0", 5),
+        ("tile0", 7),
+        ("tile1", 0),
+        ("tile1", 1),
+        ("tile1", 2),
+    ]
+
+
 def test_main_n_variants_none_matches_no_restriction(tmp_path: Path):
     source = tmp_path / "metadata.parquet"
     _write_cells(source, [f"bc{i}" for i in range(6)], ["M1K"] * 3 + ["M2L"] * 3)

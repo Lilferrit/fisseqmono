@@ -611,7 +611,9 @@ def add_downsampled_pseudo_variants(
 
 
 def run_qc_filter(
-    cfg: QcFilterParams, sort_output_by: Optional[List[str]] = None
+    cfg: QcFilterParams,
+    sort_output_by: Optional[List[str]] = None,
+    assign_cell_index: bool = False,
 ) -> None:
     """
     Run QC_FILTER with ``cfg`` and write its three outputs to ``cfg.output_dir``.
@@ -629,8 +631,13 @@ def run_qc_filter(
         a fixed ``random_seed``. The data pipeline sorts on
         ``(META_CELL_INDEX_COL, META_VARIANT_TAG_COL)``, which is total even with
         pseudo-variant rows: two of them sharing a cell index always come from
-        different downsample amounts and so carry different tags. ``None`` keeps the
-        join order.
+        different downsample amounts and so carry different tags; the embeddings
+        pipeline on its cell keys ``(meta_batch, meta_well, meta_tile, meta_cell_index)``.
+        ``None`` keeps the join order.
+    assign_cell_index : bool
+        Assign ``META_CELL_INDEX_COL`` from the input row order (:func:`combine_cell_files`):
+        the data pipeline's raw cells have no other identity. The embeddings pipeline's
+        input already carries its own per-tile ``meta_cell_index``, so it leaves this off.
 
     Notes
     -----
@@ -647,9 +654,7 @@ def run_qc_filter(
         [cfg.cell_files] if isinstance(cfg.cell_files, str) else list(cfg.cell_files)
     )
     combined_lf = filter_columns(
-        combine_cell_files(
-            cell_files, assign_cell_index=META_CELL_INDEX_COL in (sort_output_by or [])
-        ),
+        combine_cell_files(cell_files, assign_cell_index=assign_cell_index),
         cfg,
     )
 
@@ -705,10 +710,12 @@ def run_qc_filter(
         combined_lf = combined_lf.sort(sort_output_by, nulls_last=False)
 
     logging.info("Writing output files to %s", output_dir)
+    # The two report tables come from a group_by, whose row order Polars doesn't fix: sort
+    # them on their key so a rerun writes identical files.
     for name, lf in [
         ("filtered_cells", combined_lf),
-        ("barcode_counts", barcode_count_lf),
-        ("variants_per_barcode", variants_per_barcode_lf),
+        ("barcode_counts", barcode_count_lf.sort(META_BARCODE_COL)),
+        ("variants_per_barcode", variants_per_barcode_lf.sort(cfg.label_column)),
     ]:
         logging.info("Writing %s", name)
         lf.sink_parquet(output_dir / f"{prefix}{name}.parquet")

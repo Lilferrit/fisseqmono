@@ -358,3 +358,25 @@ class TestSelectVariants:
         variants = set(result["meta_aa_changes"].to_list())
         assert {"M1K", "M2L"} <= variants
         assert len(variants) == 4  # 2 allow-listed + 2 randomly selected
+
+
+def test_run_qc_filter_keeps_existing_cell_index(tmp_path):
+    """Sorting on a cell index the input already has (the embeddings pipeline's per-tile
+    index) doesn't reassign it; only assign_cell_index does, for the data pipeline's raw
+    cells, which have none."""
+    from fisseq_common.stages.qcfilter import run_qc_filter
+
+    source = tmp_path / "metadata.parquet"
+    df = _make_cell_df(["bc0", "bc1", "bc2"], ["A1A"] * 3).with_columns(
+        pl.Series("meta_cell_index", [9, 4, 6])
+    )
+    df.write_parquet(source)
+    cfg = _cfg(
+        output_dir=str(tmp_path),
+        cell_files=[str(source)],
+        bc_threshold=1,
+        variant_bc_threshold=1,
+    )
+    run_qc_filter(cfg, sort_output_by=["meta_cell_index"])
+    out = pl.read_parquet(tmp_path / "filtered_cells.parquet")
+    assert out["meta_cell_index"].to_list() == [4, 6, 9]

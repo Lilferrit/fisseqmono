@@ -226,6 +226,10 @@ def main(cfg: DictConfig) -> None:
         logging.info("Computing impact scores")
         normalized_lf = compute_impact_score(normalized_lf)
 
+    # One row per variant, sorted: the joins above don't preserve an order, and a seeded
+    # UMAP's result depends on its input's row order.
+    normalized_lf = normalized_lf.sort(feat_cfg.label_column)
+
     pca_components_df = None
     if feat_cfg.run_pca or feat_cfg.run_umap:
         # PCA/UMAP need an in-memory numpy array -- sklearn/umap-learn are
@@ -279,7 +283,7 @@ def main(cfg: DictConfig) -> None:
         out_path = output_dir / f"{output_stem}.parquet"
 
     logging.info("Writing output to %s", out_path)
-    selected_lf.sink_parquet(out_path)
+    selected_lf.sort(feat_cfg.label_column).sink_parquet(out_path)
 
     if feat_cfg.run_pca:
         if feat_cfg.output_root is not None:

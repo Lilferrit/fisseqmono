@@ -162,6 +162,22 @@ def test_filtered_keys_retains_join_keys_and_other_meta_columns():
     assert LABEL_COLUMN in columns
 
 
+def test_filtered_keys_and_rebuilt_table_are_sorted_on_the_cell_keys():
+    """Both FILTER_EMBEDDINGS' keys and every rebuilt table come out sorted on JOIN_KEYS,
+    whatever order the join produced: seeded steps downstream depend on row order."""
+    embeddings_lf, qc_passed_lf = _fixture_lfs()
+    shuffled = embeddings_lf.collect().sample(fraction=1.0, shuffle=True, seed=3).lazy()
+    keys_lf, normalizer = filter_and_fit_normalizer(
+        shuffled, qc_passed_lf.collect().reverse().lazy(), "meta_aa_changes"
+    )
+    keys = keys_lf.collect()
+    assert keys.equals(keys.sort(JOIN_KEYS))
+    rebuilt = load_filtered_embeddings(
+        shuffled, keys.reverse().lazy(), normalizer
+    ).collect()
+    assert rebuilt.equals(rebuilt.sort(JOIN_KEYS))
+
+
 def test_normalizer_fits_only_on_control_rows():
     embeddings_lf, qc_passed_lf = _fixture_lfs()
     _, normalizer = filter_and_fit_normalizer(embeddings_lf, qc_passed_lf, LABEL_COLUMN)

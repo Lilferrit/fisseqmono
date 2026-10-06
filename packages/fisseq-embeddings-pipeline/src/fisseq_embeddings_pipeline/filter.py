@@ -63,7 +63,12 @@ def filter_and_fit_normalizer(
     """:func:`fisseq_common.stages.filter.filter_and_fit_normalizer` with this pipeline's
     join keys and synonymous controls."""
     return _filter.filter_and_fit_normalizer(
-        embeddings_lf, qc_passed_lf, label_column, JOIN_KEYS, SYNONYMOUS_CONTROL
+        embeddings_lf,
+        qc_passed_lf,
+        label_column,
+        JOIN_KEYS,
+        SYNONYMOUS_CONTROL,
+        sort_by=JOIN_KEYS,
     )
 
 
@@ -78,7 +83,7 @@ def load_filtered_embeddings(
     :data:`JOIN_KEYS`.
     """
     return _filter.load_filtered_cells(
-        embeddings_lf, filtered_keys_lf, normalizer, JOIN_KEYS
+        embeddings_lf, filtered_keys_lf, normalizer, JOIN_KEYS, sort_by=JOIN_KEYS
     )
 
 
