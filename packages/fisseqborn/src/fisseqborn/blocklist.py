@@ -1,5 +1,6 @@
 """Per-batch feature blocklists from the pipeline's feature selection."""
 
+import posixpath
 from collections.abc import Sequence
 from os import PathLike
 from typing import Literal, Self
@@ -49,37 +50,41 @@ class Blocklists(Dataset):
         exclude: "_pipeline.Patterns | None" = None,
         download_dir: str | PathLike | None = None,
         refresh: bool = False,
+        layout: "_pipeline.LayoutSpec" = None,
+        track: "_pipeline.Track" = "embeddings",
         batch_col: str = "meta_experiment",
     ) -> Self:
-        """Read ``feature_select_batchwise/<batch>/blocklists/<type>.parquet`` for every
-        batch (or ``batches``, minus those matching ``exclude``) and statistic type
-        (default: every file present). A remote ``pipeline_dir`` is handled as in
+        """Read each batch's per-method blocklists
+        (``feature_select_batchwise/<batch>/blocklists/<type>.parquet``) for every batch (or
+        ``batches``, minus those matching ``exclude``) and statistic type (default: every
+        file present). A remote ``pipeline_dir``, ``layout`` and ``track`` are handled as in
         `Profiles.from_pipeline`: with ``types=None`` the blocklists are listed with one
-        ssh call, and only they are downloaded."""
-        src = _pipeline.source(pipeline_dir, download_dir, refresh)
-        stage = _pipeline.FEATURE_SELECT
-        names = src.batches(stage, batches, exclude)
-        if types is None:
-            found = src.glob([f"{stage}/{b}/blocklists/*.parquet" for b in names])
-            rels = []
-            for b in names:
-                mine = sorted(
-                    r for r in found if r.startswith(f"{stage}/{b}/blocklists/")
-                )
-                if not mine:
-                    raise FileNotFoundError(
-                        f"No blocklists in {src}/{stage}/{b}/blocklists"
-                    )
-                rels += mine
+        ssh call, and only they are downloaded. The embeddings pipeline's CellProfiler
+        track has no blocklists."""
+        src = _pipeline.source(pipeline_dir, download_dir, refresh, layout, track)
+        lay = src.layout
+        names = src.batches("feature_select", batches, exclude)
+        if types is not None:
+            pairs = [(b, lay.method_blocklist(b, t)) for b in names for t in types]
         else:
-            rels = [f"{stage}/{b}/blocklists/{t}.parquet" for b in names for t in types]
+            patterns = [lay.method_blocklist(b, "*") for b in names]
+            if None in patterns:
+                raise ValueError(f"{lay!r} writes no blocklists")
+            found = src.glob(patterns)
+            pairs = []
+            for b, pattern in zip(names, patterns):
+                directory = posixpath.dirname(pattern)
+                mine = sorted(r for r in found if posixpath.dirname(r) == directory)
+                if not mine:
+                    raise FileNotFoundError(f"No blocklists in {src}/{directory}")
+                pairs += [(b, r) for r in mine]
+        if any(r is None for _b, r in pairs):
+            raise ValueError(f"{lay!r} writes no blocklists")
         frames = [
-            _pipeline.tag(
-                _pipeline.scan(path), rel.split("/")[1], batch_col
-            ).with_columns(
+            _pipeline.tag(_pipeline.scan(path), b, batch_col).with_columns(
                 pl.lit(path.stem, dtype=pl.String).alias("meta_feature_type")
             )
-            for rel, path in zip(rels, src.files(rels))
+            for (b, _rel), path in zip(pairs, src.files([r for _b, r in pairs]))
         ]
         return cls(pl.concat(frames, how="diagonal_relaxed"), batch_col=batch_col)
 

@@ -1750,3 +1750,9 @@ def test_downsample_control_different_seeds_draw_different_samples() -> None:
         .to_list()
     )
     assert kept1 != kept2
+
+
+def test_aggregator_names_match_the_registry():
+    from fisseq_common.schema import AGGREGATOR_NAMES
+
+    assert list(m._AGGREGATORS) == list(AGGREGATOR_NAMES)

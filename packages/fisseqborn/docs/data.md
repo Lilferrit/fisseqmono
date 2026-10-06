@@ -1,8 +1,7 @@
 # Loading pipeline outputs
 
-The data classes read the output directory of
-[fisseq-data-pipeline](https://github.com/Lilferrit/fisseq-data-pipeline) and prepare it for
-plotting. They follow the same pattern as the plots: a class wraps a polars frame, and chained methods
+The data classes read the output directory of either pipeline, fisseq-data-pipeline or
+fisseq-embeddings-pipeline, and prepare it for plotting. They follow the same pattern as the plots: a class wraps a polars frame, and chained methods
 each return a **new** object. So a notebook's loading code becomes a single chain:
 
 ```python
@@ -35,8 +34,15 @@ profiles = (
 
 ## The pipeline layout
 
-`from_pipeline` expects the layout that the pipeline writes (see its *Architecture → Output layout*
-docs):
+`from_pipeline` finds each file through `fisseq_common.layout`, which both pipelines publish
+with. The layout is detected from the run's top-level directories (`normalization/`: the data
+pipeline; `filter_embeddings/`, `embeddings/`, `cell_metadata/`: the embeddings pipeline), or
+passed as `layout="data"` / `layout="embeddings"`. A run with neither, e.g. one with only
+`feature_select_batchwise/` and `ovwt_batchwise/` copied out, is read as a data-pipeline run.
+`track="cp_features"` reads the embeddings pipeline's CellProfiler track
+(`*_cp_features/` directories), which has no blocklists or passthrough aggregates.
+
+The data pipeline writes:
 
 ```text
 <pipeline_dir>/
@@ -49,6 +55,13 @@ docs):
   ovwt_batchwise/<batch>/results.parquet   # auroc_pooled, auroc_median_barcode, auroc_folds,
                                            #   auroc_median_fold, meta_n_barcodes, meta_n_cells
 ```
+
+The embeddings pipeline writes one `feature_select_batchwise/<batch>/aggregate.parquet` holding
+every method (`<feature>_<method>` columns, or bare `<feature>` columns when the run's only
+method is `median`), plus the same `passthrough_aggregates/`, `blocklists/` and
+`blocklist.parquet`. Its aggregates are of cells normalized to the synonymous cells, not
+z-scored per variant. `Profiles.from_pipeline(..., types=[...])` picks the requested methods'
+columns.
 
 There is no `global/` directory any more: the pipeline stopped running its global stages, so the
 aggregation across experiments happens here. See

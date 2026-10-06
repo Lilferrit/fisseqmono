@@ -41,3 +41,19 @@ UMAP_COL_PREFIX: str = "meta_umap_"
 COMPONENT_IDX_COL: str = "meta_component_idx"
 VARIANCE_EXPLAINED_COL: str = "meta_variance_explained"
 CUMULATIVE_VARIANCE_EXPLAINED_COL: str = "meta_cumulative_variance_explained"
+
+#: Every aggregation method's name (the keys of fisseq_common.stages.aggregate's registry). An
+#: aggregate column is ``<feature>_<method>``, except a median-only embeddings run's bare
+#: ``<feature>`` columns.
+AGGREGATOR_NAMES: tuple[str, ...] = (
+    "mean",
+    "median",
+    "MAD",
+    "std",
+    "KS",
+    "signedKS",
+    "QQ",
+    "AUROC",
+    "KSnegLogP",
+    "AUROCnegLogP",
+)

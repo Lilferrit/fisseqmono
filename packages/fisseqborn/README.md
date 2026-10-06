@@ -40,7 +40,8 @@ from fisseqborn import fisseq
 
 ## Loading pipeline outputs
 
-The data classes read a fisseq-data-pipeline output directory and chain the same way plots do. Each
+The data classes read a fisseq-data-pipeline or fisseq-embeddings-pipeline output directory
+(through `fisseq_common.layout`) and chain the same way plots do. Each
 method returns a new object, and plots accept the result directly.
 
 ```python

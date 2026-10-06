@@ -81,13 +81,17 @@ class OvwtScores(Dataset):
         exclude: "_pipeline.Patterns | None" = None,
         download_dir: str | PathLike | None = None,
         refresh: bool = False,
+        layout: "_pipeline.LayoutSpec" = None,
+        track: "_pipeline.Track" = "embeddings",
         variant_col: str = "meta_aa_changes",
         batch_col: str = "meta_experiment",
     ) -> Self:
-        """Read ``ovwt_batchwise/<batch>/results.parquet`` for every batch (or
-        ``batches``, minus those matching ``exclude``), tagging each row with its batch in
-        ``batch_col``. A remote ``pipeline_dir`` (``"user@host:/path"``, with
-        ``download_dir`` and ``refresh``) is handled as in `Profiles.from_pipeline`.
+        """Read each batch's OvWT ``results.parquet`` (``ovwt_batchwise/<batch>/``; the
+        embeddings pipeline's CellProfiler track: ``ovwt_batchwise_cp_features/<batch>/``)
+        for every batch (or ``batches``, minus those matching ``exclude``), tagging each
+        row with its batch in ``batch_col``. A remote ``pipeline_dir``
+        (``"user@host:/path"``, with ``download_dir`` and ``refresh``), ``layout`` and
+        ``track`` are handled as in `Profiles.from_pipeline`.
 
         Columns are those the pipeline writes: ``auroc_pooled``,
         ``auroc_median_barcode``, ``auroc_median_fold``, the per-fold ``auroc_folds``
@@ -99,9 +103,9 @@ class OvwtScores(Dataset):
         by `LEGACY_RENAMES`, while the score columns keep their names, e.g.
         ``profiles.distinguishability(ovwt, score="test_auroc")``.
         """
-        src = _pipeline.source(pipeline_dir, download_dir, refresh)
-        names = src.batches(_pipeline.OVWT, batches, exclude)
-        paths = src.files([f"{_pipeline.OVWT}/{b}/results.parquet" for b in names])
+        src = _pipeline.source(pipeline_dir, download_dir, refresh, layout, track)
+        names = src.batches("ovwt", batches, exclude)
+        paths = src.files([src.layout.ovwt_results(b) for b in names])
         frames = [
             _pipeline.tag(_read_results(path, variant_col), b, batch_col)
             for b, path in zip(names, paths)
