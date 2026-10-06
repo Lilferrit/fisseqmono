@@ -45,4 +45,4 @@ Shared, non-CLI internals used across multiple pipeline modules. Most live in th
 
 ## dimreduction
 
-::: fisseq_data_pipeline.utils.dimreduction
+::: fisseq_common.stages.dimreduction

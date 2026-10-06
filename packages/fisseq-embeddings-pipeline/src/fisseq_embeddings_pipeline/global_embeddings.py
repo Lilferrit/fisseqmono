@@ -9,7 +9,7 @@ style global_channels scoping.
 
 :func:`global_variant_embeddings` always computes PCA at the full retained
 rank -- ``min(n_variants, n_retained_feature_dims)`` after
-:func:`~fisseq_embeddings_pipeline.utils.dimreduction.compute_pca`'s own
+:func:`~fisseq_common.stages.dimreduction.compute_pca`'s own
 all-null-feature-column drop -- so every component the data can actually
 support is kept, not a fixed subset chosen ahead of time. This keeps
 ``compute_pca`` itself (a vendored function used only for its already-
@@ -70,19 +70,19 @@ from fisseq_common.schema import (
     PC_COL_PREFIX,
     VARIANCE_EXPLAINED_COL,
 )
+from fisseq_common.stages.dimreduction import compute_pca
 from fisseq_common.utils.log import setup_logging
 from fisseq_common.utils.vectors import compute_impact_score
 
 from .config import AppConfig
 from .filter import variant_classification
-from .utils.dimreduction import compute_pca
 from .utils.globalfeatureselect import median_across_batches
 
 
 def _full_rank(df: pl.DataFrame, label_column: str) -> int:
     """
     ``min(n_rows, n_retained_feature_cols)`` -- the largest ``n_components``
-    :func:`~fisseq_embeddings_pipeline.utils.dimreduction.compute_pca` will
+    :func:`~fisseq_common.stages.dimreduction.compute_pca` will
     accept for ``df``, given its own all-null-feature-column drop
     (mirrored here rather than imported, since that drop is a private
     implementation detail of ``compute_pca``, not part of its public

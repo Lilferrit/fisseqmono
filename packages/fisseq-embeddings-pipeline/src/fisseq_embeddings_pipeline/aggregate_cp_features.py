@@ -1,13 +1,9 @@
 """AGGREGATE_CP_FEATURES.
 
-Thin Hydra entry point reusing aggregate.py's
-:func:`~fisseq_embeddings_pipeline.aggregate.aggregate_embeddings` and
-:func:`~fisseq_embeddings_pipeline.filter.load_filtered_embeddings`
-directly, passing ``FEATURE_SELECTOR`` (CellProfiler-shaped: exclude
-``meta_*``) instead of AGGREGATE_EMBEDDINGS' default
-``EMBEDDING_SELECTOR`` -- see aggregate.py's module docstring for why this
-requires no fork of the mean/median/KS/AUROC/*negLogP Polars
-implementation.
+Thin Hydra entry point: the shared
+:func:`~fisseq_common.stages.aggregate.aggregate_methods` over the CellProfiler track's
+features (``FEATURE_SELECTOR``: every non-``meta_*`` column) instead of
+AGGREGATE_EMBEDDINGS' ``EMBEDDING_SELECTOR``.
 
 Unlike AGGREGATE_EMBEDDINGS (whose default is now
 ``["median", "KS", "AUROC"]``), this stage's default stays ``["median"]``
@@ -28,9 +24,9 @@ from omegaconf import MISSING, DictConfig, OmegaConf
 
 from fisseq_common.normalizer import Normalizer
 from fisseq_common.schema import FEATURE_SELECTOR
+from fisseq_common.stages.aggregate import DEFAULT_FEATURE_CHUNK_SIZE, aggregate_methods
 from fisseq_common.utils.log import setup_logging
 
-from .aggregate import DEFAULT_FEATURE_CHUNK_SIZE, aggregate_embeddings
 from .config import AppConfig
 from .filter import load_filtered_embeddings
 
@@ -61,13 +57,13 @@ class AggregateCpFeaturesConfig(AppConfig):
         ``"AUROCnegLogP"``. Defaults to ``["median"]`` --
         output columns are bare for this exact default; any other
         selection produces suffixed columns (see
-        :func:`~fisseq_embeddings_pipeline.aggregate.aggregate_embeddings`).
+        :func:`~fisseq_common.stages.aggregate.aggregate_methods`).
         Contrast AGGREGATE_EMBEDDINGS' ``AggregateEmbeddingsConfig.aggregators``,
         whose default is ``["median", "KS", "AUROC"]``.
     feature_chunk_size : int or None
         Feature columns evaluated per Polars query -- a memory dial only,
         identical output at every value (see
-        :data:`~fisseq_embeddings_pipeline.aggregate.DEFAULT_FEATURE_CHUNK_SIZE`).
+        :data:`~fisseq_common.stages.aggregate.DEFAULT_FEATURE_CHUNK_SIZE`).
         Shared with AGGREGATE_EMBEDDINGS rather than track-specific: it is
         sized to the memory one task is granted, not to the feature space.
     """
@@ -97,7 +93,7 @@ def main(cfg: DictConfig) -> None:
     feature table via
     :func:`fisseq_embeddings_pipeline.filter.load_filtered_embeddings`,
     calls
-    :func:`fisseq_embeddings_pipeline.aggregate.aggregate_embeddings`
+    :func:`fisseq_common.stages.aggregate.aggregate_methods`
     with ``feature_selector=FEATURE_SELECTOR``, and writes
     ``{prefix}aggregate.parquet`` to ``output_dir``.
 
@@ -143,7 +139,7 @@ def main(cfg: DictConfig) -> None:
         agg_cfg.aggregators,
         agg_cfg.feature_chunk_size,
     )
-    agg_df = aggregate_embeddings(
+    agg_df = aggregate_methods(
         filtered_lf,
         agg_cfg.label_column,
         agg_cfg.aggregators,

@@ -102,7 +102,7 @@ Global Variant CP Distinguish-ability Scores (once, across all experiments)
 | QC Filtering | `QC_FILTER` (vendored, ~unchanged) | `qcfilter.py` directly |
 | Cell Embeddings (Cell DINO) | `EMBED_CELLS` (new) | none -- wraps Meta's `dinov2` Cell-DINO |
 | Filter Embeddings | `FILTER_EMBEDDINGS` (adapted) | `normalize.py`'s `Normalizer`, retargeted to a synonymous control query -- publishes a join key + fitted stats, not a normalized copy of the embeddings |
-| Aggregation (Synonymous STD Corrected) | `AGGREGATE_EMBEDDINGS` (adapted) | `aggregate.py`'s aggregator classes + `get_aggregate_meta_data` |
+| Aggregation (Synonymous STD Corrected) | `AGGREGATE_EMBEDDINGS` (shared) | `fisseq_common.stages.aggregate.aggregate_methods` + `get_aggregate_meta_data` |
 | OVWT Distinguish-ability Scores (Synonymous STD Corrected) | `OVWT_BATCHWISE` (adapted) | `ovwt.py` + `utils/xgbparams.py`, training/eval primitives reused per-fold under a *k*-fold CV loop |
 | Pseudo-Replicate Split | `GENERATE_SPLIT` (adapted) | `generatesplit.py`, retargeted from a positional row index to the `JOIN_KEYS` composite cell key -- see decision 22 |
 | Half Aggregation / Passthrough Aggregation | `AGGREGATE_HALF` / `AGGREGATE_PASSTHROUGH` (adapted) | `aggregatefeaturetype.py` -- one Python module behind two Nextflow processes, as that repo includes one process under two aliases |
@@ -112,11 +112,11 @@ Global Variant CP Distinguish-ability Scores (once, across all experiments)
 | Filtered Aggregates | `FILTER_AGGREGATE` (adapted) | the blocklist-drop and passthrough-join halves of `featureselect.py`; its pycytominer variance/correlation filtering is deliberately not ported -- see decision 22 |
 | Cross-experiment blocklist vote | `GLOBAL_BLOCKLIST` (adapted) | `globalfeatureselect.py`'s `combine_batch_blocklists` |
 | Variant-wise median pooling (embeddings branch) | `GLOBAL_VARIANT_EMBEDDINGS` -- median step | `globalfeatureselect.py`'s `median_across_batches` |
-| PCA | `GLOBAL_VARIANT_EMBEDDINGS` -- PCA step | `utils/dimreduction.py`'s `compute_pca` |
+| PCA | `GLOBAL_VARIANT_EMBEDDINGS` -- PCA step | `fisseq_common.stages.dimreduction.compute_pca` |
 | Variant-wise median pooling (scores branch) | `GLOBAL_VARIANT_DISTINGUISHABILITY` | per-experiment synonymous z-score then a `median_across_batches`-style pool, adapted for two scalar (AUROC) columns instead of a feature matrix |
 | CellProfiler Feature Dataset | `BUILD_CP_FEATURES` (new) | selects `cp_*`-prefixed CellProfiler columns straight out of `BUILD_CELL_IMAGES`' `cell_table.parquet` (that stage already folded in each tile's CellProfiler CSV, by row position) -- see [Data contracts](#cell-images-build_cell_images-output-from-starcall-workflow) |
 | Filter CP Features | `FILTER_CP_FEATURES` (thin wrapper) | reuses `filter.py`'s `filter_and_fit_normalizer`/`load_filtered_embeddings` directly (already feature-agnostic) -- joins against `QC_FILTER`'s existing output, not a second QC run |
-| Aggregation (CellProfiler track) | `AGGREGATE_CP_FEATURES` (thin wrapper) | reuses `aggregate.py`'s `aggregate_embeddings` with `feature_selector=FEATURE_SELECTOR` |
+| Aggregation (CellProfiler track) | `AGGREGATE_CP_FEATURES` (thin wrapper) | `fisseq_common.stages.aggregate.aggregate_methods` with `feature_selector=FEATURE_SELECTOR` |
 | OVWT Distinguish-ability Scores (CellProfiler track) | `OVWT_BATCHWISE_CP_FEATURES` (thin wrapper) | reuses `ovwt.py`'s `ovwt_batchwise` with `feature_selector=FEATURE_SELECTOR` |
 | Variant-wise median pooling + PCA (CellProfiler track) | `GLOBAL_VARIANT_CP_FEATURES` (thin wrapper) | reuses `global_embeddings.py`'s `global_variant_embeddings` directly (already `FEATURE_SELECTOR`-based, no fork needed) |
 | Variant-wise median pooling (CellProfiler scores branch) | `GLOBAL_VARIANT_DISTINGUISHABILITY_CP_FEATURES` (thin wrapper) | reuses `global_distinguishability.py`'s `global_variant_distinguishability` directly (already feature-agnostic) |
@@ -592,7 +592,7 @@ fisseq-embeddings-pipeline/
     global_distinguishability.py  # GLOBAL_VARIANT_DISTINGUISHABILITY
     cp_features.py                     # BUILD_CP_FEATURES
     filter_cp_features.py              # FILTER_CP_FEATURES (thin wrapper over filter.py)
-    aggregate_cp_features.py           # AGGREGATE_CP_FEATURES (thin wrapper over aggregate.py)
+    aggregate_cp_features.py           # AGGREGATE_CP_FEATURES (thin wrapper, shared aggregators)
     ovwt_cp_features.py                # OVWT_BATCHWISE_CP_FEATURES (thin wrapper over ovwt.py)
     global_variant_cp_features.py      # GLOBAL_VARIANT_CP_FEATURES (thin wrapper over global_embeddings.py)
     global_variant_distinguishability_cp_features.py  # GLOBAL_VARIANT_DISTINGUISHABILITY_CP_FEATURES (thin wrapper over global_distinguishability.py)
@@ -603,7 +603,6 @@ fisseq-embeddings-pipeline/
       batches.py                  # vendored (load_batches)
       splits.py                   # split files, keyed on JOIN_KEYS (decision 22)
       xgbparams.py                # vendored, one retargeted seed field
-      dimreduction.py             # vendored (compute_pca), + random_state passthrough
       globalfeatureselect.py      # vendored (median_across_batches only)
       vectors.py                  # vendored (compute_impact_score/compute_cosine_distance)
       cell_table.py               # shared cell_table.parquet -> meta_* projection
@@ -874,9 +873,10 @@ CI, since `weights/` is gitignored).
 
 ### 5a. Aggregator inventory, and why the p-value ones are opt-in
 
-`aggregate.py` ports six of `fisseq-data-pipeline`'s ten aggregators:
-`mean`, `median`, `KS`, `AUROC`, plus `KSnegLogP`/`AUROCnegLogP`. The last
-two report `-log10(p)` for the same KS D-statistic and Mann-Whitney U
+The aggregators live in `fisseq_common.stages.aggregate`, shared with
+`fisseq-data-pipeline`: `mean`, `median`, `MAD`, `std`, `KS`, `signedKS`,
+`QQ`, `AUROC`, plus `KSnegLogP`/`AUROCnegLogP`. This pipeline's defaults use
+`median`, `KS` and `AUROC`. The `*negLogP` pair report `-log10(p)` for the same KS D-statistic and Mann-Whitney U
 their parent classes compute -- evidence strength rather than effect size
 -- reusing the parents' `_ks_stat_expr`/`_auroc_u_expr` rather than
 recomputing. Both are closed-form asymptotic approximations (the classical

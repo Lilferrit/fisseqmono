@@ -10,7 +10,7 @@ from fisseq_common.schema import (
     CUMULATIVE_VARIANCE_EXPLAINED_COL,
     VARIANCE_EXPLAINED_COL,
 )
-from fisseq_embeddings_pipeline.utils.dimreduction import compute_pca
+from fisseq_common.stages.dimreduction import compute_pca
 
 # ---------------------------------------------------------------------------
 # fixtures
@@ -84,7 +84,7 @@ def test_compute_pca_all_null_raises_value_error() -> None:
 
 def test_compute_pca_random_state_defaults_to_zero(feature_df: pl.DataFrame) -> None:
     with patch(
-        "fisseq_embeddings_pipeline.utils.dimreduction.PCA",
+        "fisseq_common.stages.dimreduction.PCA",
         wraps=__import__("sklearn.decomposition", fromlist=["PCA"]).PCA,
     ) as mock_pca:
         compute_pca(feature_df, "meta_aa_changes", 2)
@@ -94,7 +94,7 @@ def test_compute_pca_random_state_defaults_to_zero(feature_df: pl.DataFrame) -> 
 
 def test_compute_pca_random_state_is_threaded_through(feature_df: pl.DataFrame) -> None:
     with patch(
-        "fisseq_embeddings_pipeline.utils.dimreduction.PCA",
+        "fisseq_common.stages.dimreduction.PCA",
         wraps=__import__("sklearn.decomposition", fromlist=["PCA"]).PCA,
     ) as mock_pca:
         compute_pca(feature_df, "meta_aa_changes", 2, random_state=42)

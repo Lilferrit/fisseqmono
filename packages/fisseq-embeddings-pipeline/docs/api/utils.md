@@ -19,7 +19,7 @@ with `fisseq-data-pipeline` and `fisseqborn`.
 
 ::: fisseq_common.stages.xgbparams
 
-::: fisseq_embeddings_pipeline.utils.dimreduction
+::: fisseq_common.stages.dimreduction
 
 ::: fisseq_embeddings_pipeline.utils.globalfeatureselect
 

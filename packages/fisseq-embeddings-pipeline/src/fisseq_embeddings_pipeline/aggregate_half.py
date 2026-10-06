@@ -16,7 +16,7 @@ under two aliases, ``AGGREGATE_HALF`` and ``AGGREGATE_FEATURE_TYPE``):
   point of the second list.
 
 Output is **lean** -- ``[label_column] + <this method's stat columns>``,
-via ``aggregate_embeddings(..., include_metadata=False)``. No normalizer
+via :func:`fisseq_common.stages.aggregate.aggregate_cells`. No normalizer
 is fitted or saved, no metadata is joined, no impact score is computed:
 those happen once, upstream in AGGREGATE_EMBEDDINGS, and a half's
 ``meta_num_cells`` would be actively misleading anyway.
@@ -25,7 +25,7 @@ Both rules run one aggregator per job rather than all of them at once.
 That is the fan-out fisseq-data-pipeline uses, and it matters most for
 the reference-based aggregators (KS/AUROC and the two ``*negLogP``
 variants), whose peak memory is the reason
-:data:`~fisseq_embeddings_pipeline.aggregate.DEFAULT_FEATURE_CHUNK_SIZE`
+:data:`~fisseq_common.stages.aggregate.DEFAULT_FEATURE_CHUNK_SIZE`
 exists at all.
 """
 
@@ -40,10 +40,10 @@ from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 
 from fisseq_common.normalizer import Normalizer
+from fisseq_common.schema import EMBEDDING_SELECTOR
+from fisseq_common.stages.aggregate import DEFAULT_FEATURE_CHUNK_SIZE, aggregate_cells
 from fisseq_common.utils.log import setup_logging
-from fisseq_common.utils.splits import filter_by_split_file
 
-from .aggregate import DEFAULT_FEATURE_CHUNK_SIZE, aggregate_embeddings
 from .config import AppConfig
 from .filter import JOIN_KEYS, load_filtered_embeddings
 
@@ -67,7 +67,7 @@ class AggregateHalfConfig(AppConfig):
         Path to FILTER_EMBEDDINGS' normalizer.parquet. Required.
     aggregator : str
         The single aggregation method to run -- a key in
-        :data:`~fisseq_embeddings_pipeline.aggregate._AGGREGATORS`.
+        :data:`~fisseq_common.stages.aggregate._AGGREGATORS`.
         Required.
     split_file : str or None
         Path to one GENERATE_SPLIT half (a parquet of
@@ -79,7 +79,7 @@ class AggregateHalfConfig(AppConfig):
     feature_chunk_size : int or None
         Embedding dimensions evaluated per Polars query -- a memory dial
         only. Defaults to
-        :data:`~fisseq_embeddings_pipeline.aggregate.DEFAULT_FEATURE_CHUNK_SIZE`.
+        :data:`~fisseq_common.stages.aggregate.DEFAULT_FEATURE_CHUNK_SIZE`.
     bare_columns : bool
         Whether an ``aggregator=median`` job strips the ``_median``
         suffix. Set from the run's full ``aggregate_methods``, not from
@@ -156,19 +156,15 @@ def main(cfg: DictConfig) -> None:
 
     logging.info("Reconstructing QC-passed, synonymous-corrected embeddings")
     filtered_lf = load_filtered_embeddings(embeddings_lf, filtered_keys_lf, normalizer)
-    filtered_lf = filter_by_split_file(filtered_lf, half_cfg.split_file, JOIN_KEYS)
 
-    logging.info(
-        "Aggregating via %s (feature_chunk_size=%s, lean output)",
-        half_cfg.aggregator,
-        half_cfg.feature_chunk_size,
-    )
-    agg_df = aggregate_embeddings(
+    agg_df = aggregate_cells(
         filtered_lf,
         half_cfg.label_column,
-        [half_cfg.aggregator],
+        half_cfg.aggregator,
+        join_keys=JOIN_KEYS,
+        split_file=half_cfg.split_file,
+        feature_selector=EMBEDDING_SELECTOR,
         feature_chunk_size=half_cfg.feature_chunk_size,
-        include_metadata=False,
         bare_median=half_cfg.bare_columns,
     )
 

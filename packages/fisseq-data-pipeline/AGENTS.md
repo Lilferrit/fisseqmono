@@ -137,11 +137,11 @@ fisseq-data-pipeline/
 │   │   ├── splits.py              # row-index / index-file helpers
 │   │   ├── featuretypes.py        # join_feature_type_files
 │   │   ├── vectors.py             # impact score
-│   │   └── dimreduction.py        # compute_pca, compute_umap
+│   │   └── dimreduction.py        # re-exports fisseq_common.stages.dimreduction
 │   ├── input.py                   # INPUT
 │   ├── qcfilter.py                # QC_FILTER
 │   ├── normalize.py               # NORMALIZE (Normalizer class + entry point)
-│   ├── aggregate.py               # aggregator library + standalone entry point
+│   ├── aggregate.py               # standalone entry point; aggregators in fisseq_common.stages.aggregate
 │   ├── aggregatefeaturetype.py    # AGGREGATE_FEATURE_TYPE / AGGREGATE_HALF
 │   ├── generatesplit.py           # GENERATE_SPLIT
 │   ├── correlatefeatures.py       # CORRELATE_FEATURES
@@ -177,7 +177,7 @@ LazyFrame and applies them. Stats persist to Parquet (not pickle) and reload via
 `aggregatefeaturetype.py` (`normalize_to_synonymous`) and `featureselect.py` to
 z-score per-variant aggregates against synonymous variants.
 
-**`BaseAggregator`** (`aggregate.py`) — abstract base for the concrete
+**`BaseAggregator`** (`fisseq_common.stages.aggregate`, shared with the embeddings pipeline) — abstract base for the concrete
 aggregation strategies. Combining feature types happens in Nextflow:
 `aggregatefeaturetype` runs once per `params.feature_select_types` entry — and
 once per `params.feature_select_passthrough_types` entry, publishing to

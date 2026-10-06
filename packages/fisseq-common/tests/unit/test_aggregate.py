@@ -1,0 +1,1752 @@
+from __future__ import annotations
+
+from collections import Counter
+from unittest.mock import patch
+
+import numpy as np
+import polars as pl
+import pytest
+import scipy.stats
+import sklearn.metrics
+
+import fisseq_common.stages.aggregate as m
+from fisseq_common.schema import CONTROL_COLUMN_NAME
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def toy_norm_df() -> pl.DataFrame:
+    """Cell-level dataset: WT cells are controls, A1B cells are variants."""
+    return pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT", "WT", "A1B", "A1B", "WT", "WT", "A1B", "A1B"],
+            "meta_is_control": [True, True, False, False, True, True, False, False],
+            "f1": [0.0, 1.0, 2.0, 3.0, 10.0, 11.0, 13.0, 14.0],
+            "f2": [5.0, 7.0, 6.0, 6.0, 1.0, 3.0, 0.0, 2.0],
+        }
+    )
+
+
+@pytest.fixture
+def simple_df() -> pl.DataFrame:
+    """Two variant groups with no control rows."""
+    return pl.DataFrame(
+        {
+            "meta_aa_changes": ["A", "A", "A", "B", "B", "B"],
+            "meta_is_control": [False, False, False, False, False, False],
+            "f1": [1.0, 2.0, 3.0, 10.0, 20.0, 30.0],
+            "f2": [4.0, 5.0, 6.0, 40.0, 50.0, 60.0],
+        }
+    )
+
+
+def _get_row(df: pl.DataFrame, label: str) -> dict:
+    return df.filter(pl.col("meta_aa_changes") == label).to_dicts().pop()
+
+
+# ---------------------------------------------------------------------------
+# variant_classification
+# ---------------------------------------------------------------------------
+
+
+def test_variant_classification_adds_column():
+    lf = pl.DataFrame({"meta_aa_changes": ["A1A", "A1B"]}).lazy()
+    result = m.variant_classification(lf, "meta_aa_changes").collect()
+    assert CONTROL_COLUMN_NAME in result.columns
+
+
+def test_variant_classification_synonymous_is_true():
+    lf = pl.DataFrame({"meta_aa_changes": ["A1A"]}).lazy()
+    result = m.variant_classification(lf, "meta_aa_changes").collect()
+    assert result[CONTROL_COLUMN_NAME][0] is True
+
+
+def test_variant_classification_missense_is_false():
+    lf = pl.DataFrame({"meta_aa_changes": ["A1B"]}).lazy()
+    result = m.variant_classification(lf, "meta_aa_changes").collect()
+    assert result[CONTROL_COLUMN_NAME][0] is False
+
+
+def test_variant_classification_wt_is_false():
+    lf = pl.DataFrame({"meta_aa_changes": ["WT"]}).lazy()
+    result = m.variant_classification(lf, "meta_aa_changes").collect()
+    assert result[CONTROL_COLUMN_NAME][0] is False
+
+
+def test_variant_classification_frameshift_is_false():
+    lf = pl.DataFrame({"meta_aa_changes": ["A1fs"]}).lazy()
+    result = m.variant_classification(lf, "meta_aa_changes").collect()
+    assert result[CONTROL_COLUMN_NAME][0] is False
+
+
+def test_variant_classification_nonsense_is_false():
+    lf = pl.DataFrame({"meta_aa_changes": ["A1X"]}).lazy()
+    result = m.variant_classification(lf, "meta_aa_changes").collect()
+    assert result[CONTROL_COLUMN_NAME][0] is False
+
+
+def test_variant_classification_column_is_boolean():
+    lf = pl.DataFrame({"meta_aa_changes": ["A1A", "A1B"]}).lazy()
+    result = m.variant_classification(lf, "meta_aa_changes").collect()
+    assert result[CONTROL_COLUMN_NAME].dtype == pl.Boolean
+
+
+def test_variant_classification_custom_label_col():
+    lf = pl.DataFrame({"variant": ["A1A", "A1B"]}).lazy()
+    result = m.variant_classification(lf, "variant").collect()
+    assert result[CONTROL_COLUMN_NAME].to_list() == [True, False]
+
+
+def test_variant_classification_tagged_synonymous_is_false():
+    lf = pl.DataFrame({"meta_aa_changes": ["A1A:downsampled"]}).lazy()
+    result = m.variant_classification(lf, "meta_aa_changes").collect()
+    assert result[CONTROL_COLUMN_NAME][0] is False
+
+
+# ---------------------------------------------------------------------------
+# KSAggregator / AUROCAggregator / QQCorrelationAggregator — native vs.
+# scipy/sklearn ground truth
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def native_stats_df() -> pl.DataFrame:
+    """
+    Reference pool (WT, continuous) plus three variant groups exercising
+    different value shapes: RANDOM (continuous, no ties), TIES (repeated
+    integer values), SINGLE (one distinct value repeated).
+    """
+    rng = np.random.default_rng(0)
+    ref_vals = rng.standard_normal(40).tolist()
+    random_vals = rng.standard_normal(12).tolist()
+    tie_vals = [1.0, 1.0, 2.0, 2.0, 2.0, 3.0]
+    single_vals = [5.0] * 4
+
+    labels = (
+        ["WT"] * len(ref_vals)
+        + ["RANDOM"] * len(random_vals)
+        + ["TIES"] * len(tie_vals)
+        + ["SINGLE"] * len(single_vals)
+    )
+    values = ref_vals + random_vals + tie_vals + single_vals
+    return pl.DataFrame(
+        {
+            "meta_aa_changes": labels,
+            "meta_is_control": [lbl == "WT" for lbl in labels],
+            "f1": values,
+        }
+    )
+
+
+def _group_and_ref(df: pl.DataFrame, label: str) -> tuple[list[float], list[float]]:
+    ref = df.filter(pl.col("meta_is_control"))["f1"].to_list()
+    group = df.filter(pl.col("meta_aa_changes") == label)["f1"].to_list()
+    return group, ref
+
+
+def test_ks_aggregator_returns_expected_columns(toy_norm_df: pl.DataFrame) -> None:
+    result = m.KSAggregator().aggregate(toy_norm_df.lazy()).collect()
+    assert {"meta_aa_changes", "f1_KS", "f2_KS"}.issubset(set(result.columns))
+
+
+def test_ks_aggregator_excludes_control_rows(toy_norm_df: pl.DataFrame) -> None:
+    result = m.KSAggregator().aggregate(toy_norm_df.lazy()).collect()
+    assert "WT" not in result["meta_aa_changes"].to_list()
+
+
+@pytest.mark.parametrize("label", ["RANDOM", "TIES", "SINGLE"])
+def test_ks_aggregator_matches_scipy(native_stats_df: pl.DataFrame, label: str) -> None:
+    result = m.KSAggregator().aggregate(native_stats_df.lazy()).collect()
+    row = _get_row(result, label)
+    group, ref = _group_and_ref(native_stats_df, label)
+    expected = scipy.stats.ks_2samp(group, ref).statistic
+    assert row["f1_KS"] == pytest.approx(expected, abs=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# KSNegLogPValueAggregator — native vs. scipy ground truth
+# ---------------------------------------------------------------------------
+
+
+def test_ks_neg_log_p_aggregator_returns_expected_columns(
+    toy_norm_df: pl.DataFrame,
+) -> None:
+    result = m.KSNegLogPValueAggregator().aggregate(toy_norm_df.lazy()).collect()
+    assert {"meta_aa_changes", "f1_KSnegLogP", "f2_KSnegLogP"}.issubset(
+        set(result.columns)
+    )
+
+
+def test_ks_neg_log_p_aggregator_excludes_control_rows(
+    toy_norm_df: pl.DataFrame,
+) -> None:
+    result = m.KSNegLogPValueAggregator().aggregate(toy_norm_df.lazy()).collect()
+    assert "WT" not in result["meta_aa_changes"].to_list()
+
+
+@pytest.mark.parametrize("label", ["RANDOM", "TIES", "SINGLE"])
+def test_ks_neg_log_p_matches_kstwobign(
+    native_stats_df: pl.DataFrame, label: str
+) -> None:
+    """Ground truth is scipy.stats.kstwobign.sf(D*sqrt(n_e)) -- the
+    classical limiting Kolmogorov distribution this aggregator implements
+    literally (see the class docstring for why this is NOT the same
+    number as scipy.stats.kstwo.sf / ks_2samp's own 'asymp' mode)."""
+    result = m.KSNegLogPValueAggregator().aggregate(native_stats_df.lazy()).collect()
+    row = _get_row(result, label)
+    group, ref = _group_and_ref(native_stats_df, label)
+    d = scipy.stats.ks_2samp(group, ref).statistic
+    n_e = len(group) * len(ref) / (len(group) + len(ref))
+    expected = -np.log10(scipy.stats.kstwobign.sf(d * np.sqrt(n_e)))
+    assert row["f1_KSnegLogP"] == pytest.approx(expected, abs=1e-6)
+
+
+def test_ks_neg_log_p_n_equals_one_group_matches_kstwobign() -> None:
+    ref = list(np.linspace(0, 1, 20))
+    group = [10.0]
+    df = pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT"] * len(ref) + ["A"],
+            "meta_is_control": [True] * len(ref) + [False],
+            "f1": ref + group,
+        }
+    )
+    row = _get_row(m.KSNegLogPValueAggregator().aggregate(df.lazy()).collect(), "A")
+    d = scipy.stats.ks_2samp(group, ref).statistic
+    n_e = len(group) * len(ref) / (len(group) + len(ref))
+    expected = -np.log10(scipy.stats.kstwobign.sf(d * np.sqrt(n_e)))
+    assert row["f1_KSnegLogP"] == pytest.approx(expected, abs=1e-6)
+
+
+def test_ks_neg_log_p_loosely_tracks_ks_2samp_asymp() -> None:
+    """ks_2samp's own 'asymp' p-value uses a different, more refined
+    finite-sample algorithm (kstwo.sf with a rounded effective n) than the
+    classical closed-form series this aggregator implements -- the two
+    disagree by tens of percent in p even at moderate n (see class
+    docstring). This only checks they land in the same ballpark for a
+    clearly-significant case, not close agreement."""
+    rng = np.random.default_rng(42)
+    group = rng.normal(loc=1.5, size=100).tolist()
+    ref = rng.normal(loc=0.0, size=100).tolist()
+    df = pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT"] * len(ref) + ["A"] * len(group),
+            "meta_is_control": [True] * len(ref) + [False] * len(group),
+            "f1": ref + group,
+        }
+    )
+    row = _get_row(m.KSNegLogPValueAggregator().aggregate(df.lazy()).collect(), "A")
+    expected_ks2samp = -np.log10(
+        scipy.stats.ks_2samp(group, ref, method="asymp").pvalue
+    )
+    assert row["f1_KSnegLogP"] == pytest.approx(expected_ks2samp, rel=0.5)
+
+
+def test_ks_neg_log_p_strong_separation_is_finite_and_large() -> None:
+    """Exercises the logsumexp underflow-safe path: naively summing the
+    alternating series in linear space underflows to exactly 0.0 well
+    before D is this large, which would otherwise silently produce
+    -inf/null instead of a large finite score."""
+    rng = np.random.default_rng(7)
+    n = 200
+    group = rng.normal(loc=10.0, size=n).tolist()
+    ref = rng.normal(loc=0.0, size=n).tolist()
+    df = pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT"] * n + ["A"] * n,
+            "meta_is_control": [True] * n + [False] * n,
+            "f1": ref + group,
+        }
+    )
+    row = _get_row(m.KSNegLogPValueAggregator().aggregate(df.lazy()).collect(), "A")
+    assert row["f1_KSnegLogP"] is not None
+    assert np.isfinite(row["f1_KSnegLogP"])
+    assert row["f1_KSnegLogP"] > 50.0
+
+
+def test_ks_neg_log_p_null_when_reference_empty() -> None:
+    df = pl.DataFrame(
+        {
+            "meta_aa_changes": ["A", "A"],
+            "meta_is_control": [False, False],
+            "f1": [1.0, 2.0],
+        }
+    )
+    row = _get_row(m.KSNegLogPValueAggregator().aggregate(df.lazy()).collect(), "A")
+    assert row["f1_KSnegLogP"] is None
+
+
+def test_ks_neg_log_p_null_when_group_all_null() -> None:
+    full = _ref_based_null_df()
+    row = (
+        m.KSNegLogPValueAggregator()
+        .aggregate(full.lazy())
+        .filter(pl.col("meta_aa_changes") == "A1B")
+        .collect()
+        .to_dicts()
+        .pop()
+    )
+    assert row["f2_KSnegLogP"] is None
+
+
+def test_ks_neg_log_p_null_when_reference_all_null() -> None:
+    full = pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT", "WT", "A1B", "A1B"],
+            "meta_is_control": [True, True, False, False],
+            "f1": pl.Series([None, None, 1.0, 2.0], dtype=pl.Float64),
+        }
+    )
+    row = (
+        m.KSNegLogPValueAggregator()
+        .aggregate(full.lazy())
+        .filter(pl.col("meta_aa_changes") == "A1B")
+        .collect()
+        .to_dicts()
+        .pop()
+    )
+    assert row["f1_KSnegLogP"] is None
+
+
+def _signed_ks_stat(group: list[float], ref: list[float]) -> float:
+    """Independent numpy reference for the signed KS statistic: same
+    combined-sort/signed-weight construction as SignedKSAggregator, kept
+    separate so it's a genuine cross-check rather than a restatement."""
+    group_arr = np.asarray(group, dtype=float)
+    ref_arr = np.asarray(ref, dtype=float)
+    n1, n2 = len(group_arr), len(ref_arr)
+    combined = np.concatenate([group_arr, ref_arr])
+    weights = np.concatenate([np.full(n1, 1.0 / n1), np.full(n2, -1.0 / n2)])
+    order = np.argsort(combined, kind="stable")
+    val_sorted = combined[order]
+    w_sorted = weights[order]
+    cumsum = np.cumsum(w_sorted)
+    is_last = np.ones(len(val_sorted), dtype=bool)
+    is_last[:-1] = val_sorted[:-1] != val_sorted[1:]
+    masked = np.where(is_last, cumsum, np.nan)
+    pos_max, neg_min = np.nanmax(masked), np.nanmin(masked)
+    return pos_max if abs(pos_max) >= abs(neg_min) else neg_min
+
+
+def test_signed_ks_aggregator_returns_expected_columns(
+    toy_norm_df: pl.DataFrame,
+) -> None:
+    result = m.SignedKSAggregator().aggregate(toy_norm_df.lazy()).collect()
+    assert {"meta_aa_changes", "f1_signedKS", "f2_signedKS"}.issubset(
+        set(result.columns)
+    )
+
+
+def test_signed_ks_aggregator_excludes_control_rows(
+    toy_norm_df: pl.DataFrame,
+) -> None:
+    result = m.SignedKSAggregator().aggregate(toy_norm_df.lazy()).collect()
+    assert "WT" not in result["meta_aa_changes"].to_list()
+
+
+@pytest.mark.parametrize("label", ["RANDOM", "TIES", "SINGLE"])
+def test_signed_ks_aggregator_matches_manual_signed_stat(
+    native_stats_df: pl.DataFrame, label: str
+) -> None:
+    result = m.SignedKSAggregator().aggregate(native_stats_df.lazy()).collect()
+    row = _get_row(result, label)
+    group, ref = _group_and_ref(native_stats_df, label)
+    expected_magnitude = scipy.stats.ks_2samp(group, ref).statistic
+    expected_signed = _signed_ks_stat(group, ref)
+    assert abs(row["f1_signedKS"]) == pytest.approx(expected_magnitude, abs=1e-9)
+    assert row["f1_signedKS"] == pytest.approx(expected_signed, abs=1e-9)
+
+
+def test_signed_ks_aggregator_tie_break_prefers_positive_on_exact_magnitude_tie() -> (
+    None
+):
+    """ref=[1.0, 4.0], group=[2.0, 3.0]: sorted order is
+    1(ref,-0.5) -> 2(grp,+0.5) -> 3(grp,+0.5) -> 4(ref,-0.5), giving
+    cumsum=[-0.5, 0.0, 0.5, 0.0]. No value ties, so every position is a
+    'last' position. Max |cumsum|=0.5 is achieved at both position 0
+    (-0.5) and position 2 (+0.5) -- the documented tie-break (positive
+    wins) must return +0.5, not the old arg_max first-occurrence -0.5.
+    """
+    df = pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT", "WT", "TIE", "TIE"],
+            "meta_is_control": [True, True, False, False],
+            "f1": [1.0, 4.0, 2.0, 3.0],
+        }
+    )
+    row = _get_row(m.SignedKSAggregator().aggregate(df.lazy()).collect(), "TIE")
+    assert row["f1_signedKS"] == pytest.approx(0.5, abs=1e-9)
+
+
+def test_auroc_aggregator_returns_expected_columns(toy_norm_df: pl.DataFrame) -> None:
+    result = m.AUROCAggregator().aggregate(toy_norm_df.lazy()).collect()
+    assert {"meta_aa_changes", "f1_AUROC", "f2_AUROC"}.issubset(set(result.columns))
+
+
+def test_auroc_aggregator_excludes_control_rows(toy_norm_df: pl.DataFrame) -> None:
+    result = m.AUROCAggregator().aggregate(toy_norm_df.lazy()).collect()
+    assert "WT" not in result["meta_aa_changes"].to_list()
+
+
+@pytest.mark.parametrize("label", ["RANDOM", "TIES", "SINGLE"])
+def test_auroc_aggregator_matches_sklearn_unsymmetrized(
+    native_stats_df: pl.DataFrame, label: str
+) -> None:
+    """Raw (un-symmetrized) sklearn.metrics.roc_auc_score — no `1 - auroc` folding."""
+    result = m.AUROCAggregator().aggregate(native_stats_df.lazy()).collect()
+    row = _get_row(result, label)
+    group, ref = _group_and_ref(native_stats_df, label)
+    labels = [0] * len(ref) + [1] * len(group)
+    expected = sklearn.metrics.roc_auc_score(labels, ref + group)
+    assert row["f1_AUROC"] == pytest.approx(expected, abs=1e-9)
+
+
+def test_auroc_aggregator_directional_higher_approaches_one() -> None:
+    """Variant consistently higher than reference -> AUROC near 1.0."""
+    df = pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT"] * 5 + ["A"] * 5,
+            "meta_is_control": [True] * 5 + [False] * 5,
+            "f1": [0.0, 1.0, 2.0, 3.0, 4.0] + [10.0, 11.0, 12.0, 13.0, 14.0],
+        }
+    )
+    row = _get_row(m.AUROCAggregator().aggregate(df.lazy()).collect(), "A")
+    assert row["f1_AUROC"] == pytest.approx(1.0)
+
+
+def test_auroc_aggregator_directional_lower_approaches_zero() -> None:
+    """Variant consistently lower than reference -> AUROC near 0.0.
+
+    Regression guard for symmetrization: the old ``if auroc < 0.5: auroc =
+    1 - auroc`` behavior would have folded this to ~1.0 instead.
+    """
+    df = pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT"] * 5 + ["A"] * 5,
+            "meta_is_control": [True] * 5 + [False] * 5,
+            "f1": [10.0, 11.0, 12.0, 13.0, 14.0] + [0.0, 1.0, 2.0, 3.0, 4.0],
+        }
+    )
+    row = _get_row(m.AUROCAggregator().aggregate(df.lazy()).collect(), "A")
+    assert row["f1_AUROC"] == pytest.approx(0.0)
+
+
+def test_auroc_aggregator_fully_overlapping_near_half() -> None:
+    """Variant and reference drawn from the identical set of values -> AUROC near 0.5."""
+    df = pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT"] * 6 + ["A"] * 6,
+            "meta_is_control": [True] * 6 + [False] * 6,
+            "f1": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0] * 2,
+        }
+    )
+    row = _get_row(m.AUROCAggregator().aggregate(df.lazy()).collect(), "A")
+    assert row["f1_AUROC"] == pytest.approx(0.5)
+
+
+# ---------------------------------------------------------------------------
+# AUROCNegLogPValueAggregator — native vs. scipy ground truth
+# ---------------------------------------------------------------------------
+
+
+def test_auroc_neg_log_p_aggregator_returns_expected_columns(
+    toy_norm_df: pl.DataFrame,
+) -> None:
+    result = m.AUROCNegLogPValueAggregator().aggregate(toy_norm_df.lazy()).collect()
+    assert {"meta_aa_changes", "f1_AUROCnegLogP", "f2_AUROCnegLogP"}.issubset(
+        set(result.columns)
+    )
+
+
+def test_auroc_neg_log_p_aggregator_excludes_control_rows(
+    toy_norm_df: pl.DataFrame,
+) -> None:
+    result = m.AUROCNegLogPValueAggregator().aggregate(toy_norm_df.lazy()).collect()
+    assert "WT" not in result["meta_aa_changes"].to_list()
+
+
+@pytest.mark.parametrize("label", ["RANDOM", "TIES", "SINGLE"])
+def test_auroc_neg_log_p_matches_mannwhitneyu_no_continuity(
+    native_stats_df: pl.DataFrame, label: str
+) -> None:
+    """No continuity correction is applied (see class docstring), so the
+    matching scipy call must also disable it for exact agreement."""
+    result = m.AUROCNegLogPValueAggregator().aggregate(native_stats_df.lazy()).collect()
+    row = _get_row(result, label)
+    group, ref = _group_and_ref(native_stats_df, label)
+    expected = -np.log10(
+        scipy.stats.mannwhitneyu(
+            group,
+            ref,
+            method="asymptotic",
+            alternative="two-sided",
+            use_continuity=False,
+        ).pvalue
+    )
+    assert row["f1_AUROCnegLogP"] == pytest.approx(expected, abs=1e-5)
+
+
+def test_auroc_neg_log_p_n_equals_one_group() -> None:
+    ref = list(np.linspace(0, 1, 20))
+    group = [10.0]
+    df = pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT"] * len(ref) + ["A"],
+            "meta_is_control": [True] * len(ref) + [False],
+            "f1": ref + group,
+        }
+    )
+    row = _get_row(m.AUROCNegLogPValueAggregator().aggregate(df.lazy()).collect(), "A")
+    expected = -np.log10(
+        scipy.stats.mannwhitneyu(
+            group,
+            ref,
+            method="asymptotic",
+            alternative="two-sided",
+            use_continuity=False,
+        ).pvalue
+    )
+    assert row["f1_AUROCnegLogP"] == pytest.approx(expected, abs=1e-5)
+
+
+def test_auroc_neg_log_p_loosely_tracks_continuity_corrected_default() -> None:
+    """scipy's default use_continuity=True applies a small +/-0.5 shift
+    toward mu_U -- not expected to match exactly (see class docstring),
+    but should stay close for a moderately-sized, clearly-significant
+    case."""
+    rng = np.random.default_rng(3)
+    group = rng.normal(loc=1.0, size=40).tolist()
+    ref = rng.normal(loc=0.0, size=40).tolist()
+    df = pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT"] * len(ref) + ["A"] * len(group),
+            "meta_is_control": [True] * len(ref) + [False] * len(group),
+            "f1": ref + group,
+        }
+    )
+    row = _get_row(m.AUROCNegLogPValueAggregator().aggregate(df.lazy()).collect(), "A")
+    expected_default = -np.log10(
+        scipy.stats.mannwhitneyu(
+            group, ref, method="asymptotic", alternative="two-sided"
+        ).pvalue
+    )
+    assert row["f1_AUROCnegLogP"] == pytest.approx(expected_default, abs=0.1)
+
+
+def test_auroc_neg_log_p_strong_separation_is_finite_and_large() -> None:
+    """Exercises the log-space erfc tail path: naively computing
+    1-Phi(|z|) in linear space underflows to exactly 0.0 well before |z|
+    is this large, which would otherwise silently produce -inf/null
+    instead of a large finite score."""
+    rng = np.random.default_rng(9)
+    n = 300
+    group = rng.normal(loc=10.0, size=n).tolist()
+    ref = rng.normal(loc=0.0, size=n).tolist()
+    df = pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT"] * n + ["A"] * n,
+            "meta_is_control": [True] * n + [False] * n,
+            "f1": ref + group,
+        }
+    )
+    row = _get_row(m.AUROCNegLogPValueAggregator().aggregate(df.lazy()).collect(), "A")
+    assert row["f1_AUROCnegLogP"] is not None
+    assert np.isfinite(row["f1_AUROCnegLogP"])
+    assert row["f1_AUROCnegLogP"] > 50.0
+
+
+def test_auroc_neg_log_p_null_when_reference_empty() -> None:
+    df = pl.DataFrame(
+        {
+            "meta_aa_changes": ["A", "A"],
+            "meta_is_control": [False, False],
+            "f1": [1.0, 2.0],
+        }
+    )
+    row = _get_row(m.AUROCNegLogPValueAggregator().aggregate(df.lazy()).collect(), "A")
+    assert row["f1_AUROCnegLogP"] is None
+
+
+def test_auroc_neg_log_p_null_when_group_all_null() -> None:
+    full = _ref_based_null_df()
+    row = (
+        m.AUROCNegLogPValueAggregator()
+        .aggregate(full.lazy())
+        .filter(pl.col("meta_aa_changes") == "A1B")
+        .collect()
+        .to_dicts()
+        .pop()
+    )
+    assert row["f2_AUROCnegLogP"] is None
+
+
+def test_auroc_neg_log_p_null_when_reference_all_null() -> None:
+    full = pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT", "WT", "A1B", "A1B"],
+            "meta_is_control": [True, True, False, False],
+            "f1": pl.Series([None, None, 1.0, 2.0], dtype=pl.Float64),
+        }
+    )
+    row = (
+        m.AUROCNegLogPValueAggregator()
+        .aggregate(full.lazy())
+        .filter(pl.col("meta_aa_changes") == "A1B")
+        .collect()
+        .to_dicts()
+        .pop()
+    )
+    assert row["f1_AUROCnegLogP"] is None
+
+
+# ---------------------------------------------------------------------------
+# AUROCNegLogPValueAggregator — standalone numerical-helper verification
+# ---------------------------------------------------------------------------
+
+
+def test_standard_normal_cdf_expr_matches_scipy() -> None:
+    rng = np.random.default_rng(123)
+    z_vals = np.concatenate(
+        [rng.uniform(-5, 5, 200), [-8.0, -6.0, -5.5, 5.5, 6.0, 8.0, 0.0]]
+    )
+    df = pl.DataFrame({"z": z_vals})
+    result = df.select(
+        m.AUROCNegLogPValueAggregator._standard_normal_cdf_expr(pl.col("z")).alias(
+            "phi"
+        )
+    )["phi"].to_numpy()
+    expected = scipy.stats.norm.cdf(z_vals)
+    np.testing.assert_allclose(result, expected, atol=1e-6)
+
+
+def test_neg_log10_two_sided_normal_pvalue_matches_scipy_moderate_z() -> None:
+    rng = np.random.default_rng(321)
+    z_vals = rng.uniform(0.1, 6.0, 50)
+    df = pl.DataFrame({"z": z_vals})
+    result = df.select(
+        m.AUROCNegLogPValueAggregator._neg_log10_two_sided_normal_pvalue_expr(
+            pl.col("z")
+        ).alias("nlp")
+    )["nlp"].to_numpy()
+    expected = -np.log10(2 * scipy.stats.norm.sf(np.abs(z_vals)))
+    np.testing.assert_allclose(result, expected, atol=1e-5)
+
+
+def test_tie_term_rank_identity_matches_counter_reference() -> None:
+    """Verifies sum_groups(t**3 - t) == sum_elements(tie_size(x_i)**2 - 1)
+    against an independent collections.Counter-based computation, across
+    randomized tie-heavy integer trials -- the identity
+    AUROCNegLogPValueAggregator._prep_exprs relies on."""
+    rng = np.random.default_rng(55)
+    for _ in range(20):
+        n = int(rng.integers(1, 30))
+        vals = rng.integers(0, 5, size=n).tolist()
+        counter_term = sum(t**3 - t for t in Counter(vals).values())
+
+        s = pl.Series(vals)
+        rank_min = s.rank(method="min")
+        rank_max = s.rank(method="max")
+        tie_size = (rank_max - rank_min + 1).cast(pl.Float64)
+        rank_term = float((tie_size * tie_size - 1).sum())
+
+        assert rank_term == pytest.approx(counter_term)
+
+
+def test_qq_aggregator_returns_expected_columns(toy_norm_df: pl.DataFrame) -> None:
+    result = m.QQCorrelationAggregator().aggregate(toy_norm_df.lazy()).collect()
+    assert {"meta_aa_changes", "f1_QQ", "f2_QQ"}.issubset(set(result.columns))
+
+
+def test_qq_aggregator_excludes_control_rows(toy_norm_df: pl.DataFrame) -> None:
+    result = m.QQCorrelationAggregator().aggregate(toy_norm_df.lazy()).collect()
+    assert "WT" not in result["meta_aa_changes"].to_list()
+
+
+@pytest.mark.parametrize("label", ["RANDOM", "TIES"])
+def test_qq_aggregator_matches_scipy_default_n_quantiles(
+    native_stats_df: pl.DataFrame, label: str
+) -> None:
+    result = m.QQCorrelationAggregator().aggregate(native_stats_df.lazy()).collect()
+    row = _get_row(result, label)
+    group, ref = _group_and_ref(native_stats_df, label)
+    probs = np.linspace(0, 1, 100)
+    expected = scipy.stats.pearsonr(
+        np.quantile(group, probs), np.quantile(ref, probs)
+    ).statistic
+    assert row["f1_QQ"] == pytest.approx(expected, abs=1e-8)
+
+
+@pytest.mark.parametrize("label", ["RANDOM", "TIES"])
+def test_qq_aggregator_matches_scipy_custom_n_quantiles(
+    native_stats_df: pl.DataFrame, label: str
+) -> None:
+    n_quantiles = 17
+    result = (
+        m.QQCorrelationAggregator(n_quantiles=n_quantiles)
+        .aggregate(native_stats_df.lazy())
+        .collect()
+    )
+    row = _get_row(result, label)
+    group, ref = _group_and_ref(native_stats_df, label)
+    probs = np.linspace(0, 1, n_quantiles)
+    expected = scipy.stats.pearsonr(
+        np.quantile(group, probs), np.quantile(ref, probs)
+    ).statistic
+    assert row["f1_QQ"] == pytest.approx(expected, abs=1e-8)
+
+
+def test_qq_aggregator_single_value_group_returns_null(
+    native_stats_df: pl.DataFrame,
+) -> None:
+    """A constant-valued group has an exactly constant quantile profile, so
+    the correlation is mathematically undefined (matches scipy's
+    ConstantInputWarning -> nan -> None convention)."""
+    result = m.QQCorrelationAggregator().aggregate(native_stats_df.lazy()).collect()
+    row = _get_row(result, "SINGLE")
+    assert row["f1_QQ"] is None
+
+
+def test_qq_aggregator_constant_reference_returns_null() -> None:
+    df = pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT"] * 5 + ["A"] * 3,
+            "meta_is_control": [True] * 5 + [False] * 3,
+            "f1": [7.0] * 5 + [1.0, 2.0, 3.0],
+        }
+    )
+    row = _get_row(m.QQCorrelationAggregator().aggregate(df.lazy()).collect(), "A")
+    assert row["f1_QQ"] is None
+
+
+# ---------------------------------------------------------------------------
+# ReferenceBasedAggregator._reference_lf
+# ---------------------------------------------------------------------------
+
+
+def test_reference_pool_collected_once(toy_norm_df: pl.DataFrame) -> None:
+    with patch.object(
+        m.ReferenceBasedAggregator,
+        "_reference_lf",
+        wraps=m.ReferenceBasedAggregator._reference_lf,
+    ) as spy:
+        m.KSAggregator().aggregate(toy_norm_df.lazy()).collect()
+    assert spy.call_count == 1
+
+
+def test_reference_pool_values_match_control_rows(toy_norm_df: pl.DataFrame) -> None:
+    pool = m.ReferenceBasedAggregator._reference_lf(
+        toy_norm_df.lazy(), ["f1", "f2"]
+    ).collect()
+    expected_f1 = toy_norm_df.filter(pl.col("meta_is_control"))["f1"].to_list()
+    expected_f2 = toy_norm_df.filter(pl.col("meta_is_control"))["f2"].to_list()
+    assert pool["f1_ref"][0].to_list() == expected_f1
+    assert pool["f2_ref"][0].to_list() == expected_f2
+
+
+def test_reference_pool_drops_non_finite_values() -> None:
+    df = pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT", "WT", "WT"],
+            "meta_is_control": [True, True, True],
+            "f1": pl.Series([1.0, None, 3.0], dtype=pl.Float64),
+        }
+    )
+    pool = m.ReferenceBasedAggregator._reference_lf(df.lazy(), ["f1"]).collect()
+    assert pool["f1_ref"][0].to_list() == [1.0, 3.0]
+
+
+# ---------------------------------------------------------------------------
+# Null-value fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def null_df() -> pl.DataFrame:
+    """Variant group A has one null per feature; group B is all-null for f1."""
+    return pl.DataFrame(
+        {
+            "meta_aa_changes": ["A", "A", "A", "B", "B"],
+            "meta_is_control": [False, False, False, False, False],
+            "f1": pl.Series([1.0, None, 3.0, None, None], dtype=pl.Float64),
+            "f2": pl.Series([4.0, 5.0, None, 7.0, 8.0], dtype=pl.Float64),
+        }
+    )
+
+
+@pytest.fixture
+def null_ref_df() -> pl.DataFrame:
+    """Control rows: f1 has one null; f2 is entirely null."""
+    return pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT", "WT", "WT"],
+            "meta_is_control": [True, True, True],
+            "f1": pl.Series([1.0, None, 3.0], dtype=pl.Float64),
+            "f2": pl.Series([None, None, None], dtype=pl.Float64),
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# NativeAggregator subclasses
+# ---------------------------------------------------------------------------
+
+
+def test_mean_aggregator(simple_df: pl.DataFrame) -> None:
+    result = m.MeanAggregator().aggregate(simple_df.lazy()).collect()
+    assert {"meta_aa_changes", "f1_mean", "f2_mean"}.issubset(set(result.columns))
+    row_a = _get_row(result, "A")
+    assert row_a["f1_mean"] == pytest.approx(np.mean([1.0, 2.0, 3.0]))
+    assert row_a["f2_mean"] == pytest.approx(np.mean([4.0, 5.0, 6.0]))
+    row_b = _get_row(result, "B")
+    assert row_b["f1_mean"] == pytest.approx(np.mean([10.0, 20.0, 30.0]))
+    assert row_b["f2_mean"] == pytest.approx(np.mean([40.0, 50.0, 60.0]))
+
+
+def test_median_aggregator(simple_df: pl.DataFrame) -> None:
+    result = m.MedianAggregator().aggregate(simple_df.lazy()).collect()
+    assert {"meta_aa_changes", "f1_median", "f2_median"}.issubset(set(result.columns))
+    row_a = _get_row(result, "A")
+    assert row_a["f1_median"] == pytest.approx(np.median([1.0, 2.0, 3.0]))
+    assert row_a["f2_median"] == pytest.approx(np.median([4.0, 5.0, 6.0]))
+
+
+def test_mad_aggregator(simple_df: pl.DataFrame) -> None:
+    result = m.MADAggregator().aggregate(simple_df.lazy()).collect()
+    assert {"meta_aa_changes", "f1_MAD", "f2_MAD"}.issubset(set(result.columns))
+    row_a = _get_row(result, "A")
+    vals = np.array([1.0, 2.0, 3.0])
+    expected_mad = np.median(np.abs(vals - np.median(vals)))
+    assert row_a["f1_MAD"] == pytest.approx(expected_mad)
+
+
+def test_std_aggregator(simple_df: pl.DataFrame) -> None:
+    result = m.StdAggregator().aggregate(simple_df.lazy()).collect()
+    assert {"meta_aa_changes", "f1_std", "f2_std"}.issubset(set(result.columns))
+    row_a = _get_row(result, "A")
+    assert row_a["f1_std"] == pytest.approx(np.std([1.0, 2.0, 3.0], ddof=1))
+    assert row_a["f2_std"] == pytest.approx(np.std([4.0, 5.0, 6.0], ddof=1))
+
+
+def test_native_aggregators_exclude_control_rows() -> None:
+    df = pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT", "A", "A"],
+            "meta_is_control": [True, False, False],
+            "f1": [0.0, 1.0, 2.0],
+        }
+    )
+    for agg_cls in (
+        m.MeanAggregator,
+        m.MedianAggregator,
+        m.MADAggregator,
+        m.StdAggregator,
+    ):
+        result = agg_cls().aggregate(df.lazy()).collect()
+        assert "WT" not in result["meta_aa_changes"].to_list()
+
+
+# ---------------------------------------------------------------------------
+# Native aggregators — edge cases
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def single_value_group_df() -> pl.DataFrame:
+    """Group A has three values; group B has exactly one (std edge case)."""
+    return pl.DataFrame(
+        {
+            "meta_aa_changes": ["A", "A", "A", "B"],
+            "meta_is_control": [False, False, False, False],
+            "f1": [1.0, 2.0, 3.0, 5.0],
+        }
+    )
+
+
+@pytest.fixture
+def nan_inf_group_df() -> pl.DataFrame:
+    """Group A mixes finite values with None, NaN, and Inf."""
+    return pl.DataFrame(
+        {
+            "meta_aa_changes": ["A", "A", "A", "A"],
+            "meta_is_control": [False, False, False, False],
+            "f1": pl.Series([1.0, None, float("nan"), float("inf")], dtype=pl.Float64),
+        }
+    ).vstack(
+        pl.DataFrame(
+            {
+                "meta_aa_changes": ["A"],
+                "meta_is_control": [False],
+                "f1": pl.Series([2.0], dtype=pl.Float64),
+            }
+        )
+    )
+
+
+def test_std_native_single_value_group_returns_null(
+    single_value_group_df: pl.DataFrame,
+) -> None:
+    result = m.StdAggregator().aggregate(single_value_group_df.lazy()).collect()
+    row_b = _get_row(result, "B")
+    assert row_b["f1_std"] is None
+
+
+def test_mad_native_matches_numpy_with_nan_inf_present(
+    nan_inf_group_df: pl.DataFrame,
+) -> None:
+    result = m.MADAggregator().aggregate(nan_inf_group_df.lazy()).collect()
+    row_a = _get_row(result, "A")
+    finite_vals = np.array([1.0, 2.0])
+    expected = np.median(np.abs(finite_vals - np.median(finite_vals)))
+    assert row_a["f1_MAD"] == pytest.approx(expected)
+
+
+def test_std_native_matches_numpy_with_nan_inf_present(
+    nan_inf_group_df: pl.DataFrame,
+) -> None:
+    result = m.StdAggregator().aggregate(nan_inf_group_df.lazy()).collect()
+    row_a = _get_row(result, "A")
+    finite_vals = np.array([1.0, 2.0])
+    expected = np.std(finite_vals, ddof=1)
+    assert row_a["f1_std"] == pytest.approx(expected)
+
+
+def test_reference_pool_not_collected_for_native_aggregators(
+    simple_df: pl.DataFrame,
+) -> None:
+    for agg_cls in (
+        m.MeanAggregator,
+        m.MedianAggregator,
+        m.StdAggregator,
+        m.MADAggregator,
+    ):
+        with patch.object(
+            m.ReferenceBasedAggregator,
+            "_reference_lf",
+            wraps=m.ReferenceBasedAggregator._reference_lf,
+        ) as spy:
+            agg_cls().aggregate(simple_df.lazy()).collect()
+        assert spy.call_count == 0
+
+
+def test_reference_pool_still_collected_for_reference_based_aggregators(
+    toy_norm_df: pl.DataFrame,
+) -> None:
+    """One reference pool per feature chunk -- here, one chunk."""
+    for agg_cls in (
+        m.KSAggregator,
+        m.SignedKSAggregator,
+        m.QQCorrelationAggregator,
+        m.AUROCAggregator,
+    ):
+        with patch.object(
+            m.ReferenceBasedAggregator,
+            "_reference_lf",
+            wraps=m.ReferenceBasedAggregator._reference_lf,
+        ) as spy:
+            agg_cls(feature_chunk_size=64).aggregate(toy_norm_df.lazy()).collect()
+        assert spy.call_count == 1
+
+
+@pytest.mark.parametrize("chunk_size,expected_calls", [(1, 2), (2, 1), (64, 1)])
+def test_reference_pool_built_once_per_feature_chunk(
+    toy_norm_df: pl.DataFrame, chunk_size: int, expected_calls: int
+) -> None:
+    """
+    The reference pool is rebuilt per chunk, narrowed to that chunk's columns.
+
+    ``toy_norm_df`` has 2 feature columns, so chunk_size=1 means two chunks.
+    Rebuilding is the point: a chunk's reference frame must only carry that
+    chunk's features, or the broadcast control pool this chunking exists to
+    bound would be full-width again.
+    """
+    with patch.object(
+        m.ReferenceBasedAggregator,
+        "_reference_lf",
+        wraps=m.ReferenceBasedAggregator._reference_lf,
+    ) as spy:
+        m.KSAggregator(feature_chunk_size=chunk_size).aggregate(
+            toy_norm_df.lazy()
+        ).collect()
+    assert spy.call_count == expected_calls
+    for call in spy.call_args_list:
+        assert len(call.args[1]) <= chunk_size
+
+
+# ---------------------------------------------------------------------------
+# feature chunking
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def chunking_df() -> pl.DataFrame:
+    """
+    Cell-level frame wide enough to span several chunks, with the null/NaN/
+    Inf and degenerate-group cases that make the per-chunk null handling
+    worth checking.
+    """
+    rng = np.random.default_rng(0)
+    n_ctrl, n_a, n_b = 25, 20, 15
+    labels = ["WT"] * n_ctrl + ["A1B"] * n_a + ["C2D"] * n_b
+    data: dict[str, object] = {
+        "meta_aa_changes": labels,
+        "meta_is_control": [True] * n_ctrl + [False] * (n_a + n_b),
+    }
+    n = len(labels)
+    for i in range(7):
+        vals = rng.normal(size=n).tolist()
+        if i == 3:  # nulls, NaN and Inf in one feature
+            vals[0], vals[n_ctrl] = None, float("nan")
+            vals[n_ctrl + 1] = float("inf")
+        if i == 5:  # constant in one variant group -> null QQ/std
+            for j in range(n_ctrl + n_a, n):
+                vals[j] = 1.0
+        data[f"f{i}"] = vals
+    return pl.DataFrame(data)
+
+
+@pytest.mark.parametrize("aggregator_name", sorted(m._AGGREGATORS))
+@pytest.mark.parametrize("chunk_size", [1, 2, 3, 7, None])
+def test_chunking_is_output_invariant(
+    chunking_df: pl.DataFrame, aggregator_name: str, chunk_size: int | None
+) -> None:
+    """
+    Chunking must not change the answer, only the peak memory used to get it.
+
+    Compared against a chunk size wider than the feature count, which is the
+    single-query shape the aggregators had before chunking existed. Equality
+    is exact, not approximate: each chunk runs the identical expression over a
+    narrower projection, so any drift here means the projection changed the
+    computation. ``None`` (chunking disabled) must land on the same answer as
+    every chunked width.
+    """
+    lf = chunking_df.lazy()
+    baseline = m.aggregate(
+        lf, "meta_aa_changes", aggregator_name, feature_chunk_size=1000
+    ).collect()
+    chunked = m.aggregate(
+        lf, "meta_aa_changes", aggregator_name, feature_chunk_size=chunk_size
+    ).collect()
+    assert chunked.columns == baseline.columns
+    assert chunked.equals(baseline)
+
+
+def test_feature_chunk_size_none_disables_chunking(
+    chunking_df: pl.DataFrame,
+) -> None:
+    """
+    ``None`` means one query over every feature -- the pre-chunking shape.
+
+    Asserted through the reference-pool spy rather than the output, since the
+    output is invariant by construction: the only observable difference is how
+    many queries were built.
+    """
+    with patch.object(
+        m.ReferenceBasedAggregator,
+        "_reference_lf",
+        wraps=m.ReferenceBasedAggregator._reference_lf,
+    ) as spy:
+        m.KSAggregator(feature_chunk_size=None).aggregate(chunking_df.lazy()).collect()
+    assert spy.call_count == 1
+    # 7 features in the fixture, all of them in the single chunk.
+    assert len(spy.call_args.args[1]) == 7
+
+
+def test_feature_chunks_none_is_one_chunk_of_everything() -> None:
+    feature_cols = [f"f{i}" for i in range(5)]
+    chunks = m.MeanAggregator(feature_chunk_size=None)._feature_chunks(feature_cols)
+    assert chunks == [feature_cols]
+
+
+def test_feature_chunks_none_with_no_features() -> None:
+    """Still one chunk, so the one-row-per-label output is produced."""
+    assert m.MeanAggregator(feature_chunk_size=None)._feature_chunks([]) == [[]]
+
+
+def test_aggregate_output_sorted_by_label_without_chunking(
+    chunking_df: pl.DataFrame,
+) -> None:
+    """The sort is unconditional -- it does not ride on chunking being on."""
+    result = m.aggregate(
+        chunking_df.lazy(), "meta_aa_changes", "mean", feature_chunk_size=None
+    ).collect()
+    labels = result["meta_aa_changes"].to_list()
+    assert labels == sorted(labels)
+
+
+@pytest.mark.parametrize("aggregator_name", sorted(m._AGGREGATORS))
+def test_aggregate_output_is_sorted_by_label(
+    chunking_df: pl.DataFrame, aggregator_name: str
+) -> None:
+    """
+    group_by is not order-preserving under Polars' multithreaded execution,
+    so the aggregate output is sorted explicitly -- without it the same input
+    yields the same rows in a different order run to run.
+    """
+    result = m.aggregate(
+        chunking_df.lazy(), "meta_aa_changes", aggregator_name, feature_chunk_size=2
+    ).collect()
+    labels = result["meta_aa_changes"].to_list()
+    assert labels == sorted(labels)
+
+
+def test_chunking_preserves_feature_column_order(chunking_df: pl.DataFrame) -> None:
+    result = m.aggregate(
+        chunking_df.lazy(), "meta_aa_changes", "mean", feature_chunk_size=2
+    ).collect()
+    assert result.columns == ["meta_aa_changes"] + [f"f{i}_mean" for i in range(7)]
+
+
+def test_aggregate_returns_lazyframe(chunking_df: pl.DataFrame) -> None:
+    """Both callers sink_parquet the result, so it must stay lazy."""
+    assert isinstance(
+        m.aggregate(chunking_df.lazy(), "meta_aa_changes", "mean"), pl.LazyFrame
+    )
+
+
+@pytest.mark.parametrize("bad", [0, -1])
+def test_feature_chunk_size_must_be_positive(bad: int) -> None:
+    with pytest.raises(ValueError, match="feature_chunk_size must be >= 1"):
+        m.MeanAggregator(feature_chunk_size=bad)
+
+
+def test_feature_chunk_size_none_is_accepted() -> None:
+    """None is a valid setting, not a missing one -- it must not raise."""
+    assert m.MeanAggregator(feature_chunk_size=None).feature_chunk_size is None
+
+
+def test_default_feature_chunk_size_is_used_when_unspecified() -> None:
+    assert m.MeanAggregator().feature_chunk_size == m.DEFAULT_FEATURE_CHUNK_SIZE
+
+
+@pytest.mark.parametrize(
+    "n_features,chunk_size,expected",
+    [(7, 3, [3, 3, 1]), (6, 3, [3, 3]), (1, 5, [1]), (0, 4, [0])],
+)
+def test_feature_chunks_partition(
+    n_features: int, chunk_size: int, expected: list[int]
+) -> None:
+    chunks = m.MeanAggregator(feature_chunk_size=chunk_size)._feature_chunks(
+        [f"f{i}" for i in range(n_features)]
+    )
+    assert [len(c) for c in chunks] == expected
+    assert [f for c in chunks for f in c] == [f"f{i}" for i in range(n_features)]
+
+
+# ---------------------------------------------------------------------------
+# aggregate() function
+# ---------------------------------------------------------------------------
+
+
+def test_aggregate_ks_returns_expected_columns(toy_norm_df: pl.DataFrame) -> None:
+    result = m.aggregate(
+        toy_norm_df.lazy(), label_col="meta_aa_changes", aggregator_name="KS"
+    ).collect()
+    assert {"meta_aa_changes", "f1_KS", "f2_KS"}.issubset(set(result.columns))
+
+
+def test_aggregate_mean_returns_expected_columns(simple_df: pl.DataFrame) -> None:
+    result = m.aggregate(
+        simple_df.lazy(), label_col="meta_aa_changes", aggregator_name="mean"
+    ).collect()
+    assert {"meta_aa_changes", "f1_mean", "f2_mean"}.issubset(set(result.columns))
+
+
+def test_aggregate_ks_excludes_control_rows(toy_norm_df: pl.DataFrame) -> None:
+    result = m.aggregate(
+        toy_norm_df.lazy(), label_col="meta_aa_changes", aggregator_name="KS"
+    ).collect()
+    assert "WT" not in result["meta_aa_changes"].to_list()
+
+
+def test_aggregate_unknown_raises() -> None:
+    lf = pl.DataFrame(
+        {"meta_aa_changes": ["A"], "meta_is_control": [False], "f1": [1.0]}
+    ).lazy()
+    with pytest.raises(ValueError, match="Unknown aggregator"):
+        m.aggregate(lf, label_col="meta_aa_changes", aggregator_name="bogus")
+
+
+# ---------------------------------------------------------------------------
+# main()
+# ---------------------------------------------------------------------------
+
+
+def write_agg_input_parquet(tmp_path, *, with_barcode: bool = False) -> None:
+    """Write cell-level test parquet with WT controls, synonymous and missense variants."""
+    data = {
+        "meta_aa_changes": [
+            "WT",
+            "WT",
+            "WT",
+            "A1A",
+            "A1A",
+            "A1A",
+            "A2A",
+            "A2A",
+            "A2A",
+            "A1B",
+            "A1B",
+            "A1B",
+        ],
+        "meta_is_control": [
+            True,
+            True,
+            True,
+            False,
+            False,
+            False,
+            False,
+            False,
+            False,
+            False,
+            False,
+            False,
+        ],
+        "f1": [0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 10.0, 10.0, 10.0],
+        "f2": [0.0, 0.0, 0.0, 3.0, 3.0, 3.0, 4.0, 4.0, 4.0, 30.0, 30.0, 30.0],
+    }
+    if with_barcode:
+        data["meta_barcode"] = [
+            "bc1",
+            "bc2",
+            "bc3",
+            "bc1",
+            "bc2",
+            "bc1",
+            "bc1",
+            "bc1",
+            "bc2",
+            "bc3",
+            "bc3",
+            "bc3",
+        ]
+    pl.DataFrame(data).write_parquet(tmp_path / "input.parquet")
+
+
+# ---------------------------------------------------------------------------
+# Null handling — native aggregators
+# ---------------------------------------------------------------------------
+
+
+def test_mean_aggregator_ignores_nulls(null_df: pl.DataFrame) -> None:
+    result = m.MeanAggregator().aggregate(null_df.lazy()).collect()
+    row_a = _get_row(result, "A")
+    assert row_a["f1_mean"] == pytest.approx(2.0)  # mean of [1, 3]
+    assert row_a["f2_mean"] == pytest.approx(4.5)  # mean of [4, 5]
+
+
+def test_mean_aggregator_all_null_returns_null(null_df: pl.DataFrame) -> None:
+    result = m.MeanAggregator().aggregate(null_df.lazy()).collect()
+    row_b = _get_row(result, "B")
+    assert row_b["f1_mean"] is None
+
+
+def test_median_aggregator_ignores_nulls(null_df: pl.DataFrame) -> None:
+    result = m.MedianAggregator().aggregate(null_df.lazy()).collect()
+    row_a = _get_row(result, "A")
+    assert row_a["f1_median"] == pytest.approx(2.0)  # median of [1, 3]
+
+
+def test_median_aggregator_all_null_returns_null(null_df: pl.DataFrame) -> None:
+    result = m.MedianAggregator().aggregate(null_df.lazy()).collect()
+    row_b = _get_row(result, "B")
+    assert row_b["f1_median"] is None
+
+
+def test_mad_aggregator_ignores_nulls(null_df: pl.DataFrame) -> None:
+    result = m.MADAggregator().aggregate(null_df.lazy()).collect()
+    row_a = _get_row(result, "A")
+    vals = np.array([1.0, 3.0])
+    expected_mad = np.median(np.abs(vals - np.median(vals)))
+    assert row_a["f1_MAD"] == pytest.approx(expected_mad)
+
+
+def test_mad_aggregator_all_null_returns_null(null_df: pl.DataFrame) -> None:
+    result = m.MADAggregator().aggregate(null_df.lazy()).collect()
+    row_b = _get_row(result, "B")
+    assert row_b["f1_MAD"] is None
+
+
+def test_std_aggregator_ignores_nulls(null_df: pl.DataFrame) -> None:
+    result = m.StdAggregator().aggregate(null_df.lazy()).collect()
+    row_a = _get_row(result, "A")
+    assert row_a["f1_std"] == pytest.approx(np.std([1.0, 3.0], ddof=1))
+
+
+def test_std_aggregator_all_null_returns_null(null_df: pl.DataFrame) -> None:
+    result = m.StdAggregator().aggregate(null_df.lazy()).collect()
+    row_b = _get_row(result, "B")
+    assert row_b["f1_std"] is None
+
+
+# ---------------------------------------------------------------------------
+# Null handling — reference-based aggregators
+# ---------------------------------------------------------------------------
+
+
+def _ref_based_null_df() -> pl.DataFrame:
+    """Variant group A with one null; reference with one null. f2 all-null in variant."""
+    return pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT", "WT", "WT", "A1B", "A1B", "A1B"],
+            "meta_is_control": [True, True, True, False, False, False],
+            "f1": pl.Series([1.0, None, 3.0, 10.0, None, 30.0], dtype=pl.Float64),
+            "f2": pl.Series([5.0, 6.0, 7.0, None, None, None], dtype=pl.Float64),
+        }
+    )
+
+
+def test_ks_aggregator_ignores_nulls_in_variant() -> None:
+    full = _ref_based_null_df()
+    row = (
+        m.KSAggregator()
+        .aggregate(full.lazy())
+        .filter(pl.col("meta_aa_changes") == "A1B")
+        .collect()
+        .to_dicts()
+        .pop()
+    )
+    expected = scipy.stats.ks_2samp([10.0, 30.0], [1.0, 3.0]).statistic
+    assert row["f1_KS"] == pytest.approx(expected)
+
+
+def test_ks_aggregator_all_null_variant_returns_null() -> None:
+    full = _ref_based_null_df()
+    row = (
+        m.KSAggregator()
+        .aggregate(full.lazy())
+        .filter(pl.col("meta_aa_changes") == "A1B")
+        .collect()
+        .to_dicts()
+        .pop()
+    )
+    assert row["f2_KS"] is None
+
+
+def test_ks_aggregator_all_null_reference_returns_null() -> None:
+    full = pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT", "WT", "A1B", "A1B"],
+            "meta_is_control": [True, True, False, False],
+            "f1": pl.Series([None, None, 1.0, 2.0], dtype=pl.Float64),
+        }
+    )
+    row = (
+        m.KSAggregator()
+        .aggregate(full.lazy())
+        .filter(pl.col("meta_aa_changes") == "A1B")
+        .collect()
+        .to_dicts()
+        .pop()
+    )
+    assert row["f1_KS"] is None
+
+
+def test_signed_ks_aggregator_ignores_nulls_in_variant() -> None:
+    full = _ref_based_null_df()
+    row = (
+        m.SignedKSAggregator()
+        .aggregate(full.lazy())
+        .filter(pl.col("meta_aa_changes") == "A1B")
+        .collect()
+        .to_dicts()
+        .pop()
+    )
+    expected = _signed_ks_stat([10.0, 30.0], [1.0, 3.0])
+    assert row["f1_signedKS"] == pytest.approx(expected)
+
+
+def test_signed_ks_aggregator_all_null_variant_returns_null() -> None:
+    full = _ref_based_null_df()
+    row = (
+        m.SignedKSAggregator()
+        .aggregate(full.lazy())
+        .filter(pl.col("meta_aa_changes") == "A1B")
+        .collect()
+        .to_dicts()
+        .pop()
+    )
+    assert row["f2_signedKS"] is None
+
+
+def test_signed_ks_aggregator_all_null_reference_returns_null() -> None:
+    full = pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT", "WT", "A1B", "A1B"],
+            "meta_is_control": [True, True, False, False],
+            "f1": pl.Series([None, None, 1.0, 2.0], dtype=pl.Float64),
+        }
+    )
+    row = (
+        m.SignedKSAggregator()
+        .aggregate(full.lazy())
+        .filter(pl.col("meta_aa_changes") == "A1B")
+        .collect()
+        .to_dicts()
+        .pop()
+    )
+    assert row["f1_signedKS"] is None
+
+
+def test_qq_aggregator_ignores_nulls_in_variant() -> None:
+    full = _ref_based_null_df()
+    row = (
+        m.QQCorrelationAggregator()
+        .aggregate(full.lazy())
+        .filter(pl.col("meta_aa_changes") == "A1B")
+        .collect()
+        .to_dicts()
+        .pop()
+    )
+    assert row["f1_QQ"] is not None
+
+
+def test_qq_aggregator_all_null_variant_returns_null() -> None:
+    full = _ref_based_null_df()
+    row = (
+        m.QQCorrelationAggregator()
+        .aggregate(full.lazy())
+        .filter(pl.col("meta_aa_changes") == "A1B")
+        .collect()
+        .to_dicts()
+        .pop()
+    )
+    assert row["f2_QQ"] is None
+
+
+def test_qq_aggregator_all_null_reference_returns_null() -> None:
+    full = pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT", "WT", "A1B", "A1B"],
+            "meta_is_control": [True, True, False, False],
+            "f1": pl.Series([None, None, 1.0, 2.0], dtype=pl.Float64),
+        }
+    )
+    row = (
+        m.QQCorrelationAggregator()
+        .aggregate(full.lazy())
+        .filter(pl.col("meta_aa_changes") == "A1B")
+        .collect()
+        .to_dicts()
+        .pop()
+    )
+    assert row["f1_QQ"] is None
+
+
+def test_auroc_aggregator_ignores_nulls_in_variant() -> None:
+    full = _ref_based_null_df()
+    row = (
+        m.AUROCAggregator()
+        .aggregate(full.lazy())
+        .filter(pl.col("meta_aa_changes") == "A1B")
+        .collect()
+        .to_dicts()
+        .pop()
+    )
+    assert row["f1_AUROC"] is not None
+
+
+def test_auroc_aggregator_all_null_variant_returns_null() -> None:
+    full = _ref_based_null_df()
+    row = (
+        m.AUROCAggregator()
+        .aggregate(full.lazy())
+        .filter(pl.col("meta_aa_changes") == "A1B")
+        .collect()
+        .to_dicts()
+        .pop()
+    )
+    assert row["f2_AUROC"] is None
+
+
+def test_auroc_aggregator_all_null_reference_returns_null() -> None:
+    full = pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT", "WT", "A1B", "A1B"],
+            "meta_is_control": [True, True, False, False],
+            "f1": pl.Series([None, None, 1.0, 2.0], dtype=pl.Float64),
+        }
+    )
+    row = (
+        m.AUROCAggregator()
+        .aggregate(full.lazy())
+        .filter(pl.col("meta_aa_changes") == "A1B")
+        .collect()
+        .to_dicts()
+        .pop()
+    )
+    assert row["f1_AUROC"] is None
+
+
+# ---------------------------------------------------------------------------
+# Infinity / NaN handling — reference-based aggregators
+# ---------------------------------------------------------------------------
+
+
+def test_auroc_aggregator_inf_in_variant_returns_null_not_exception() -> None:
+    """inf in variant values must be silently dropped, not crash sklearn."""
+    full = pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT", "WT", "WT", "A1B", "A1B", "A1B"],
+            "meta_is_control": [True, True, True, False, False, False],
+            "f1": pl.Series([1.0, 2.0, 3.0, float("inf"), 1.0, 2.0], dtype=pl.Float64),
+        }
+    )
+    row = (
+        m.AUROCAggregator()
+        .aggregate(full.lazy())
+        .filter(pl.col("meta_aa_changes") == "A1B")
+        .collect()
+        .to_dicts()
+        .pop()
+    )
+    assert row["f1_AUROC"] is not None
+
+
+def test_auroc_aggregator_all_inf_in_variant_returns_null() -> None:
+    """When all variant values are inf, result must be null, not an exception."""
+    full = pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT", "WT", "A1B", "A1B"],
+            "meta_is_control": [True, True, False, False],
+            "f1": pl.Series([1.0, 2.0, float("inf"), float("inf")], dtype=pl.Float64),
+        }
+    )
+    row = (
+        m.AUROCAggregator()
+        .aggregate(full.lazy())
+        .filter(pl.col("meta_aa_changes") == "A1B")
+        .collect()
+        .to_dicts()
+        .pop()
+    )
+    assert row["f1_AUROC"] is None
+
+
+def test_auroc_aggregator_inf_in_reference_returns_null() -> None:
+    """When all reference values are inf, result must be null, not an exception."""
+    full = pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT", "WT", "A1B", "A1B"],
+            "meta_is_control": [True, True, False, False],
+            "f1": pl.Series([float("inf"), float("inf"), 1.0, 2.0], dtype=pl.Float64),
+        }
+    )
+    row = (
+        m.AUROCAggregator()
+        .aggregate(full.lazy())
+        .filter(pl.col("meta_aa_changes") == "A1B")
+        .collect()
+        .to_dicts()
+        .pop()
+    )
+    assert row["f1_AUROC"] is None
+
+
+# ---------------------------------------------------------------------------
+# get_aggregate_meta_data
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def meta_lf_no_barcode() -> pl.LazyFrame:
+    """Three cells for label A, two for label B; no barcode column."""
+    return pl.DataFrame(
+        {
+            "meta_aa_changes": ["A", "A", "A", "B", "B"],
+            "meta_is_control": [False, False, False, False, False],
+            "f1": [1.0, 2.0, 3.0, 4.0, 5.0],
+        }
+    ).lazy()
+
+
+@pytest.fixture
+def meta_lf_with_barcode() -> pl.LazyFrame:
+    """Three cells for label A (two unique barcodes), two for label B (one unique)."""
+    return pl.DataFrame(
+        {
+            "meta_aa_changes": ["A", "A", "A", "B", "B"],
+            "meta_is_control": [False, False, False, False, False],
+            "meta_barcode": ["bc1", "bc1", "bc2", "bc3", "bc3"],
+            "f1": [1.0, 2.0, 3.0, 4.0, 5.0],
+        }
+    ).lazy()
+
+
+def test_get_aggregate_meta_data_returns_lazyframe(
+    meta_lf_no_barcode: pl.LazyFrame,
+) -> None:
+    result = m.get_aggregate_meta_data(meta_lf_no_barcode, "meta_aa_changes")
+    assert isinstance(result, pl.LazyFrame)
+
+
+def test_get_aggregate_meta_data_one_row_per_label(
+    meta_lf_no_barcode: pl.LazyFrame,
+) -> None:
+    result = m.get_aggregate_meta_data(meta_lf_no_barcode, "meta_aa_changes").collect()
+    assert len(result) == 2
+
+
+def test_get_aggregate_meta_data_label_column_present(
+    meta_lf_no_barcode: pl.LazyFrame,
+) -> None:
+    result = m.get_aggregate_meta_data(meta_lf_no_barcode, "meta_aa_changes").collect()
+    assert "meta_aa_changes" in result.columns
+
+
+def test_get_aggregate_meta_data_num_cells_correct(
+    meta_lf_no_barcode: pl.LazyFrame,
+) -> None:
+    result = m.get_aggregate_meta_data(meta_lf_no_barcode, "meta_aa_changes").collect()
+    counts = dict(
+        zip(result["meta_aa_changes"].to_list(), result["meta_num_cells"].to_list())
+    )
+    assert counts["A"] == 3
+    assert counts["B"] == 2
+
+
+def test_get_aggregate_meta_data_no_barcode_columns_without_meta_barcode(
+    meta_lf_no_barcode: pl.LazyFrame,
+) -> None:
+    result = m.get_aggregate_meta_data(meta_lf_no_barcode, "meta_aa_changes").collect()
+    assert "meta_num_unique_barcodes" not in result.columns
+    assert "meta_barcode_counts" not in result.columns
+
+
+def test_get_aggregate_meta_data_barcode_columns_present_with_meta_barcode(
+    meta_lf_with_barcode: pl.LazyFrame,
+) -> None:
+    result = m.get_aggregate_meta_data(
+        meta_lf_with_barcode, "meta_aa_changes"
+    ).collect()
+    assert "meta_barcode_num_unique" in result.columns
+    assert "meta_barcode_counts" in result.columns
+
+
+def test_get_aggregate_meta_data_unique_barcodes_correct(
+    meta_lf_with_barcode: pl.LazyFrame,
+) -> None:
+    result = m.get_aggregate_meta_data(
+        meta_lf_with_barcode, "meta_aa_changes"
+    ).collect()
+    counts = dict(
+        zip(
+            result["meta_aa_changes"].to_list(),
+            result["meta_barcode_num_unique"].to_list(),
+        )
+    )
+    assert counts["A"] == 2
+    assert counts["B"] == 1
+
+
+# ---------------------------------------------------------------------------
+# compute_impact_score — main() integration
+# ---------------------------------------------------------------------------
+
+
+def write_agg_input_parquet_asymmetric(tmp_path) -> None:
+    """Cell-level data with 3 asymmetric synonymous controls.
+
+    Three synonymous variants (A1A, A2A, A3A) with unevenly spaced feature
+    values ensure the control median after Z-score normalization is non-zero,
+    avoiding NaN impact scores.
+    """
+    pl.DataFrame(
+        {
+            "meta_aa_changes": (
+                ["WT"] * 3 + ["A1A"] * 3 + ["A2A"] * 3 + ["A3A"] * 3 + ["A1B"] * 3
+            ),
+            "meta_is_control": [True] * 3 + [False] * 12,
+            "f1": [0.0] * 3 + [1.0] * 3 + [2.0] * 3 + [6.0] * 3 + [20.0] * 3,
+            "f2": [0.0] * 3 + [1.0] * 3 + [4.0] * 3 + [1.0] * 3 + [30.0] * 3,
+        }
+    ).write_parquet(tmp_path / "input.parquet")
+
+
+def test_get_aggregate_meta_data_barcode_counts_not_null(
+    meta_lf_with_barcode: pl.LazyFrame,
+) -> None:
+    result = m.get_aggregate_meta_data(
+        meta_lf_with_barcode, "meta_aa_changes"
+    ).collect()
+    assert result["meta_barcode_counts"].null_count() == 0
+
+
+# ---------------------------------------------------------------------------
+# downsample_control
+# ---------------------------------------------------------------------------
+
+
+def _control_df(n_control: int, n_variant: int = 2) -> pl.DataFrame:
+    return pl.DataFrame(
+        {
+            "meta_aa_changes": ["WT"] * n_control + ["A1B"] * n_variant,
+            "meta_is_control": [True] * n_control + [False] * n_variant,
+            "row_id": list(range(n_control + n_variant)),
+        }
+    )
+
+
+def test_downsample_control_int_target_keeps_exact_count() -> None:
+    df = _control_df(n_control=10)
+    result = m.downsample_control(df.lazy(), 4, seed=1).collect()
+    assert result[CONTROL_COLUMN_NAME].sum() == 4
+    assert len(result) == 4 + 2
+
+
+def test_downsample_control_float_target_keeps_fraction() -> None:
+    df = _control_df(n_control=10)
+    result = m.downsample_control(df.lazy(), 0.5, seed=1).collect()
+    assert result[CONTROL_COLUMN_NAME].sum() == 5
+
+
+def test_downsample_control_non_control_rows_untouched() -> None:
+    df = _control_df(n_control=10)
+    result = m.downsample_control(df.lazy(), 0.5, seed=1).collect()
+    kept_variant_ids = set(
+        result.filter(~pl.col(CONTROL_COLUMN_NAME))["row_id"].to_list()
+    )
+    assert kept_variant_ids == {10, 11}
+
+
+def test_downsample_control_int_target_above_count_is_noop() -> None:
+    df = _control_df(n_control=5)
+    result = m.downsample_control(df.lazy(), 100, seed=1).collect()
+    assert result[CONTROL_COLUMN_NAME].sum() == 5
+
+
+def test_downsample_control_seed_is_deterministic() -> None:
+    df = _control_df(n_control=20)
+    kept1 = set(
+        m.downsample_control(df.lazy(), 10, seed=7)
+        .collect()
+        .filter(pl.col(CONTROL_COLUMN_NAME))["row_id"]
+        .to_list()
+    )
+    kept2 = set(
+        m.downsample_control(df.lazy(), 10, seed=7)
+        .collect()
+        .filter(pl.col(CONTROL_COLUMN_NAME))["row_id"]
+        .to_list()
+    )
+    assert kept1 == kept2
+
+
+def test_downsample_control_different_seeds_draw_different_samples() -> None:
+    df = _control_df(n_control=20)
+    kept1 = set(
+        m.downsample_control(df.lazy(), 10, seed=1)
+        .collect()
+        .filter(pl.col(CONTROL_COLUMN_NAME))["row_id"]
+        .to_list()
+    )
+    kept2 = set(
+        m.downsample_control(df.lazy(), 10, seed=2)
+        .collect()
+        .filter(pl.col(CONTROL_COLUMN_NAME))["row_id"]
+        .to_list()
+    )
+    assert kept1 != kept2

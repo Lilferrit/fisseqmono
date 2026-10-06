@@ -4,7 +4,7 @@ Hydra entry point backing the Nextflow processes ``AGGREGATE_FEATURE_TYPE`` and
 ``AGGREGATE_HALF`` — shared by the feature-selection pipeline's stage 1 (full
 aggregation) and stage 2b (per-pseudo-replicate-half aggregation). Also supports
 optionally downsampling control (wildtype) rows before aggregation via
-``downsample_wt``/``seed`` — see :func:`fisseq_data_pipeline.aggregate.downsample_control` —
+``downsample_wt``/``seed`` — see :func:`fisseq_common.stages.aggregate.downsample_control` —
 and optionally z-scoring the per-variant output against the synonymous variants
 via ``normalize_to_synonymous``.
 """
@@ -18,17 +18,11 @@ import hydra
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 
-from fisseq_common.normalizer import Normalizer
-from fisseq_common.schema import CONTROL_COLUMN_NAME
+from fisseq_common.schema import FEATURE_SELECTOR
+from fisseq_common.stages.aggregate import DEFAULT_FEATURE_CHUNK_SIZE, aggregate_cells
 from fisseq_common.utils.log import setup_logging
 
-from .aggregate import (
-    DEFAULT_FEATURE_CHUNK_SIZE,
-    aggregate,
-    downsample_control,
-    variant_classification,
-)
-from .cells import CellsInput, load_cells
+from .cells import JOIN_KEYS, CellsInput, load_cells
 from .config import LabeledInputConfig
 from .utils.splits import filter_by_index_file
 
@@ -47,7 +41,7 @@ class FeatureTypeAggregateConfig(CellsInput, LabeledInputConfig):
     Attributes
     ----------
     aggregator : str
-        A concrete key in ``fisseq_data_pipeline.aggregate._AGGREGATORS``
+        A concrete key in ``fisseq_common.stages.aggregate._AGGREGATORS``
         (``mean``, ``median``, ``MAD``, ``std``, ``KS``, ``signedKS``, ``QQ``,
         ``AUROC``). Required.
     index_file : str or None
@@ -65,7 +59,7 @@ class FeatureTypeAggregateConfig(CellsInput, LabeledInputConfig):
         Number of feature columns aggregated per Polars query. Lower it if a
         task is OOM-killed; ``None`` disables chunking entirely (every feature
         in one query). Defaults to
-        :data:`fisseq_data_pipeline.aggregate.DEFAULT_FEATURE_CHUNK_SIZE`.
+        :data:`fisseq_common.stages.aggregate.DEFAULT_FEATURE_CHUNK_SIZE`.
     normalize_to_synonymous : bool
         If ``True``, z-score every output stat column against the synonymous
         variants' rows (see Notes). Defaults to ``False``.
@@ -79,7 +73,7 @@ class FeatureTypeAggregateConfig(CellsInput, LabeledInputConfig):
     shared seed.
 
     ``normalize_to_synonymous`` marks synonymous variants with
-    :func:`fisseq_data_pipeline.aggregate.variant_classification`, fits a
+    :func:`fisseq_common.stages.filter.variant_classification`, fits a
     :class:`fisseq_common.normalizer.Normalizer` on those rows only (mean and ``ddof=1``
     std), applies it, and drops the ``meta_is_control`` column again so the
     output stays ``[label_column] + stat columns``. It needs at least two
@@ -111,7 +105,7 @@ def main(cfg: DictConfig) -> None:
     (a concrete non-glob path is a single-file pattern). Rows are optionally
     filtered to ``index_file`` via :func:`.utils.splits.filter_by_index_file`.
     Runs the configured single aggregator via
-    :func:`fisseq_data_pipeline.aggregate.aggregate` and writes a lean output
+    :func:`fisseq_common.stages.aggregate.aggregate_cells` and writes a lean output
     containing only ``[label_column] + <feature type's stat columns>`` — no
     metadata join, no impact score. With ``normalize_to_synonymous`` the stat
     columns are z-scored against the synonymous variants' rows first.
@@ -153,41 +147,17 @@ def main(cfg: DictConfig) -> None:
     logging.info("Filtering by index_file=%s", ft_cfg.index_file)
     lf = filter_by_index_file(lf, ft_cfg.index_file)
 
-    if ft_cfg.downsample_wt is not None:
-        if isinstance(ft_cfg.downsample_wt, float) and not (
-            0 < ft_cfg.downsample_wt < 1
-        ):
-            raise ValueError(
-                f"downsample_wt float must satisfy 0 < x < 1, got {ft_cfg.downsample_wt}"
-            )
-        if isinstance(ft_cfg.downsample_wt, int) and ft_cfg.downsample_wt <= 0:
-            raise ValueError(
-                f"downsample_wt int must be positive, got {ft_cfg.downsample_wt}"
-            )
-        logging.info(
-            "Downsampling control rows: downsample_wt=%s, seed=%d",
-            ft_cfg.downsample_wt,
-            ft_cfg.random_seed,
-        )
-        lf = downsample_control(lf, ft_cfg.downsample_wt, ft_cfg.random_seed)
-
-    logging.info(
-        "Running %s aggregator (feature_chunk_size=%s)",
-        ft_cfg.aggregator,
-        ft_cfg.feature_chunk_size,
-    )
-    agg_lf = aggregate(
+    agg_df = aggregate_cells(
         lf,
-        label_col=ft_cfg.label_column,
-        aggregator_name=ft_cfg.aggregator,
+        ft_cfg.label_column,
+        ft_cfg.aggregator,
+        join_keys=JOIN_KEYS,
+        feature_selector=FEATURE_SELECTOR,
         feature_chunk_size=ft_cfg.feature_chunk_size,
+        downsample_controls=ft_cfg.downsample_wt,
+        seed=ft_cfg.random_seed,
+        normalize_to_synonymous=ft_cfg.normalize_to_synonymous,
     )
-
-    if ft_cfg.normalize_to_synonymous:
-        logging.info("Z-scoring aggregates against synonymous variants")
-        agg_lf = variant_classification(agg_lf, ft_cfg.label_column)
-        normalizer = Normalizer.from_lazyframe(agg_lf, fit_only_on_control=True)
-        agg_lf = normalizer.apply(agg_lf).drop(CONTROL_COLUMN_NAME)
 
     if ft_cfg.output_root is not None:
         out_path = pathlib.Path(f"{ft_cfg.output_root}.{output_stem}.parquet")
@@ -195,7 +165,7 @@ def main(cfg: DictConfig) -> None:
         out_path = output_dir / f"{output_stem}.parquet"
 
     logging.info("Writing output to %s", out_path)
-    agg_lf.sink_parquet(out_path)
+    agg_df.write_parquet(out_path)
 
     logging.info("Done")
 

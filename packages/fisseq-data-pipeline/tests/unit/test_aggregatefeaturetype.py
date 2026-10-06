@@ -110,12 +110,12 @@ def test_config_defaults_feature_chunk_size() -> None:
 
 
 def test_main_forwards_feature_chunk_size_to_aggregate(tmp_path) -> None:
-    """The Nextflow processes set this per run; it has to reach aggregate()."""
+    """The Nextflow processes set this per run; it has to reach aggregate_cells()."""
     write_agg_input_parquet(tmp_path)
     with patch("fisseq_data_pipeline.aggregatefeaturetype.setup_logging"):
         with patch(
-            "fisseq_data_pipeline.aggregatefeaturetype.aggregate",
-            wraps=m.aggregate,
+            "fisseq_data_pipeline.aggregatefeaturetype.aggregate_cells",
+            wraps=m.aggregate_cells,
         ) as spy:
             m.main.__wrapped__(make_ft_cfg(tmp_path, feature_chunk_size=1))
     assert spy.call_args.kwargs["feature_chunk_size"] == 1
@@ -141,8 +141,8 @@ def test_main_forwards_null_feature_chunk_size(tmp_path) -> None:
     write_agg_input_parquet(tmp_path)
     with patch("fisseq_data_pipeline.aggregatefeaturetype.setup_logging"):
         with patch(
-            "fisseq_data_pipeline.aggregatefeaturetype.aggregate",
-            wraps=m.aggregate,
+            "fisseq_data_pipeline.aggregatefeaturetype.aggregate_cells",
+            wraps=m.aggregate_cells,
         ) as spy:
             m.main.__wrapped__(make_ft_cfg(tmp_path, feature_chunk_size=None))
     assert spy.call_args.kwargs["feature_chunk_size"] is None

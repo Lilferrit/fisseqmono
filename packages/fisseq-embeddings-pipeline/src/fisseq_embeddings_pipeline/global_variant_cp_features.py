@@ -6,7 +6,7 @@ directly -- no changes needed to that function, since it already keys off
 ``FEATURE_SELECTOR`` (exclude ``meta_*``), not the embedding-specific
 ``EMBEDDING_SELECTOR`` (see that module's docstring). Same cross-experiment
 median pooling (:func:`~fisseq_embeddings_pipeline.utils.globalfeatureselect.median_across_batches`)
-then full-rank PCA (:func:`~fisseq_embeddings_pipeline.utils.dimreduction.compute_pca`)
+then full-rank PCA (:func:`~fisseq_common.stages.dimreduction.compute_pca`)
 as GLOBAL_VARIANT_EMBEDDINGS, applied to AGGREGATE_CP_FEATURES' per-experiment
 aggregate.parquet files instead.
 

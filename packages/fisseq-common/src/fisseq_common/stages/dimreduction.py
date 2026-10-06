@@ -1,21 +1,16 @@
 """PCA and UMAP embeddings of an already-selected, ``label_column``-keyed
 feature matrix.
 
-Vendored from fisseq-data-pipeline's
-src/fisseq_data_pipeline/utils/dimreduction.py, with one added parameter:
-:func:`compute_pca`'s hardcoded ``PCA(n_components=n_components,
-random_state=0)`` becomes a ``random_state: int = 0`` parameter on
-:func:`compute_pca`'s own signature, threaded into the ``PCA(...)`` call
-instead of the hardcoded ``0`` -- called from ``global_embeddings.py`` with
-``cfg.random_seed`` so this stage's seed comes from the same shared field
-as every other stage rather than a second hardcoded constant living
-outside the reproducibility story. :func:`compute_umap` is untouched.
+Both pipelines' PCA/UMAP plumbing: the data pipeline's FINALIZE_FEATURE_SELECT runs it on the
+selected features. :func:`compute_pca` takes ``random_state`` (default ``0``), which sklearn
+only consults on its randomized-SVD solver path.
 
 ``umap-learn`` is imported lazily, inside :func:`compute_umap`, rather than
 at module import time: it pulls in ``numba``/``pynndescent``/``llvmlite``,
 whose import/JIT-compilation cost should only be paid by runs that actually
 set ``run_umap=true``. ``scikit-learn`` is imported eagerly at module top
-since it's already an unconditional dependency of this pipeline.
+since it's part of the ``stages`` extra. ``umap-learn`` is not: a caller of
+:func:`compute_umap` must depend on it itself (the data pipeline does).
 """
 
 import logging
@@ -116,11 +111,8 @@ def compute_pca(
     random_state : int
         Seed passed through to :class:`sklearn.decomposition.PCA`. Defense-
         in-depth only: sklearn only consults it on the randomized-SVD
-        solver path, which this pipeline's matrix sizes are unlikely to
-        trigger (the "auto"/"full" solver is otherwise deterministic) --
-        threaded through so this stage's seed still comes from the shared
-        ``AppConfig.random_seed`` field rather than a second, hardcoded
-        constant. Defaults to ``0``.
+        solver path (the "auto"/"full" solver is otherwise deterministic).
+        Callers pass their ``AppConfig.random_seed``. Defaults to ``0``.
 
     Returns
     -------
