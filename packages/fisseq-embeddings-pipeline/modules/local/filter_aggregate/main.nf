@@ -6,7 +6,7 @@
 // GLOBAL_VARIANT_EMBEDDINGS picks features with FEATURE_SELECTOR, which
 // would happily match emb_0000_KSnegLogP.
 
-include { threadEnv } from '../functions'
+include { threadEnv } from '../../../../../nextflow/modules/local/functions'
 
 process FILTER_AGGREGATE {
     errorStrategy 'ignore'

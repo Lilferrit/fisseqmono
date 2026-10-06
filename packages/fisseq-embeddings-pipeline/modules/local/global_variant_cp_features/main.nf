@@ -6,7 +6,7 @@
 // positionally with batch_stems -- the workflow hands both over as one
 // sorted tuple so the pairing can't drift.
 
-include { threadEnv; hydraList } from '../functions'
+include { threadEnv; hydraList } from '../../../../../nextflow/modules/local/functions'
 
 process GLOBAL_VARIANT_CP_FEATURES {
     errorStrategy 'ignore'

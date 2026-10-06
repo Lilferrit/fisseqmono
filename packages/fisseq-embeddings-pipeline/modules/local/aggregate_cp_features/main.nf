@@ -5,7 +5,7 @@
 // `aggregate_methods_cp_features` defaults to `["median"]`, unlike
 // AGGREGATE_EMBEDDINGS' `aggregate_methods` (`["median", "KS", "AUROC"]`).
 
-include { threadEnv } from '../functions'
+include { threadEnv } from '../../../../../nextflow/modules/local/functions'
 
 process AGGREGATE_CP_FEATURES {
     errorStrategy 'ignore'

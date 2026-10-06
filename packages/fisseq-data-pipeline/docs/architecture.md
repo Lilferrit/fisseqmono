@@ -160,7 +160,9 @@ The `meta_` prefix is load-bearing: `FEATURE_SELECTOR` is defined as
 
 - `src/fisseq_data_pipeline/` — Python package, one module per pipeline step,
   each a Hydra entry point run as `python -m fisseq_data_pipeline.<module>`
-- `modules/local/*.nf` — Nextflow process wrappers around those CLIs
+- `modules/local/*.nf` and the repository root's `nextflow/modules/local/` (shared with the
+  embeddings pipeline, configured by `conf/modules.config`) — Nextflow process wrappers
+  around those CLIs
 - `workflows/fisseq.nf` — the DAG
 - `main.nf` — entry point
 - `params.yaml` — every parameter default

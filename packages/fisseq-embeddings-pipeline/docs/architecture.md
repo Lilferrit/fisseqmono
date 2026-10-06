@@ -546,8 +546,10 @@ fisseq-embeddings-pipeline/
   workflows/
     embeddings.nf                 # the whole DAG: channel wiring, both tracks,
                                    # the reproducibility fan-out, global stages
-  modules/local/
-    functions.nf                  # threadEnv(), hydraList() -- shared by every module
+  conf/modules.config             # entry point/args/publishDir of each shared module
+  modules/local/                  # this pipeline's own processes; the ones shared with
+                                   # fisseq-data-pipeline (and functions.nf) are in the
+                                   # repository root's nextflow/modules/local/
     plan_experiments/             # PLAN_EXPERIMENTS: runs config/experiments.py
     build_cell_images/            # BUILD_CELL_IMAGES: the only process touching
                                    # starcall-workflow's tree (nested snakemake)

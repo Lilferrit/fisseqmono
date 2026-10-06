@@ -76,6 +76,7 @@ def make_ft_cfg(
     seed=0,
     feature_chunk_size=aggregate_module.DEFAULT_FEATURE_CHUNK_SIZE,
     normalize_to_synonymous=False,
+    output_name=None,
 ) -> OmegaConf:
     """
     Return a DictConfig for FeatureTypeAggregateConfig with test defaults.
@@ -94,6 +95,7 @@ def make_ft_cfg(
             random_seed=seed,
             feature_chunk_size=feature_chunk_size,
             normalize_to_synonymous=normalize_to_synonymous,
+            output_name=output_name,
         )
     )
 
@@ -236,6 +238,14 @@ def test_main_output_root_naming(tmp_path) -> None:
     with patch("fisseq_data_pipeline.aggregatefeaturetype.setup_logging"):
         m.main.__wrapped__(make_ft_cfg(tmp_path, output_root=root))
     assert (tmp_path / "run1.input.parquet").exists()
+
+
+def test_main_output_name_naming(tmp_path) -> None:
+    """The shared AGGREGATE_HALF module names its output after the method."""
+    write_agg_input_parquet(tmp_path)
+    with patch("fisseq_data_pipeline.aggregatefeaturetype.setup_logging"):
+        m.main.__wrapped__(make_ft_cfg(tmp_path, output_name="mean"))
+    assert [p.name for p in (tmp_path / "out").glob("*.parquet")] == ["mean.parquet"]
 
 
 # ---------------------------------------------------------------------------

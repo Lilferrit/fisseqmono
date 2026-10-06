@@ -23,7 +23,9 @@ parameter. See [Configuration](configuration.md).
 | ---- | ---- |
 | `main.nf` | Entry point. Includes and calls one workflow. |
 | `workflows/fisseq.nf` | The DAG, plus `experiments:` validation and channel wiring. |
-| `modules/local/*.nf` | One process per pipeline stage, each wrapping a `python -m fisseq_data_pipeline.<module>` call. |
+| `modules/local/*.nf` | This pipeline's own processes (INPUT, FINALIZE_FEATURE_SELECT). |
+| `../../nextflow/modules/local/<stage>/main.nf` | The processes shared with the embeddings pipeline (see [Shared modules](#shared-modules)). |
+| `conf/modules.config` | This pipeline's entry point, args and `publishDir` for each shared process. |
 | `params.yaml` | Every parameter default. |
 | `nextflow.config` | Executor, profile and container settings only. |
 | `Dockerfile` | The single image every process runs in. |
@@ -55,9 +57,26 @@ experiments is done downstream by
 per-experiment outputs (see
 [Architecture](architecture.md#cross-experiment-aggregation)).
 
+## Shared modules
+
+The processes both pipelines run have one copy, at the repository root:
+`nextflow/modules/local/<stage>/main.nf` (QC_FILTER, FILTER, OVWT_BATCHWISE,
+GENERATE_SPLIT, AGGREGATE_HALF, CORRELATE_FEATURES, BLOCKLIST, COMBINE_BLOCKLISTS), plus
+`nextflow/modules/local/functions.nf` (`threadEnv`, `hydraList`). A module carries only what
+both pipelines pass the same way; this pipeline's `conf/modules.config` sets, per process:
+
+- `ext.entry`: the `python -m` module the process runs (this pipeline's wrapper);
+- `ext.cells_key` / `ext.split_key` / `ext.args`: the config keys its inputs bind to and
+  pipeline-specific overrides (a closure, so it can use the task's inputs);
+- `publishDir`: where its outputs go under `pipeline_dir`.
+
+Where this pipeline runs one shared process under several names, the workflow includes it
+with an alias (`include { FILTER as NORMALIZE }`); the process names, and so every
+`withName` selector, are unchanged.
+
 ## Module conventions
 
-Every `modules/local/*.nf` process declares:
+Every process declares:
 
 - `errorStrategy 'ignore'` — a failed stage drops that experiment from the run
   rather than aborting everything. A "missing" output may therefore mean its
@@ -65,7 +84,7 @@ Every `modules/local/*.nf` process declares:
 - a resource `label` (`process_low` / `process_medium` / `process_high`) —
   currently inert placeholders, sized by no profile
 - `container "${params.container_image}"`
-- `publishDir` under `params.pipeline_dir`
+- `publishDir` under `params.pipeline_dir` (set in `conf/modules.config` for the shared modules)
 - `when: task.ext.when == null || task.ext.when` — lets a config disable a
   process without editing the workflow
 - a script block whose last argument is `random_seed=${params.random_seed}`
@@ -119,7 +138,7 @@ nextflow lint .
 ```
 
 Not run in CI or pre-commit. Run it after any change to `workflows/*.nf`,
-`modules/local/*.nf`, or `nextflow.config`.
+`modules/local/*.nf`, `../../nextflow/modules/local`, `conf/modules.config` or `nextflow.config`.
 
 Note that DSL2 forbids bare statements at script scope: a top-level helper must
 be a `def someFunction() { ... }`, not a `def x = { ... }` closure binding.

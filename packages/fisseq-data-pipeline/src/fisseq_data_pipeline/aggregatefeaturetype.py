@@ -63,6 +63,10 @@ class FeatureTypeAggregateConfig(CellsInput, LabeledInputConfig):
     normalize_to_synonymous : bool
         If ``True``, z-score every output stat column against the synonymous
         variants' rows (see Notes). Defaults to ``False``.
+    output_name : str or None
+        If set, the output is ``{output_name}.parquet`` in ``output_dir`` (prefixed
+        ``{output_root}.`` when that is set too). Defaults to ``None``: the input-derived
+        name below.
 
     Notes
     -----
@@ -89,6 +93,7 @@ class FeatureTypeAggregateConfig(CellsInput, LabeledInputConfig):
     downsample_wt: Optional[Union[float, int]] = None
     feature_chunk_size: Optional[int] = DEFAULT_FEATURE_CHUNK_SIZE
     normalize_to_synonymous: bool = False
+    output_name: Optional[str] = None
 
 
 _cs.store(name="aggregate_feature_type_main", node=FeatureTypeAggregateConfig)
@@ -118,6 +123,7 @@ def main(cfg: DictConfig) -> None:
 
     Output path
     -----------
+    - ``output_name`` set: ``{output_dir}/{output_name}.parquet`` (``{output_root}.`` prefixed)
     - Glob input: ``{output_root}.output.parquet`` or ``{output_dir}/output.parquet``
     - Single-file input: ``{output_root}.{stem}.parquet`` or
       ``{output_dir}/{stem}.parquet``
@@ -159,7 +165,10 @@ def main(cfg: DictConfig) -> None:
         normalize_to_synonymous=ft_cfg.normalize_to_synonymous,
     )
 
-    if ft_cfg.output_root is not None:
+    if ft_cfg.output_name is not None:
+        prefix = f"{ft_cfg.output_root}." if ft_cfg.output_root is not None else ""
+        out_path = output_dir / f"{prefix}{ft_cfg.output_name}.parquet"
+    elif ft_cfg.output_root is not None:
         out_path = pathlib.Path(f"{ft_cfg.output_root}.{output_stem}.parquet")
     else:
         out_path = output_dir / f"{output_stem}.parquet"

@@ -54,7 +54,9 @@ and `ovwt_batchwise/<batch>/results.parquet`.
 
 **Main components:**
 - `src/fisseq_data_pipeline/` — Python package, one module per pipeline step
-- `modules/local/*.nf` — Nextflow process wrappers around the Python CLIs
+- `modules/local/*.nf` — this pipeline's own Nextflow processes; the ones shared with the
+  embeddings pipeline are in the repo root's `nextflow/modules/local/<stage>/main.nf`,
+  configured per process by `conf/modules.config` (`ext.entry`, `ext.args`, `publishDir`)
 - `workflows/fisseq.nf` — the DAG
 - `main.nf` — entry point
 - `params.yaml` — every parameter default
@@ -149,7 +151,8 @@ fisseq-data-pipeline/
 │   ├── combineblocklists.py       # COMBINE_BLOCKLISTS
 │   ├── featureselect.py           # FINALIZE_FEATURE_SELECT
 │   └── ovwt.py                    # OVWT_BATCHWISE
-├── modules/local/*.nf             # one per process
+├── conf/modules.config            # settings of the shared modules (../../nextflow)
+├── modules/local/*.nf             # INPUT, FINALIZE_FEATURE_SELECT
 ├── workflows/fisseq.nf
 ├── main.nf
 ├── params.yaml

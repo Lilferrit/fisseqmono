@@ -26,7 +26,7 @@
 // same tree at once: the --unlock below clears a stale lock from a killed
 // run unconditionally, which is only safe under that rule.
 
-include { threadEnv; hydraList } from '../functions'
+include { threadEnv; hydraList } from '../../../../../nextflow/modules/local/functions'
 
 process BUILD_CELL_IMAGES {
     errorStrategy 'ignore'

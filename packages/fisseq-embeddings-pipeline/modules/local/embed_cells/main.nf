@@ -12,7 +12,7 @@
 // metadata.parquet (BUILD_CELL_METADATA) supplies every meta_* column but
 // the shard's own well/tile/cell_index.
 
-include { threadEnv } from '../functions'
+include { threadEnv } from '../../../../../nextflow/modules/local/functions'
 
 process EMBED_CELLS {
     errorStrategy 'ignore'

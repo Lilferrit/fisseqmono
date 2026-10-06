@@ -4,7 +4,9 @@
 
 `main.nf` runs the single `EmbeddingsPipeline` workflow
 (`workflows/embeddings.nf`); every process lives in its own
-`modules/local/<name>/main.nf`.
+`modules/local/<name>/main.nf`, or, for a process shared with fisseq-data-pipeline, the
+repository root's `nextflow/modules/local/<name>/main.nf` (see
+[Shared modules](#shared-modules)).
 
 ```bash
 nextflow run . -params-file params.yaml \
@@ -463,12 +465,29 @@ suite's `test_real_starcall_profile_mode` exercises this path with real
 snakemake 7 and a fake "cluster" -- everything except a real `apptainer`
 re-entering the `.sif` on a node, which only a real cluster can check.
 
+## Shared modules
+
+The processes both pipelines run have one copy, at the repository root:
+`nextflow/modules/local/<stage>/main.nf` (QC_FILTER, FILTER, OVWT_BATCHWISE,
+GENERATE_SPLIT, AGGREGATE_HALF, CORRELATE_FEATURES, BLOCKLIST, COMBINE_BLOCKLISTS), plus
+`nextflow/modules/local/functions.nf` (`threadEnv`, `hydraList`). A module carries only what
+both pipelines pass the same way; this pipeline's `conf/modules.config` sets, per process:
+
+- `ext.entry`: the `python -m` module the process runs (this pipeline's wrapper);
+- `ext.cells_key` / `ext.split_key` / `ext.args`: the config keys its inputs bind to and
+  pipeline-specific overrides (a closure, so it can use the task's inputs);
+- `publishDir`: where its outputs go under `pipeline_dir`.
+
+Where this pipeline runs one shared process under several names, the workflow includes it
+with an alias (`include { FILTER as NORMALIZE }`); the process names, and so every
+`withName` selector, are unchanged.
+
 ## Modules
 
 Every module follows the same shape:
 
 ```groovy
-include { threadEnv } from '../functions'
+include { threadEnv } from '../../../../../nextflow/modules/local/functions'
 
 process AGGREGATE_EMBEDDINGS {
     errorStrategy 'ignore'
@@ -495,7 +514,7 @@ process AGGREGATE_EMBEDDINGS {
   only `cell_table.parquet`/`tiles.parquet`; its scratch files
   (`targets.txt`, `tiles_manifest.csv`, `resolved_dirs.env`, the
   jobscript) stay in its work directory.
-- **`threadEnv(task.cpus)`** (`modules/local/functions.nf`) exports
+- **`threadEnv(task.cpus)`** (`nextflow/modules/local/functions.nf` at the repository root) exports
   `POLARS_MAX_THREADS`/`OMP_NUM_THREADS`/`OPENBLAS_NUM_THREADS`/... inside
   the script itself -- not as a `beforeScript`, which runs on the host,
   outside the container. `hydraList(key, values)` renders a list as one

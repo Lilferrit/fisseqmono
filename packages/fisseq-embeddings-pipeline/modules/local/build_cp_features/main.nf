@@ -2,7 +2,7 @@
 // -- BUILD_CELL_IMAGES already folded this experiment's CellProfiler
 // columns in, so there's no tile discovery or CSV reading here.
 
-include { threadEnv } from '../functions'
+include { threadEnv } from '../../../../../nextflow/modules/local/functions'
 
 process BUILD_CP_FEATURES {
     errorStrategy 'ignore'

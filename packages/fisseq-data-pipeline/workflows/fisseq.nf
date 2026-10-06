@@ -21,17 +21,19 @@ nextflow.enable.dsl = 2
 // pipeline-wide defaults when omitted. Every other parameter -- including
 // every run gate and the single params.random_seed -- is pipeline-wide.
 
+// Shared modules (one copy for both pipelines) live in the repo's nextflow/ directory; this
+// pipeline's per-process settings for them are in conf/modules.config.
 include { INPUT                  } from '../modules/local/input'
-include { QC_FILTER              } from '../modules/local/qc_filter'
-include { NORMALIZE              } from '../modules/local/normalize'
-include { OVWT_BATCHWISE         } from '../modules/local/ovwt_batchwise'
-include { AGGREGATE_FEATURE_TYPE  as AGGREGATE_FEATURE_TYPE_BATCHWISE  } from '../modules/local/aggregate_feature_type'
-include { AGGREGATE_FEATURE_TYPE  as AGGREGATE_FEATURE_TYPE_PASSTHROUGH } from '../modules/local/aggregate_feature_type'
-include { GENERATE_SPLIT          as GENERATE_SPLIT_BATCHWISE          } from '../modules/local/generate_split'
-include { AGGREGATE_HALF          as AGGREGATE_HALF_BATCHWISE          } from '../modules/local/aggregate_half'
-include { CORRELATE_FEATURES      as CORRELATE_FEATURES_BATCHWISE      } from '../modules/local/correlate_features'
-include { BLOCKLIST               as BLOCKLIST_BATCHWISE               } from '../modules/local/blocklist'
-include { COMBINE_BLOCKLISTS      as COMBINE_BLOCKLISTS_BATCHWISE      } from '../modules/local/combine_blocklists'
+include { QC_FILTER              } from '../../../nextflow/modules/local/qc_filter/main'
+include { FILTER as NORMALIZE    } from '../../../nextflow/modules/local/filter/main'
+include { OVWT_BATCHWISE         } from '../../../nextflow/modules/local/ovwt_batchwise/main'
+include { AGGREGATE_HALF          as AGGREGATE_FEATURE_TYPE_BATCHWISE  } from '../../../nextflow/modules/local/aggregate_half/main'
+include { AGGREGATE_HALF          as AGGREGATE_FEATURE_TYPE_PASSTHROUGH } from '../../../nextflow/modules/local/aggregate_half/main'
+include { GENERATE_SPLIT          as GENERATE_SPLIT_BATCHWISE          } from '../../../nextflow/modules/local/generate_split/main'
+include { AGGREGATE_HALF          as AGGREGATE_HALF_BATCHWISE          } from '../../../nextflow/modules/local/aggregate_half/main'
+include { CORRELATE_FEATURES      as CORRELATE_FEATURES_BATCHWISE      } from '../../../nextflow/modules/local/correlate_features/main'
+include { BLOCKLIST               as BLOCKLIST_BATCHWISE               } from '../../../nextflow/modules/local/blocklist/main'
+include { COMBINE_BLOCKLISTS      as COMBINE_BLOCKLISTS_BATCHWISE      } from '../../../nextflow/modules/local/combine_blocklists/main'
 include { FINALIZE_FEATURE_SELECT as FINALIZE_FEATURE_SELECT_BATCHWISE } from '../modules/local/finalize_feature_select'
 
 // The only keys an `experiments:` entry may carry. Anything else is a typo
@@ -215,7 +217,7 @@ workflow FisseqPipeline {
     input_ch = INPUT(config_ch)
 
     // Step 1: QC filter (per experiment).
-    qc_ch = QC_FILTER(input_ch).qc_outputs
+    qc_ch = QC_FILTER(input_ch).qc
 
     // Step 2: normalization (per experiment) -- z-score fit on wildtype cells.
     // NORMALIZE publishes only the QC-passed keys and the fitted normalizer; every
@@ -223,9 +225,11 @@ workflow FisseqPipeline {
     // normalized table itself (fisseq_data_pipeline.cells).
     // qc_ch carries: (batch_stem, filtered_cells, barcode_counts, variants_per_barcode)
     norm_input_ch = qc_ch.map { batch_stem, fc, _bc, _vpb -> tuple(batch_stem, fc) }
-    NORMALIZE(norm_input_ch)
+    // The shared FILTER module reads the cells and the QC-passed table separately; here
+    // they are the same file.
+    NORMALIZE(norm_input_ch.map { batch_stem, fc -> tuple(batch_stem, fc, fc) })
     // tuple(batch_stem, filtered_cells, filtered_keys, normalizer)
-    norm_ch = norm_input_ch.join(NORMALIZE.out.normalized)
+    norm_ch = norm_input_ch.join(NORMALIZE.out.filtered)
 
     // Step 3: OvWT -- per experiment, k-fold cross-validated one-vs-wildtype
     // scoring. Every cell gets exactly one out-of-fold score; each variant
@@ -251,15 +255,17 @@ workflow FisseqPipeline {
 
         // Stage 1: full per-feature-type aggregation, one task per
         // (experiment, feature_type). The published aggregates are z-scored
-        // against the experiment's synonymous variants.
+        // against the experiment's synonymous variants (conf/modules.config).
+        // AGGREGATE_HALF's input: (batch_stem, cells, keys, normalizer, rep, half, split,
+        // method); rep = half = 0 and no split file aggregate every cell.
         agg_input_ch = norm_ch
             .combine(feature_types_ch)
             .map { batch_stem, cells, keys, normalizer, feature_type ->
-                tuple(batch_stem, cells, keys, normalizer, feature_type, true,
-                      "feature_select_batchwise/${batch_stem}/aggregates")
+                tuple(batch_stem, cells, keys, normalizer, 0, 0, [], feature_type)
             }
         AGGREGATE_FEATURE_TYPE_BATCHWISE(agg_input_ch)
-        agg_ch = AGGREGATE_FEATURE_TYPE_BATCHWISE.out  // (batch_stem, feature_type, agg_file)
+        agg_ch = AGGREGATE_FEATURE_TYPE_BATCHWISE.out.aggregate
+            .map { batch_stem, _rep, feature_type, _half, agg_file -> tuple(batch_stem, feature_type, agg_file) }
 
         // Stage 1b: passthrough aggregation. Same process, and deliberately
         // nothing downstream of it but the stage-4 join -- passthrough types
@@ -271,20 +277,20 @@ workflow FisseqPipeline {
         pt_agg_input_ch = norm_ch
             .combine(passthrough_types_ch)
             .map { batch_stem, cells, keys, normalizer, feature_type ->
-                tuple(batch_stem, cells, keys, normalizer, feature_type, false,
-                      "feature_select_batchwise/${batch_stem}/passthrough_aggregates")
+                tuple(batch_stem, cells, keys, normalizer, 0, 0, [], feature_type)
             }
         AGGREGATE_FEATURE_TYPE_PASSTHROUGH(pt_agg_input_ch)
-        pt_agg_ch = AGGREGATE_FEATURE_TYPE_PASSTHROUGH.out  // (batch_stem, feature_type, agg_file)
+        pt_agg_ch = AGGREGATE_FEATURE_TYPE_PASSTHROUGH.out.aggregate
+            .map { batch_stem, _rep, feature_type, _half, agg_file -> tuple(batch_stem, feature_type, agg_file) }
 
         // Stage 2a: one 50/50 split per (experiment, bootstrap replicate).
         split_input_ch = norm_ch
             .combine(bootstrap_ch)
             .map { batch_stem, _cells, keys, _normalizer, bootstrap_idx ->
-                tuple(batch_stem, keys, bootstrap_idx, "feature_select_batchwise/${batch_stem}")
+                tuple(batch_stem, keys, bootstrap_idx)
             }
         GENERATE_SPLIT_BATCHWISE(split_input_ch)
-        split_ch = GENERATE_SPLIT_BATCHWISE.out  // (batch_stem, bootstrap_idx, half1, half2)
+        split_ch = GENERATE_SPLIT_BATCHWISE.out.split  // (batch_stem, bootstrap_idx, half1, half2)
 
         // Stage 2b: expand each split into two per-half tuples, cross with
         // feature types, and re-attach the experiment's cells, keys and normalizer
@@ -308,11 +314,10 @@ workflow FisseqPipeline {
             .combine(norm_ch, by: 0)
             // (batch_stem, bootstrap_idx, half_num, index_file, feature_type, cells, keys, normalizer)
             .map { batch_stem, bootstrap_idx, half_num, index_file, feature_type, cells, keys, normalizer ->
-                tuple(batch_stem, bootstrap_idx, half_num, index_file, feature_type,
-                      cells, keys, normalizer, "feature_select_batchwise/${batch_stem}")
+                tuple(batch_stem, cells, keys, normalizer, bootstrap_idx, half_num, index_file, feature_type)
             }
         AGGREGATE_HALF_BATCHWISE(agg_half_input_ch)
-        half_agg_ch = AGGREGATE_HALF_BATCHWISE.out
+        half_agg_ch = AGGREGATE_HALF_BATCHWISE.out.aggregate
         // (batch_stem, bootstrap_idx, feature_type, half_num, half_agg_file)
 
         // Stage 2c: group by (batch_stem, bootstrap_idx, feature_type) --
@@ -322,36 +327,22 @@ workflow FisseqPipeline {
             .groupTuple(by: [0, 1, 2])
             .map { batch_stem, bootstrap_idx, feature_type, half_nums, half_files ->
                 def pairs = [half_nums, half_files].transpose().sort { pair -> pair[0] }
-                tuple(batch_stem, bootstrap_idx, feature_type, pairs[0][1], pairs[1][1],
-                      "feature_select_batchwise/${batch_stem}")
+                tuple(batch_stem, bootstrap_idx, feature_type, pairs[0][1], pairs[1][1])
             }
         CORRELATE_FEATURES_BATCHWISE(corr_input_ch)
-        corr_ch = CORRELATE_FEATURES_BATCHWISE.out  // (batch_stem, feature_type, bootstrap_idx, corr_file)
+        corr_ch = CORRELATE_FEATURES_BATCHWISE.out.correlations  // (batch_stem, feature_type, corr_file)
 
         // Stage 2d: group by (batch_stem, feature_type) -- gathers all
         // bootstrap replicates. THE one intentional synchronization point,
         // scoped to this stage only.
-        blocklist_input_ch = corr_ch
-            .map { batch_stem, feature_type, _bootstrap_idx, correlation_file ->
-                tuple(batch_stem, feature_type, correlation_file)
-            }
-            .groupTuple(by: [0, 1])
-            .map { batch_stem, feature_type, correlation_files ->
-                tuple(batch_stem, feature_type, correlation_files,
-                      "feature_select_batchwise/${batch_stem}")
-            }
+        blocklist_input_ch = corr_ch.groupTuple(by: [0, 1])
         BLOCKLIST_BATCHWISE(blocklist_input_ch)
-        bl_ch = BLOCKLIST_BATCHWISE.out  // (batch_stem, feature_type, blocklist_file)
+        bl_ch = BLOCKLIST_BATCHWISE.out.blocklist  // (batch_stem, blocklist_file)
 
         // Stage 3: group by batch_stem -- gathers all feature types.
-        combine_bl_input_ch = bl_ch
-            .map { batch_stem, _feature_type, blocklist_file -> tuple(batch_stem, blocklist_file) }
-            .groupTuple(by: 0)
-            .map { batch_stem, blocklist_files ->
-                tuple(batch_stem, blocklist_files, "feature_select_batchwise/${batch_stem}")
-            }
+        combine_bl_input_ch = bl_ch.groupTuple(by: 0)
         COMBINE_BLOCKLISTS_BATCHWISE(combine_bl_input_ch)
-        combined_bl_ch = COMBINE_BLOCKLISTS_BATCHWISE.out  // (batch_stem, combined_blocklist_file)
+        combined_bl_ch = COMBINE_BLOCKLISTS_BATCHWISE.out.blocklist  // (batch_stem, combined_blocklist_file)
 
         // Stage 4: group stage-1 output by batch_stem (all feature types'
         // full aggregates), join norm_ch (the cells, for metadata), join

@@ -13,7 +13,7 @@
 // drops the unprefixed well/tile/tile_cell_index columns that become
 // filter.py's JOIN_KEYS).
 
-include { threadEnv } from '../functions'
+include { threadEnv } from '../../../../../nextflow/modules/local/functions'
 
 process BUILD_CELL_METADATA {
     errorStrategy 'ignore'

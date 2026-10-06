@@ -3,7 +3,7 @@
 // this requires agreement (in every experiment that reported on a
 // dimension, or in at least reproducibility_global_min_batches_ok of them).
 
-include { threadEnv; hydraList } from '../functions'
+include { threadEnv; hydraList } from '../../../../../nextflow/modules/local/functions'
 
 process GLOBAL_BLOCKLIST {
     errorStrategy 'ignore'

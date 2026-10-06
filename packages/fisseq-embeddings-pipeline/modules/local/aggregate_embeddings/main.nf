@@ -3,7 +3,7 @@
 // reconstructs filtered_lf itself via load_filtered_embeddings() before
 // aggregating.
 
-include { threadEnv } from '../functions'
+include { threadEnv } from '../../../../../nextflow/modules/local/functions'
 
 process AGGREGATE_EMBEDDINGS {
     errorStrategy 'ignore'

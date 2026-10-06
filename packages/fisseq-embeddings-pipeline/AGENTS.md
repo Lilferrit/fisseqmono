@@ -90,11 +90,13 @@ rebuild the image, and run `tests/integration --container`.
   key + something new), stop and check whether that violates the no-copy
   principle — see `docs/architecture.md`'s architecture decisions.
 - **Nextflow processes**: one per stage, in
-  `modules/local/<name>/main.nf`, wired together in
+  `modules/local/<name>/main.nf` (or, if shared with fisseq-data-pipeline,
+  the repo root's `nextflow/modules/local/<name>/main.nf`, configured by
+  `conf/modules.config`), wired together in
   `workflows/embeddings.nf`. Each carries `errorStrategy 'ignore'`, a
   `process_*` label, `container "${params.container_image}"` and a
   `publishDir ..., mode: 'copy'` into `pipeline_dir`, and a `script:` of
-  `${threadEnv(task.cpus)}` (`modules/local/functions.nf`) plus one
+  `${threadEnv(task.cpus)}` (`nextflow/modules/local/functions.nf`) plus one
   `python -m <pkg>.<module>` invocation with `output_dir=.` and a trailing
   `random_seed=${params.random_seed}` — see `EMBED_CELLS` for the
   fully-worked example, and `BUILD_CELL_IMAGES` for the one genuine

@@ -22,28 +22,30 @@
 // branches keep running when one fails. The global stages then pool over
 // whichever experiments survived -- check the run report for failures.
 
+// Shared modules (one copy for both pipelines) live in the repo's nextflow/ directory; this
+// pipeline's per-process settings for them are in conf/modules.config.
 include { PLAN_EXPERIMENTS } from '../modules/local/plan_experiments/main.nf'
 include { BUILD_CELL_IMAGES } from '../modules/local/build_cell_images/main.nf'
 include { BUILD_CELL_METADATA } from '../modules/local/build_cell_metadata/main.nf'
-include { QC_FILTER } from '../modules/local/qc_filter/main.nf'
+include { QC_FILTER } from '../../../nextflow/modules/local/qc_filter/main.nf'
 include { EMBED_CELLS } from '../modules/local/embed_cells/main.nf'
-include { FILTER_EMBEDDINGS } from '../modules/local/filter_embeddings/main.nf'
+include { FILTER as FILTER_EMBEDDINGS } from '../../../nextflow/modules/local/filter/main.nf'
 include { AGGREGATE_EMBEDDINGS } from '../modules/local/aggregate_embeddings/main.nf'
-include { OVWT_BATCHWISE } from '../modules/local/ovwt_batchwise/main.nf'
-include { GENERATE_SPLIT } from '../modules/local/generate_split/main.nf'
-include { AGGREGATE_HALF } from '../modules/local/aggregate_half/main.nf'
-include { AGGREGATE_PASSTHROUGH } from '../modules/local/aggregate_passthrough/main.nf'
-include { CORRELATE_FEATURES } from '../modules/local/correlate_features/main.nf'
-include { BLOCKLIST } from '../modules/local/blocklist/main.nf'
-include { COMBINE_BLOCKLISTS } from '../modules/local/combine_blocklists/main.nf'
+include { OVWT_BATCHWISE } from '../../../nextflow/modules/local/ovwt_batchwise/main.nf'
+include { GENERATE_SPLIT } from '../../../nextflow/modules/local/generate_split/main.nf'
+include { AGGREGATE_HALF } from '../../../nextflow/modules/local/aggregate_half/main.nf'
+include { AGGREGATE_HALF as AGGREGATE_PASSTHROUGH } from '../../../nextflow/modules/local/aggregate_half/main.nf'
+include { CORRELATE_FEATURES } from '../../../nextflow/modules/local/correlate_features/main.nf'
+include { BLOCKLIST } from '../../../nextflow/modules/local/blocklist/main.nf'
+include { COMBINE_BLOCKLISTS } from '../../../nextflow/modules/local/combine_blocklists/main.nf'
 include { FILTER_AGGREGATE } from '../modules/local/filter_aggregate/main.nf'
 include { GLOBAL_BLOCKLIST } from '../modules/local/global_blocklist/main.nf'
 include { GLOBAL_VARIANT_EMBEDDINGS } from '../modules/local/global_variant_embeddings/main.nf'
 include { GLOBAL_VARIANT_DISTINGUISHABILITY } from '../modules/local/global_variant_distinguishability/main.nf'
 include { BUILD_CP_FEATURES } from '../modules/local/build_cp_features/main.nf'
-include { FILTER_CP_FEATURES } from '../modules/local/filter_cp_features/main.nf'
+include { FILTER as FILTER_CP_FEATURES } from '../../../nextflow/modules/local/filter/main.nf'
 include { AGGREGATE_CP_FEATURES } from '../modules/local/aggregate_cp_features/main.nf'
-include { OVWT_BATCHWISE_CP_FEATURES } from '../modules/local/ovwt_batchwise_cp_features/main.nf'
+include { OVWT_BATCHWISE as OVWT_BATCHWISE_CP_FEATURES } from '../../../nextflow/modules/local/ovwt_batchwise/main.nf'
 include { GLOBAL_VARIANT_CP_FEATURES } from '../modules/local/global_variant_cp_features/main.nf'
 include { GLOBAL_VARIANT_DISTINGUISHABILITY_CP_FEATURES } from '../modules/local/global_variant_distinguishability_cp_features/main.nf'
 
@@ -102,12 +104,10 @@ workflow EmbeddingsPipeline {
         // One split per bootstrap replicate, two halves per split, one
         // AGGREGATE_HALF task per (replicate, half, method). Bare emb_*
         // column names only when aggregate_methods is exactly ["median"],
-        // mirroring AGGREGATE_EMBEDDINGS -- decided here, from the whole
-        // list, since each AGGREGATE_HALF task sees only its own method.
+        // mirroring AGGREGATE_EMBEDDINGS (conf/modules.config's bare_columns).
         def reps = params.reproducibility_bootstrap_reps as int
         def methods = params.aggregate_methods as List
         def passthrough_methods = (params.aggregate_methods_passthrough ?: []) as List
-        def bare_columns = (methods == ['median']).toString()
 
         splits = GENERATE_SPLIT(
             filtered.map { stem, keys, _normalizer -> tuple(stem, keys) }.combine(channel.of(1..reps))
@@ -115,9 +115,9 @@ workflow EmbeddingsPipeline {
         halves = splits.flatMap { stem, rep, half1, half2 ->
             [tuple(stem, rep, 1, half1), tuple(stem, rep, 2, half2)]
         }
+        // (stem, embeddings, keys, normalizer, rep, half, split, method)
         half_aggregates = AGGREGATE_HALF(
-            embed_and_filtered.combine(halves, by: 0).combine(channel.fromList(methods)),
-            bare_columns,
+            embed_and_filtered.combine(halves, by: 0).combine(channel.fromList(methods))
         )
         // size: stops a group from waiting on a half whose task failed; that
         // replicate (and so that method's blocklist) is then simply missing.
@@ -132,10 +132,14 @@ workflow EmbeddingsPipeline {
         blocklists = COMBINE_BLOCKLISTS(method_blocklists.groupTuple(size: methods.size()))
 
         passthrough = passthrough_methods
+            // rep = half = 0 and no split file: every QC-passed cell.
             ? AGGREGATE_PASSTHROUGH(
-                embed_and_filtered.combine(channel.fromList(passthrough_methods)),
-                bare_columns,
-            ).groupTuple(size: passthrough_methods.size())
+                embed_and_filtered
+                    .combine(channel.fromList(passthrough_methods))
+                    .map { stem, emb, keys, norm, method -> tuple(stem, emb, keys, norm, 0, 0, [], method) }
+            )
+                .map { stem, _rep, _method, _half, file -> tuple(stem, file) }
+                .groupTuple(size: passthrough_methods.size())
             : aggregates.map { stem, _agg -> tuple(stem, []) }
         FILTER_AGGREGATE(aggregates.join(blocklists).join(passthrough))
 
