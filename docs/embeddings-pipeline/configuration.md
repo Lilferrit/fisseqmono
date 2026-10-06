@@ -236,7 +236,7 @@ child job in cluster mode.
 `.github/workflows/docker-fisseq-embeddings-pipeline.yml` (through the reusable `_docker.yml`)
 builds the image from the workspace root.
 
-- **Registry:** GitHub Container Registry, `ghcr.io/<owner>/fisseq-embeddings-pipeline`.
+- **Registry:** GitHub Container Registry, `ghcr.io/<owner>/fisseqmono/fisseq-embeddings-pipeline`.
 - **Tags, on every push to `main`:** `:latest` (moving -- convenience/dev
   use) and `:<short-sha>` (exact, 7-character commit SHA -- what
   `params.yaml`'s `container_image` should point at for anything that
@@ -245,9 +245,8 @@ builds the image from the workspace root.
 - **Tags, on a pushed `v*` git tag** (a workspace release): additionally
   `:<version>` (the tag with its `v` prefix stripped, e.g. `v2.0.0` ->
   `2.0.0`). Every tag push builds.
-- **Every PR:** build-only, no push, no registry credentials needed -- a
-  smoke test against Dockerfile regressions.
-- **Path filter:** a push or PR builds only when a file the `Dockerfile` copies changes
+- **Pull requests:** no image is built.
+- **Path filter:** a push to `main` builds only when a file the `Dockerfile` copies changes
   (this package's `src/`, `snakemake/`, `README.md`, fisseq-common's `src/`, the
   `pyproject.toml` files, `uv.lock`, ...). Nextflow files, tests and docs never reach the image.
 

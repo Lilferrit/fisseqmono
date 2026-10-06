@@ -10,7 +10,7 @@
 
 # ── Required, no default (fail fast if unset) ──────────────────────────────
 pipeline_dir: null
-container_image: "ghcr.io/lilferrit/fisseq-data-pipeline:latest"
+container_image: "ghcr.io/lilferrit/fisseqmono/fisseq-data-pipeline:latest"
 experiments: []
 
 # ── Experiments ─────────────────────────────────────────────────────────────

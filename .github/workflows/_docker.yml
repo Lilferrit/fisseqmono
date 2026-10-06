@@ -2,9 +2,10 @@
 # push it, on pushes to main and v* tags only (not on pull requests). Called by
 # docker-<pipeline>.yml, whose `paths` filter lists exactly the files that image is built from.
 #
-#   - Registry: ghcr.io/<owner>/<pipeline>, the names params.yaml's container_image uses.
-#     The packages must grant this repository write access (package settings → Manage
-#     Actions access) if they were first published from the pipelines' old repositories.
+#   - Registry: ghcr.io/<owner>/fisseqmono/<pipeline>, the names params.yaml's
+#     container_image uses. Namespacing under this repository means the first push creates
+#     each package already linked to it, so GITHUB_TOKEN can write to it. (The old
+#     ghcr.io/<owner>/<pipeline> packages belong to the pipelines' former repositories.)
 #   - Tags, on every push to main: `:latest` and `:<short-sha>`. On a pushed `v*` tag: also
 #     `:<version>` (`v2.0.0` -> `2.0.0`).
 name: docker image
@@ -36,7 +37,7 @@ jobs:
       - name: Compute tags
         id: tags
         run: |
-          image="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/${{ inputs.pipeline }}"
+          image="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')/${{ inputs.pipeline }}"
           tags="${image}:latest,${image}:${GITHUB_SHA::7}"
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             tags="${tags},${image}:${GITHUB_REF#refs/tags/v}"

@@ -91,9 +91,10 @@ workflow" button), so run them locally before merging.
   pipelines) on every PR; a manual run adds the root tests.
 - `docker-<pipeline>.yml` (via `_docker.yml`): one pipeline image, from the root context
   (`docker build -f packages/<pipeline>/Dockerfile .`), built and pushed to
-  `ghcr.io/<owner>/<pipeline>` from `main` and `v*` tags (never on PRs). Its `paths` filter
-  lists exactly the files the Dockerfile copies (Nextflow files, tests and docs never reach an
-  image; keep the filter in step when a Dockerfile changes). Tag pushes always build.
+  `ghcr.io/<owner>/fisseqmono/<pipeline>` from `main` and `v*` tags (never on PRs). Its
+  `paths` filter lists exactly the files the Dockerfile copies (Nextflow files, tests and docs
+  never reach an image; keep the filter in step when a Dockerfile changes). Tag pushes always
+  build.
 - `docs.yml`: strict build and gh-pages deploy on every push to `main`.
 
 ## Releases

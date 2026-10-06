@@ -46,7 +46,7 @@ nextflow run . \
 ```
 
 Every process runs in a published container image
-(`ghcr.io/lilferrit/fisseq-data-pipeline`); add `-profile local` to run against a
+(`ghcr.io/lilferrit/fisseqmono/fisseq-data-pipeline`); add `-profile local` to run against a
 local uv environment instead.
 
 ## Documentation
