@@ -15,7 +15,8 @@ import polars as pl
 import pytest
 import yaml
 
-from fisseq_data_pipeline.cells import CellsInput, load_cells
+from fisseq_common.stages.config import CellsInput
+from fisseq_common.stages.filter import load_cells
 
 _PROJECT_ROOT = Path(__file__).parents[2]
 
@@ -229,7 +230,7 @@ def test_normalized_cells_wt_mean_near_zero(pipeline_outputs, batch_stem):
     """NORMALIZE fits on wildtype cells, so their post-fit mean sits at ~0."""
     exp_dir, _ = pipeline_outputs
     out = exp_dir / "normalization" / batch_stem
-    cells, _ = load_cells(
+    cells = load_cells(
         CellsInput(
             cells_file=str(
                 exp_dir / "qc_filter" / batch_stem / "filtered_cells.parquet"

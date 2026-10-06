@@ -35,14 +35,15 @@ profiles = (
 ## The pipeline layout
 
 `from_pipeline` finds each file through `fisseq_common.layout`, which both pipelines publish
-with. The layout is detected from the run's top-level directories (`normalization/`: the data
-pipeline; `filter_embeddings/`, `embeddings/`, `cell_metadata/`: the embeddings pipeline), or
+with. The layout is detected from the run's top-level directories (`input/`: the data
+pipeline; `cell_images/`, `cell_metadata/`, `embeddings/`, `cp_features/`: the embeddings pipeline), or
 passed as `layout="data"` / `layout="embeddings"`. A run with neither, e.g. one with only
 `feature_select_batchwise/` and `ovwt_batchwise/` copied out, is read as a data-pipeline run.
 `track="cp_features"` reads the embeddings pipeline's CellProfiler track
-(`*_cp_features/` directories), which has no blocklists or passthrough aggregates.
+(`*_cp_features/` directories), which has only aggregates and OvWT scores: no blocklists,
+passthrough aggregates or `output.parquet`.
 
-The data pipeline writes:
+Both pipelines write the same per-experiment layout:
 
 ```text
 <pipeline_dir>/
@@ -56,12 +57,9 @@ The data pipeline writes:
                                            #   auroc_median_fold, meta_n_barcodes, meta_n_cells
 ```
 
-The embeddings pipeline writes one `feature_select_batchwise/<batch>/aggregate.parquet` holding
-every method (`<feature>_<method>` columns, or bare `<feature>` columns when the run's only
-method is `median`), plus the same `passthrough_aggregates/`, `blocklists/` and
-`blocklist.parquet`. Its aggregates are of cells normalized to the synonymous cells, not
-z-scored per variant. `Profiles.from_pipeline(..., types=[...])` picks the requested methods'
-columns.
+In the embeddings pipeline the features are the `emb_NNNN` dimensions, so the aggregate columns
+are `emb_NNNN_<type>`. Its CellProfiler track writes only
+`feature_select_batchwise_cp_features/<batch>/aggregates/<type>.parquet` (also z-scored).
 
 There is no `global/` directory any more: the pipeline stopped running its global stages, so the
 aggregation across experiments happens here. See
@@ -91,7 +89,8 @@ fb.OvwtScores.from_pipeline(run, exclude=[re.compile(r"_R3$"), "T2_R1"])  # rege
 - `metadata=True` (or a list of column names) left-joins the per-variant `meta_` columns of each
   batch's `output.parquet`, such as `meta_num_cells` and the barcode counts. Without it, the counts
   only come through `OvwtScores`. Sum them across batches with
-  `median_across_batches(sum_cols=["meta_num_cells", ...])`.
+  `median_across_batches(sum_cols=["meta_num_cells", ...])`. The embeddings pipeline's
+  CellProfiler track writes no `output.parquet`, so it has no metadata to join.
 
 A single file that isn't in this layout, such as a parquet a notebook wrote, can be loaded with
 `fb.Profiles.read(path)`.
@@ -167,7 +166,7 @@ per_variant.drop_nonfinite().umap().cluster(n_neighbors=30).save("clusters.parqu
 
 ### Normalization and aggregation
 
-- The pipeline writes the aggregates **already z-scored** against each batch's synonymous controls,
+- Both pipelines write the aggregates **already z-scored** against each batch's synonymous controls,
   so you don't need `normalize(by="meta_experiment")` on current runs. On them it is a no-op, up to
   rounding. It is still useful for older runs that wrote raw aggregates, and for re-normalizing
   after other steps.
@@ -208,7 +207,7 @@ profiles = profiles.drop_nonfinite()           # drop columns with any null / Na
   `feature_ok`.
 
 `feature_select()` runs `pycytominer.feature_select` over the profile values. It needs
-`fisseqborn[select]`. The default operations are the pipeline's: drop near-zero-variance features,
+`fisseqborn[select]`. The default operations are the ones the data pipeline used to run: drop near-zero-variance features,
 apply the blocklist, then drop one of every pair of features correlated above `corr_threshold`.
 
 ```python
@@ -326,8 +325,7 @@ They now raise a `DeprecationWarning`, because current runs don't have that dire
 Neither pipeline aggregates across experiments. The `fisseqborn-global` command does it from the
 per-experiment outputs of either pipeline, with the methods of the embeddings pipeline's former
 global stages (GLOBAL_BLOCKLIST, GLOBAL_VARIANT_EMBEDDINGS, GLOBAL_VARIANT_DISTINGUISHABILITY and
-their CellProfiler-track twins; `fisseq_common.global_aggregation`). `tests/test_global_parity.py`
-checks that it reproduces their outputs.
+their CellProfiler-track twins; `fisseq_common.global_aggregation`).
 
 ```bash
 fisseqborn-global /path/to/pipeline_dir --out /path/to/global \
@@ -364,8 +362,7 @@ Per track:
    variants, then the median across experiments (`--scores`, `--no-ovwt`).
 
 Off by default, applied to `median_aggregate` before the PCA: `--operations ...` (pycytominer
-feature selection; the pipeline's per-experiment operations are `variance_threshold blocklist
-correlation_threshold`) with `--corr-threshold`, `--impact-score` (a pre-PCA `meta_impact_score`),
+feature selection, e.g. `variance_threshold blocklist correlation_threshold`) with `--corr-threshold`, `--impact-score` (a pre-PCA `meta_impact_score`),
 `--umap N`, `--metadata` (integer `meta_` counts summed across experiments) and
 `--paired median:KSnegLogP` (each companion from the experiment holding its value's median).
 `--no-blocklist` pools every feature; `--no-cp-features` skips the CellProfiler track.

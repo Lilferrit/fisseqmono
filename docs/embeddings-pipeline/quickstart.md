@@ -75,8 +75,11 @@ already-computed starcall outputs are reused either way.
 ## 4. Read the outputs
 
 Every stage's output lands under `<pipeline_dir>/`, one subdirectory per
-stage (`cell_images/`, `dataset/`, `qc_filter/`, `embeddings/`,
-`filter_embeddings/`, `feature_select_batchwise/`, `ovwt_batchwise/`). See
+stage (`cell_images/`, `cell_metadata/`, `qc_filter/`, `embeddings/`,
+`normalization/`, `ovwt_batchwise/`, `feature_select_batchwise/`), laid out as
+`fisseq_common.layout` says. From `qc_filter/` down the layout is fisseq-data-pipeline's:
+`feature_select_batchwise/<batch>/aggregates/<method>.parquet` holds each method's
+per-variant aggregates and `output.parquet` the per-variant table after feature selection. See
 [Nextflow Workflow](nextflow.md#output-directory-layout) for the full tree
 and [Architecture](architecture.md#data-contracts) for what each Parquet
 file's columns mean.

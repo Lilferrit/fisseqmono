@@ -10,18 +10,21 @@ population differs from wildtype (WT) controls using morphological features.
 - **[Quickstart](quickstart.md)** — the fastest path from a fresh checkout to
   a first pipeline run, including setting up a cluster config.
 - **[Architecture](architecture.md)** — the full pipeline DAG, what each stage
-  produces/consumes, and the key shared abstractions (`Normalizer`,
-  `BaseAggregator`, `BatchCorrector`).
+  produces/consumes, and the output layout.
 - **[Installation](installation.md)** — environment setup, including cluster/HPC
   configuration.
 - **[Nextflow Workflow](nextflow.md)** — the Nextflow processes, how they're wired
   together, and how to run the pipeline (profiles).
 - **[Configuration](configuration.md)** — every parameter, the `experiments:`
   schema, and the single `random_seed`.
-- **CLI Reference** — one page per Python entry point (input, QC filter,
-  normalize, aggregate, feature selection, OvWT), each with its config fields and a runnable example.
-- **API Reference** — full function/class-level documentation for every module,
-  generated from source docstrings.
+- **[Shared stages](../common/stages.md)** — every stage after INPUT (QC filter,
+  normalize, OvWT, aggregation, feature selection) is a fisseq-common entry point,
+  `python -m fisseq_common.stages.<stage>`, shared with the embeddings pipeline: config
+  fields, outputs and a runnable example for each.
+- **CLI Reference** — this package's own entry points: [INPUT](cli/input.md) and the
+  [standalone aggregate](cli/aggregate.md).
+- **API Reference** — function/class-level documentation for this package's modules; the
+  shared stages' is in [fisseq-common's](../common/api.md).
 - **[Walkthrough](walkthrough.md)** — a complete end-to-end run, from raw
   CellProfiler output to final feature-selected results.
 
@@ -42,9 +45,6 @@ NORMALIZE   (per experiment)          z-score fit on WT control cells
 ```
 
 Every output is per experiment; cross-experiment aggregation is done downstream
-by [fisseqborn](https://github.com/FowlerLab/fisseqborn).
+by [fisseqborn](../fisseqborn/index.md).
 
 See [Architecture](architecture.md) for the full diagram and stage-by-stage detail.
-
-For a repo overview and quick start, see the
-[README](https://github.com/Lilferrit/fisseq-data-pipeline).

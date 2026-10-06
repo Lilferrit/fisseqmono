@@ -16,8 +16,9 @@ TWO MODES, mutually exclusive, selected by tests/integration/conftest.py's
 Every test here is skipped automatically whenever `nextflow` isn't on PATH
 -- centralized in conftest.py's collection hook. `-profile local` is what
 makes the synthetic suite work without a built image: every task runs
-`python -m fisseq_embeddings_pipeline.<module>` directly against this
-repo's own venv.
+`python -m fisseq_embeddings_pipeline.<module>` (or, for the stages shared
+with fisseq-data-pipeline, `python -m fisseq_common.stages.<stage>`)
+directly against this repo's own venv.
 
 EMBED_CELLS (the one GPU-bound, real-checkpoint-dependent stage) is
 exercised via a from-scratch, randomly-initialized vit_small checkpoint
@@ -56,7 +57,8 @@ import tifffile
 import torch
 import yaml
 
-from fisseq_embeddings_pipeline.filter import JOIN_KEYS
+from fisseq_common.stages.config import EMBEDDINGS_JOIN_KEYS as JOIN_KEYS
+from fisseq_common.stages.config import row_keys
 from fisseq_embeddings_pipeline.tile_shard import TileShardConfig, write_tile_shard
 from fisseq_embeddings_pipeline.utils.cell_table import CELL_METADATA_SCHEMA
 from fisseq_embeddings_pipeline.vendor.dinov2.models.vision_transformer import (
@@ -65,17 +67,32 @@ from fisseq_embeddings_pipeline.vendor.dinov2.models.vision_transformer import (
 
 _PROJECT_ROOT = Path(__file__).parents[2]
 
+# A row of a cell table: the cell's keys plus QC's variant tag (pseudo-variant
+# rows share their source cell's keys). What the splits name.
+ROW_KEYS = row_keys(JOIN_KEYS)
+
+# params.yaml's default feature_select_types: one aggregates/<method>.parquet
+# each, and the bootstrap feature selection fans out over all of them.
+_FEATURE_SELECT_TYPES = yaml.safe_load((_PROJECT_ROOT / "params.yaml").read_text())[
+    "feature_select_types"
+]
+_PASSTHROUGH_TYPE = "KSnegLogP"
+_SYNONYMOUS = ["A1A", "A2A"]
+
 # Small enough to run fast on CPU; large enough for a 2x2 patch grid at
 # patch_size=16.
 _WINDOW = 32
 _NUM_CHANNELS = 4
 
-# 4 WT barcodes x 3 cells, 2 synonymous ("A1A") barcodes x 3 cells, 2
-# missense ("M1K") barcodes x 3 cells -- every threshold below is lowered
-# to match this fixture's small size (see _EXTRA_PARAMS).
+# 2 barcodes x 3 cells each of WT, two synonymous variants ("A1A", "A2A") and a
+# missense one ("M1K"): 24 cells, within the tile's 25 cell positions. Two
+# synonymous variants, because the aggregates are z-scored against them (one
+# leaves the standard deviation undefined). Every threshold below is lowered to
+# match this fixture's small size (see _EXTRA_PARAMS).
 _VARIANTS = {
-    "WT": ("bc_wt_{i}", 4, 3),
+    "WT": ("bc_wt_{i}", 2, 3),
     "A1A": ("bc_syn_{i}", 2, 3),
+    "A2A": ("bc_syn2_{i}", 2, 3),
     "M1K": ("bc_mis_{i}", 2, 3),
 }
 
@@ -85,6 +102,7 @@ _EXTRA_PARAMS = {
     "barcode_count_threshold": 2,
     "variant_barcode_count_threshold": 2,
     "edit_distance_threshold": 5,
+    "feature_select_bootstrap_reps": 3,
     "ovwt_n_folds": 2,
     "ovwt_calibrate": "false",
     "ovwt_min_cells": 2,
@@ -366,15 +384,11 @@ def _write_synthetic_experiment(
     params["window"] = _WINDOW
     params["cellprofiler_pipeline"] = _CELLPROFILER_PIPELINE
     params["snakemake_cores"] = 1
-    # Two bootstrap replicates rather than params.yaml's production 10: the
-    # fan-out is reps x 2 halves x len(aggregate_methods) jobs per
-    # experiment, and 2 is the minimum that still exercises BLOCKLIST's
-    # median-across-replicates (validate_config rejects 1).
-    params["reproducibility_bootstrap_reps"] = 2
     # Exercise the passthrough path for real: KSnegLogP must reach
-    # aggregate_with_passthrough.parquet and must NOT reach
-    # filtered_aggregate.parquet or the PCA.
-    params["aggregate_methods_passthrough"] = ["KSnegLogP"]
+    # output.parquet (through passthrough_aggregates/) and must never be
+    # bootstrapped or blocklisted. (feature_select_bootstrap_reps is lowered
+    # in _EXTRA_PARAMS.)
+    params["feature_select_passthrough_types"] = [_PASSTHROUGH_TYPE]
     params["experiments"] = [{"batch_stem": "batch1", **batch_config}]
     with open(exp_dir / "params.yaml", "w") as f:
         yaml.safe_dump(params, f)
@@ -629,7 +643,7 @@ def test_starcall_profile_without_job_image_fails_fast(tmp_path):
 def test_cp_track_survives_embedding_failure(tmp_path_factory):
     """The regression test for decoupling the two tracks: with
     EMBED_CELLS failing outright, the whole cellDINO branch
-    (EMBED_CELLS -> FILTER_EMBEDDINGS -> ...) produces nothing, but
+    (EMBED_CELLS -> NORMALIZE -> ...) produces nothing, but
     QC_FILTER and the entire CellProfiler branch still run to completion.
 
     EMBED_CELLS is failed via an extra `-c` config (a `beforeScript`
@@ -650,21 +664,22 @@ def test_cp_track_survives_embedding_failure(tmp_path_factory):
 
     # The cellDINO branch is gone...
     assert not (exp_dir / "embeddings" / "batch1" / "embeddings.parquet").exists()
-    assert not (
-        exp_dir / "filter_embeddings" / "batch1" / "filtered_keys.parquet"
-    ).exists()
+    assert not (exp_dir / "normalization" / "batch1").exists()
+    assert not (exp_dir / "ovwt_batchwise" / "batch1").exists()
+    assert not (exp_dir / "feature_select_batchwise" / "batch1").exists()
 
     # ...while QC and the whole CellProfiler branch are unaffected.
     assert (exp_dir / "qc_filter" / "batch1" / "filtered_cells.parquet").exists()
     assert (exp_dir / "cp_features" / "batch1" / "cp_features.parquet").exists()
     assert (
-        exp_dir / "filter_cp_features" / "batch1" / "filtered_keys.parquet"
+        exp_dir / "normalization_cp_features" / "batch1" / "filtered_keys.parquet"
     ).exists()
     assert (
         exp_dir
         / "feature_select_batchwise_cp_features"
         / "batch1"
-        / "aggregate.parquet"
+        / "aggregates"
+        / "median.parquet"
     ).exists()
     assert (
         exp_dir / "ovwt_batchwise_cp_features" / "batch1" / "results.parquet"
@@ -691,22 +706,67 @@ def test_embeddings_produced_with_joined_metadata(pipeline_outputs):
     assert not (exp_dir / "dataset").exists()
 
 
-def test_filter_embeddings_has_no_embedding_columns(pipeline_outputs):
-    """filtered_keys.parquet must never carry emb_* columns, only the
-    join key + classification."""
+def _feature_select_dir(exp_dir: Path) -> Path:
+    return exp_dir / "feature_select_batchwise" / "batch1"
+
+
+def _read_aggregates(exp_dir: Path) -> dict[str, pl.DataFrame]:
+    """Every aggregates/<method>.parquet, by method."""
+    base = _feature_select_dir(exp_dir) / "aggregates"
+    return {m: pl.read_parquet(base / f"{m}.parquet") for m in _FEATURE_SELECT_TYPES}
+
+
+def test_normalization_has_no_embedding_columns(pipeline_outputs):
+    """filtered_keys.parquet must never carry emb_* columns, only QC's keys
+    and meta_* columns plus the control flag."""
     exp_dir, _ = pipeline_outputs
-    df = pl.read_parquet(
-        exp_dir / "filter_embeddings" / "batch1" / "filtered_keys.parquet"
-    )
+    df = pl.read_parquet(exp_dir / "normalization" / "batch1" / "filtered_keys.parquet")
     assert not any(c.startswith("emb_") for c in df.columns)
+    assert set(ROW_KEYS) <= set(df.columns)
 
 
-def test_aggregate_and_ovwt_outputs_exist(pipeline_outputs):
+def test_wildtype_cells_are_the_controls(pipeline_outputs):
+    """NORMALIZE fits the normalizer on the wildtype cells (the shared filter
+    stage's default), not on the synonymous variants."""
     exp_dir, _ = pipeline_outputs
-    agg = pl.read_parquet(
-        exp_dir / "feature_select_batchwise" / "batch1" / "aggregate.parquet"
+    df = pl.read_parquet(exp_dir / "normalization" / "batch1" / "filtered_keys.parquet")
+    assert df["meta_is_control"].to_list() == (df["meta_aa_changes"] == "WT").to_list()
+    assert df["meta_is_control"].any()
+
+
+def test_aggregates_are_one_file_per_method(pipeline_outputs):
+    """Every feature_select_types method has its own aggregates file, columns
+    suffixed `_<method>`. The wildtype cells are the reference, never a row;
+    the synonymous variants are ordinary rows."""
+    exp_dir, _ = pipeline_outputs
+    n_dims = sum(
+        c.startswith("emb_")
+        for c in pl.read_parquet(
+            exp_dir / "embeddings" / "batch1" / "embeddings.parquet"
+        ).columns
     )
-    assert agg.height >= 1
+    for method, agg in _read_aggregates(exp_dir).items():
+        assert agg.columns == ["meta_aa_changes"] + [
+            f"emb_{d:04d}_{method}" for d in range(n_dims)
+        ], method
+        assert agg["meta_aa_changes"].to_list() == ["A1A", "A2A", "M1K"], method
+
+
+def test_aggregates_are_zscored_to_the_synonymous_variants(pipeline_outputs):
+    """AGGREGATE_FEATURE_TYPE_BATCHWISE z-scores every column against the
+    experiment's synonymous variants (ddof=1): with two of them, they come
+    out at mean 0 and standard deviation 1 in every non-constant column."""
+    exp_dir, _ = pipeline_outputs
+    agg = _read_aggregates(exp_dir)["median"]
+    synonymous = agg.filter(pl.col("meta_aa_changes").is_in(_SYNONYMOUS)).drop(
+        "meta_aa_changes"
+    )
+    np.testing.assert_allclose(synonymous.mean().row(0), 0.0, atol=1e-9)
+    np.testing.assert_allclose(synonymous.std().row(0), 1.0)
+
+
+def test_ovwt_scores_every_variant_against_wildtype(pipeline_outputs):
+    exp_dir, _ = pipeline_outputs
     results = pl.read_parquet(exp_dir / "ovwt_batchwise" / "batch1" / "results.parquet")
     assert {
         "auroc_pooled",
@@ -714,40 +774,46 @@ def test_aggregate_and_ovwt_outputs_exist(pipeline_outputs):
         "auroc_folds",
         "auroc_median_fold",
     }.issubset(results.columns)
+    assert sorted(results["meta_aa_changes"].to_list()) == ["A1A", "A2A", "M1K"]
+    assert (exp_dir / "ovwt_batchwise" / "batch1" / "cell_scores.parquet").exists()
 
 
 # ---------------------------------------------------------------------------
-# Reproducibility filtering + passthrough aggregates (cellDINO track)
+# Feature selection + passthrough aggregates (cellDINO track)
 # ---------------------------------------------------------------------------
 
 
-def test_reproducibility_chain_outputs_exist(pipeline_outputs):
-    """Every stage of GENERATE_SPLIT -> ... -> FILTER_AGGREGATE produced its
-    file, at the fan-out the rules declare (2 replicates x 2 halves x the
-    three default aggregate_methods)."""
+def test_feature_selection_outputs_exist(pipeline_outputs):
+    """Every stage of GENERATE_SPLIT -> ... -> FINALIZE_FEATURE_SELECT
+    produced its file, at the fan-out the workflow declares
+    (feature_select_bootstrap_reps replicates x 2 halves x every
+    feature_select_types method)."""
     exp_dir, _ = pipeline_outputs
-    base = exp_dir / "feature_select_batchwise" / "batch1"
+    base = _feature_select_dir(exp_dir)
+    reps = range(1, _EXTRA_PARAMS["feature_select_bootstrap_reps"] + 1)
 
-    for rep in (1, 2):
-        assert (base / "splits" / f"rep{rep}" / "half1.parquet").exists()
-        assert (base / "splits" / f"rep{rep}" / "half2.parquet").exists()
-        for half in (1, 2):
-            for method in ("median", "KS", "AUROC"):
+    for rep in reps:
+        assert (base / "splits" / f"bootstrap_{rep}" / "half1.parquet").exists()
+        assert (base / "splits" / f"bootstrap_{rep}" / "half2.parquet").exists()
+        for method in _FEATURE_SELECT_TYPES:
+            for half in (1, 2):
                 assert (
                     base
                     / "half_aggregates"
-                    / f"rep{rep}"
-                    / f"half{half}"
-                    / f"{method}.parquet"
+                    / f"bootstrap_{rep}"
+                    / method
+                    / f"half{half}_agg.parquet"
                 ).exists()
-        for method in ("median", "KS", "AUROC"):
-            assert (base / "correlations" / f"rep{rep}" / f"{method}.parquet").exists()
+            assert (
+                base / "correlations" / method / f"bootstrap_{rep}.parquet"
+            ).exists()
 
-    for method in ("median", "KS", "AUROC"):
+    for method in _FEATURE_SELECT_TYPES:
+        assert (base / "aggregates" / f"{method}.parquet").exists()
         assert (base / "blocklists" / f"{method}.parquet").exists()
     assert (base / "blocklist.parquet").exists()
-    assert (base / "filtered_aggregate.parquet").exists()
-    assert (base / "aggregate_with_passthrough.parquet").exists()
+    assert (base / "output.parquet").exists()
+    assert (base / "passthrough_aggregates" / f"{_PASSTHROUGH_TYPE}.parquet").exists()
 
 
 def test_no_global_dir(pipeline_outputs):
@@ -756,61 +822,89 @@ def test_no_global_dir(pipeline_outputs):
     assert not (exp_dir / "global").exists()
 
 
-def test_halves_partition_the_qc_passed_cells(pipeline_outputs):
+def test_halves_partition_the_qc_passed_rows(pipeline_outputs):
+    """A split names rows by the cell keys plus QC's variant tag, and the two
+    halves of a replicate partition NORMALIZE's keys."""
     exp_dir, _ = pipeline_outputs
-    base = exp_dir / "feature_select_batchwise" / "batch1"
+    base = _feature_select_dir(exp_dir)
     keys = pl.read_parquet(
-        exp_dir / "filter_embeddings" / "batch1" / "filtered_keys.parquet"
-    ).select(JOIN_KEYS)
+        exp_dir / "normalization" / "batch1" / "filtered_keys.parquet"
+    ).select(ROW_KEYS)
 
-    half1 = pl.read_parquet(base / "splits" / "rep1" / "half1.parquet")
-    half2 = pl.read_parquet(base / "splits" / "rep1" / "half2.parquet")
+    half1 = pl.read_parquet(base / "splits" / "bootstrap_1" / "half1.parquet")
+    half2 = pl.read_parquet(base / "splits" / "bootstrap_1" / "half2.parquet")
 
+    assert half1.columns == ROW_KEYS
     assert half1.height + half2.height == keys.height
-    assert half1.join(half2, on=JOIN_KEYS, how="inner").height == 0
+    assert half1.join(half2, on=ROW_KEYS, how="inner", nulls_equal=True).height == 0
+    both = pl.concat([half1, half2])
+    assert both.join(keys, on=ROW_KEYS, how="anti", nulls_equal=True).height == 0
 
 
 def test_blocklist_covers_every_aggregate_column(pipeline_outputs):
-    """The blocklist keys features by column name, so its coverage of
-    aggregate.parquet's feature columns is what makes FILTER_AGGREGATE's
-    drop meaningful. A mismatch here (bare vs suffixed names, say) would
-    silently filter nothing at all."""
+    """The blocklist keys features by column name, so its coverage of the
+    aggregates' feature columns is what makes FINALIZE_FEATURE_SELECT's drop
+    meaningful. A mismatch here (a different suffix, say) would silently
+    filter nothing at all."""
     exp_dir, _ = pipeline_outputs
-    base = exp_dir / "feature_select_batchwise" / "batch1"
+    blocklist = pl.read_parquet(_feature_select_dir(exp_dir) / "blocklist.parquet")
 
-    agg = pl.read_parquet(base / "aggregate.parquet")
-    blocklist = pl.read_parquet(base / "blocklist.parquet")
-
-    feature_cols = {c for c in agg.columns if not c.startswith("meta_")}
+    feature_cols = {
+        c
+        for agg in _read_aggregates(exp_dir).values()
+        for c in agg.columns
+        if not c.startswith("meta_")
+    }
     assert feature_cols == set(blocklist["feature"].to_list())
+    assert blocklist["feature"].to_list() == sorted(blocklist["feature"].to_list())
 
 
-def test_filtered_aggregate_is_a_column_subset_of_aggregate(pipeline_outputs):
+def test_output_is_the_aggregates_after_the_blocklist(pipeline_outputs):
+    """output.parquet (FINALIZE_FEATURE_SELECT): one row per aggregated
+    variant, exactly the reproducible aggregate columns plus the passthrough
+    ones, the synonymous variants flagged meta_is_control, and the impact
+    score and per-variant metadata."""
     exp_dir, _ = pipeline_outputs
-    base = exp_dir / "feature_select_batchwise" / "batch1"
+    base = _feature_select_dir(exp_dir)
+    blocklist = pl.read_parquet(base / "blocklist.parquet")
+    output = pl.read_parquet(base / "output.parquet")
 
-    agg = pl.read_parquet(base / "aggregate.parquet")
-    filtered = pl.read_parquet(base / "filtered_aggregate.parquet")
+    assert output["meta_aa_changes"].to_list() == ["A1A", "A2A", "M1K"]
+    assert output["meta_is_control"].to_list() == [True, True, False]
+    assert {"meta_impact_score", "meta_num_cells", "meta_barcode_num_unique"} <= set(
+        output.columns
+    )
+    # 2 barcodes x 3 cells per variant, every cell passing QC.
+    assert output["meta_num_cells"].to_list() == [6, 6, 6]
 
-    assert set(filtered.columns) <= set(agg.columns)
-    assert filtered.height == agg.height
-    # Metadata is never filtered -- only feature columns carry a verdict.
-    assert {c for c in agg.columns if c.startswith("meta_")} <= set(filtered.columns)
+    selected = {
+        c
+        for c in output.columns
+        if not c.startswith("meta_") and not c.endswith(f"_{_PASSTHROUGH_TYPE}")
+    }
+    reproducible = set(blocklist.filter(pl.col("feature_ok"))["feature"].to_list())
+    assert selected == reproducible
 
 
-def test_passthrough_columns_reach_only_the_terminal_file(pipeline_outputs):
-    """aggregate_methods_passthrough is ["KSnegLogP"] in this fixture. Those
-    columns belong in the per-experiment deliverable and nowhere else --
-    not in filtered_aggregate.parquet, which is what the filtered/with-
-    passthrough file split exists to guarantee across a process boundary."""
+def test_passthrough_columns_reach_only_the_output(pipeline_outputs):
+    """feature_select_passthrough_types is ["KSnegLogP"] in this fixture.
+    Those columns reach output.parquet, raw, from their own directory -- and
+    never the z-scored aggregates/ the blocklist is built from."""
     exp_dir, _ = pipeline_outputs
-    base = exp_dir / "feature_select_batchwise" / "batch1"
+    base = _feature_select_dir(exp_dir)
 
-    with_pt = pl.read_parquet(base / "aggregate_with_passthrough.parquet")
-    filtered = pl.read_parquet(base / "filtered_aggregate.parquet")
-
-    assert any(c.endswith("_KSnegLogP") for c in with_pt.columns)
-    assert not any(c.endswith("_KSnegLogP") for c in filtered.columns)
+    passthrough = pl.read_parquet(
+        base / "passthrough_aggregates" / f"{_PASSTHROUGH_TYPE}.parquet"
+    )
+    output = pl.read_parquet(base / "output.parquet")
+    pt_cols = [c for c in passthrough.columns if c != "meta_aa_changes"]
+    assert pt_cols and all(c.endswith(f"_{_PASSTHROUGH_TYPE}") for c in pt_cols)
+    assert output.select("meta_aa_changes", *pt_cols).equals(
+        passthrough.sort("meta_aa_changes")
+    )
+    # Raw -log10 p-values, not z-scores.
+    assert (passthrough.select(pt_cols).to_numpy() >= 0).all()
+    assert not (base / "aggregates" / f"{_PASSTHROUGH_TYPE}.parquet").exists()
 
 
 def test_passthrough_methods_are_not_blocklisted(pipeline_outputs):
@@ -818,11 +912,46 @@ def test_passthrough_methods_are_not_blocklisted(pipeline_outputs):
     has no reproducibility verdict at all -- that is the entire point of
     the second list."""
     exp_dir, _ = pipeline_outputs
-    base = exp_dir / "feature_select_batchwise" / "batch1"
+    base = _feature_select_dir(exp_dir)
 
     blocklist = pl.read_parquet(base / "blocklist.parquet")
-    assert not any(f.endswith("_KSnegLogP") for f in blocklist["feature"].to_list())
-    assert not (base / "blocklists" / "KSnegLogP.parquet").exists()
+    assert not any(
+        f.endswith(f"_{_PASSTHROUGH_TYPE}") for f in blocklist["feature"].to_list()
+    )
+    assert not (base / "blocklists" / f"{_PASSTHROUGH_TYPE}.parquet").exists()
+    assert not (base / "correlations" / _PASSTHROUGH_TYPE).exists()
+    assert not (base / "half_aggregates" / "bootstrap_1" / _PASSTHROUGH_TYPE).exists()
+
+
+def test_run_ovwt_and_run_feature_selection_gate_their_stages(tmp_path_factory):
+    """--run_ovwt false skips OVWT_BATCHWISE on both tracks and
+    --run_feature_selection false the cellDINO track's whole feature
+    selection; normalization and the CellProfiler track's aggregates still
+    run. Passed as CLI strings, which the workflow must not take as
+    Groovy-truthy."""
+    exp_dir = tmp_path_factory.mktemp("nf_experiment_gates")
+    _write_synthetic_experiment(exp_dir)
+    checkpoint_path = tmp_path_factory.mktemp("weights_gates") / "checkpoint.pth"
+    _write_tiny_checkpoint(checkpoint_path)
+
+    result = _run_nextflow(
+        exp_dir,
+        checkpoint_path,
+        extra_params={"run_ovwt": "false", "run_feature_selection": "false"},
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Error is ignored" not in result.stdout, result.stdout
+
+    assert (exp_dir / "normalization" / "batch1" / "filtered_keys.parquet").exists()
+    assert (
+        exp_dir / "feature_select_batchwise_cp_features" / "batch1" / "aggregates"
+    ).is_dir()
+    for skipped in (
+        "ovwt_batchwise",
+        "ovwt_batchwise_cp_features",
+        "feature_select_batchwise",
+    ):
+        assert not (exp_dir / skipped).exists(), skipped
 
 
 def test_pipeline_auto_detects_grid_size_when_omitted(tmp_path_factory):
@@ -977,29 +1106,33 @@ def test_cp_features_produced(pipeline_outputs):
     assert "Cells_AreaShape_Area" in cp_features.columns
 
 
-def test_filter_cp_features_has_no_feature_columns(pipeline_outputs):
+def test_cp_normalization_has_no_feature_columns(pipeline_outputs):
     """filtered_keys.parquet must never carry CellProfiler feature columns,
-    only the join key + classification -- same no-copy design as
-    FILTER_EMBEDDINGS."""
+    only QC's keys and meta_* columns plus the control flag -- same no-copy
+    design as the cellDINO track's NORMALIZE."""
     exp_dir, _ = pipeline_outputs
     df = pl.read_parquet(
-        exp_dir / "filter_cp_features" / "batch1" / "filtered_keys.parquet"
+        exp_dir / "normalization_cp_features" / "batch1" / "filtered_keys.parquet"
     )
     assert "Cells_AreaShape_Area" not in df.columns
+    assert df["meta_is_control"].to_list() == (df["meta_aa_changes"] == "WT").to_list()
 
 
 def test_aggregate_and_ovwt_cp_features_outputs_exist(pipeline_outputs):
     exp_dir, _ = pipeline_outputs
-    agg = pl.read_parquet(
-        exp_dir
-        / "feature_select_batchwise_cp_features"
-        / "batch1"
-        / "aggregate.parquet"
+    base = exp_dir / "feature_select_batchwise_cp_features" / "batch1"
+    # feature_select_types_cp_features defaults to ["median"]: suffixed like
+    # every other aggregate, z-scored to the synonymous variants.
+    agg = pl.read_parquet(base / "aggregates" / "median.parquet")
+    assert agg["meta_aa_changes"].to_list() == ["A1A", "A2A", "M1K"]
+    assert "Cells_AreaShape_Area_median" in agg.columns
+    synonymous = agg.filter(pl.col("meta_aa_changes").is_in(_SYNONYMOUS))
+    assert synonymous["Cells_AreaShape_Area_median"].mean() == pytest.approx(
+        0.0, abs=1e-9
     )
-    assert agg.height >= 1
-    # aggregate_methods_cp_features defaults to ["median"] -- bare column,
-    # not suffixed.
-    assert "Cells_AreaShape_Area" in agg.columns
+    # No bootstrap feature selection on this track: aggregates only.
+    assert [p.name for p in base.iterdir()] == ["aggregates"]
+
     results = pl.read_parquet(
         exp_dir / "ovwt_batchwise_cp_features" / "batch1" / "results.parquet"
     )
@@ -1019,8 +1152,8 @@ def reproducibility_outputs(tmp_path_factory):
     `_EXTRA_PARAMS`) -- the test this backs is what actually proves the
     reproducibility claim end to end, not just that a `random_seed` field
     exists and is threaded through (that half is
-    already covered per-stage at the unit level, e.g.
-    tests/unit/test_ovwt.py's seed-plumbing tests). Each run writes into
+    already covered per-stage at the unit level, in fisseq-common's stage
+    tests). Each run writes into
     its own from-scratch `pipeline_dir` (a fresh `tmp_path_factory.mktemp`,
     each with its own freshly-written phenotyping/configs input) so the
     second run cannot `-resume`-cache-hit the first's outputs -- comparing
@@ -1036,15 +1169,21 @@ def reproducibility_outputs(tmp_path_factory):
         _write_synthetic_experiment(exp_dir)
         result = _run_nextflow(exp_dir, checkpoint_path)
         assert result.returncode == 0, result.stderr
-        base = exp_dir / "feature_select_batchwise" / "batch1"
+        base = _feature_select_dir(exp_dir)
         runs.append(
             {
                 "ovwt": pl.read_parquet(
                     exp_dir / "ovwt_batchwise" / "batch1" / "results.parquet"
                 ),
                 "blocklist": pl.read_parquet(base / "blocklist.parquet"),
-                "aggregate": pl.read_parquet(base / "aggregate.parquet"),
-                "filtered": pl.read_parquet(base / "filtered_aggregate.parquet"),
+                **{
+                    f"aggregates/{method}": agg
+                    for method, agg in _read_aggregates(exp_dir).items()
+                },
+                "split": pl.read_parquet(
+                    base / "splits" / "bootstrap_1" / "half1.parquet"
+                ),
+                "output": pl.read_parquet(base / "output.parquet"),
             }
         )
     return runs
@@ -1089,15 +1228,18 @@ def test_rerunning_with_same_seed_reproduces_the_blocklist(reproducibility_outpu
     )
 
 
-def test_rerunning_reproduces_aggregate_row_order(reproducibility_outputs):
-    """aggregate.parquet and filtered_aggregate.parquet are byte-stable
-    across runs, row order included. Polars' group_by and joins are not
-    order-preserving under multithreaded execution, so this only holds
-    because aggregate_embeddings sorts -- without which the blocklist above
-    would still match while the published files quietly differed."""
-    for key in ("aggregate", "filtered"):
-        first, second = (r[key] for r in reproducibility_outputs)
-        assert first.equals(second), key
+def test_rerunning_reproduces_the_published_tables(reproducibility_outputs):
+    """Every aggregates/<method>.parquet, a split and output.parquet are
+    identical across runs, row order included. Polars' group_by and joins are
+    not order-preserving under multithreaded execution, so this only holds
+    because QC_FILTER, NORMALIZE and the aggregation sort -- without which the
+    blocklist above would still match while the published files quietly
+    differed."""
+    first, second = reproducibility_outputs
+    for key in first:
+        if key in ("ovwt", "blocklist"):
+            continue
+        assert first[key].equals(second[key]), key
 
 
 # ===========================================================================

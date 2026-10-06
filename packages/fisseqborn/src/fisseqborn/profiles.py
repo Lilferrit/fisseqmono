@@ -13,8 +13,6 @@ import numpy as np
 import polars as pl
 import polars.selectors as cs
 
-from fisseq_common.schema import AGGREGATOR_NAMES
-
 from . import _data, _pipeline, _transforms
 from .dataset import Dataset
 
@@ -138,12 +136,10 @@ class Profiles(Dataset):
 
         For each batch, the aggregates of ``types`` and the passthrough aggregates of
         ``passthrough`` (e.g. ``"KSnegLogP"``) are joined on the variant; variants missing
-        from any of them are dropped. The data pipeline writes one file per type
-        (``feature_select_batchwise/<batch>/aggregates/<type>.parquet``); the embeddings
-        pipeline writes every method to one ``aggregate.parquet``, from which the
-        ``<feature>_<type>`` columns are taken (a median-only run's bare columns count as
-        ``median``). Passthrough aggregates are ``passthrough_aggregates/<type>.parquet``
-        in both. ``types=None`` reads every method the run aggregated (see
+        from any of them are dropped. Both pipelines write one file per type
+        (``feature_select_batchwise/<batch>/aggregates/<type>.parquet``, columns
+        ``<feature>_<type>``) and the passthrough aggregates as
+        ``passthrough_aggregates/<type>.parquet``. ``types=None`` reads every method the run aggregated (see
         `batch_aggregates`). Each batch is tagged in ``batch_col`` with its directory name, and batches
         are stacked in natural order (``T2_R1`` before ``T10_R1``). ``batches`` selects a
         subset, and ``exclude`` drops the batches matching any of its patterns
@@ -155,14 +151,14 @@ class Profiles(Dataset):
         warning per batch naming the columns it dropped, and raises if none is shared.
 
         ``metadata`` left-joins per-variant ``meta_`` columns (such as
-        ``meta_num_cells``) from each batch's ``output.parquet`` (the embeddings pipeline:
-        ``aggregate.parquet``): ``True`` joins all of them, a list joins those named. Sum them across batches with
-        ``median_across_batches(sum_cols=[...])``.
+        ``meta_num_cells``) from each batch's ``output.parquet``: ``True`` joins all of them,
+        a list joins those named. Sum them across batches with
+        ``median_across_batches(sum_cols=[...])``. The embeddings pipeline's CellProfiler
+        track writes no ``output.parquet``, so it has no metadata to join.
 
-        The data pipeline writes the aggregates already z-scored against each batch's
+        Both pipelines write the aggregates already z-scored against each batch's
         synonymous variants, so `normalize` is not needed (and, up to rounding, does
-        nothing). The embeddings pipeline's are aggregates of cells normalized to the
-        synonymous cells, not z-scored per variant. The passthrough values are raw.
+        nothing). The passthrough values are raw.
         """
         if types is not None and not types and not passthrough:
             raise ValueError("Pass at least one aggregate type or passthrough type")
@@ -758,65 +754,53 @@ def batch_aggregates(
     ``types`` and ``passthrough``, joined on the variant (inner).
 
     ``types=None`` takes every method the run aggregated: every
-    ``aggregates/<type>.parquet`` of the batch (data pipeline; listed with one call) or
-    every feature column of ``aggregate.parquet`` (embeddings pipeline). With
-    ``metadata``, also returns each batch's local file holding its per-variant ``meta_``
-    counts (the data pipeline's ``output.parquet``, the embeddings pipeline's
-    ``aggregate.parquet``); otherwise that dict is empty.
+    ``aggregates/<type>.parquet`` of the batch (listed with one call). With ``metadata``,
+    also returns each batch's local ``output.parquet``, which holds its per-variant ``meta_``
+    counts; otherwise that dict is empty.
     """
     lay = src.layout
-    per_method_types: dict[str, list[str]] = {}
-    if lay.aggregate_per_method:
-        if types is None:
-            patterns = [lay.aggregate(b, "*") for b in batches]
-            found = src.glob(patterns)
-            for b, pattern in zip(batches, patterns):
-                directory = posixpath.dirname(pattern)
-                per_method_types[b] = sorted(
-                    pathlib.PurePosixPath(r).stem
-                    for r in found
-                    if posixpath.dirname(r) == directory
-                )
-                if not per_method_types[b] and not passthrough:
-                    raise FileNotFoundError(f"No aggregates in {src}/{directory}")
-        else:
-            per_method_types = {b: list(types) for b in batches}
-    # Per batch: [(file, methods whose columns to take from it, or None for all)].
-    reads: dict[str, list[tuple[str, Sequence[str] | None]]] = {}
+    if types is None:
+        per_method_types: dict[str, list[str]] = {}
+        patterns = [lay.aggregate(b, "*") for b in batches]
+        found = src.glob(patterns)
+        for b, pattern in zip(batches, patterns):
+            directory = posixpath.dirname(pattern)
+            per_method_types[b] = sorted(
+                pathlib.PurePosixPath(r).stem
+                for r in found
+                if posixpath.dirname(r) == directory
+            )
+            if not per_method_types[b] and not passthrough:
+                raise FileNotFoundError(f"No aggregates in {src}/{directory}")
+    else:
+        per_method_types = {b: list(types) for b in batches}
+    reads: dict[str, list[str]] = {}
     meta_file: dict[str, str] = {}
     for b in batches:
-        if lay.aggregate_per_method:
-            parts = [(lay.aggregate(b, t), None) for t in per_method_types[b]]
-        elif types is None:
-            parts = [(lay.aggregate(b), None)]
-        else:
-            parts = [(lay.aggregate(b), tuple(types))] if types else []
+        parts = [lay.aggregate(b, t) for t in per_method_types[b]]
         for t in passthrough:
             rel = lay.passthrough_aggregate(b, t)
             if rel is None:
                 raise ValueError(f"{lay!r} writes no passthrough aggregates")
-            parts.append((rel, None))
+            parts.append(rel)
         reads[b] = parts
-        # The data pipeline's counts are in output.parquet; the embeddings pipeline's
-        # aggregate.parquet carries them itself.
-        meta_file[b] = lay.selected(b) if lay.aggregate_per_method else lay.aggregate(b)
+        if metadata:
+            selected = lay.selected(b)
+            if selected is None:
+                raise ValueError(
+                    f"{lay!r} writes no output.parquet, so no per-variant metadata"
+                )
+            meta_file[b] = selected
     rels = sorted(
-        {rel for parts in reads.values() for rel, _ in parts}
-        | (set(meta_file.values()) if metadata else set())
+        {rel for parts in reads.values() for rel in parts} | set(meta_file.values())
     )
     local = dict(zip(rels, src.files(rels)))
     frames: dict[str, pl.LazyFrame] = {}
     for b in batches:
-        parts = []
-        for rel, methods in reads[b]:
-            lf = _pipeline.scan(local[rel])
-            if methods is None:
-                parts.append(lf.select(variant_col, ~cs.starts_with("meta_")))
-            else:
-                columns = _method_columns(
-                    lf.collect_schema().names(), methods, local[rel]
-                )
-                parts.append(lf.select(variant_col, *columns))
+        parts = [
+            _pipeline.scan(local[rel]).select(variant_col, ~cs.starts_with("meta_"))
+            for rel in reads[b]
+        ]
         batch_lf = parts[0]
         for part in parts[1:]:
             batch_lf = batch_lf.join(part, on=variant_col)
@@ -825,32 +809,10 @@ def batch_aggregates(
     return frames, meta_paths
 
 
-def _method_columns(
-    columns: Sequence[str], methods: Sequence[str], path: pathlib.Path
-) -> list[str]:
-    """The feature columns of ``methods`` in an embeddings-pipeline ``aggregate.parquet``:
-    those suffixed ``_<method>``, or, for ``median`` in a median-only run (no column carries
-    any method's suffix), every non-``meta_`` column."""
-    features = [c for c in columns if not c.startswith("meta_")]
-    suffixed = [
-        c for c in features if any(c.endswith(f"_{m}") for m in AGGREGATOR_NAMES)
-    ]
-    chosen = []
-    for method in methods:
-        mine = [c for c in features if c.endswith(f"_{method}")]
-        if not mine and method == "median" and not suffixed:
-            mine = features
-        if not mine:
-            raise ValueError(f"{path} has no {method!r} columns")
-        chosen += mine
-    return chosen
-
-
 def _output_metadata(
     path: pathlib.Path, metadata: bool | Sequence[str], variant_col: str
 ) -> pl.LazyFrame:
-    """The per-variant ``meta_`` columns of a batch's ``output.parquet`` (or an embeddings
-    pipeline's ``aggregate.parquet``)."""
+    """The per-variant ``meta_`` columns of a batch's ``output.parquet``."""
     lf = _pipeline.scan(path)
     if metadata is True:
         columns = [c for c in lf.collect_schema().names() if c.startswith("meta_")]

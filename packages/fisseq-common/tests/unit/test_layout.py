@@ -16,8 +16,8 @@ CP = EmbeddingsPipelineLayout("cp_features")
     "layout, expected",
     [
         (DATA, "normalization/b1/filtered_keys.parquet"),
-        (EMB, "filter_embeddings/b1/filtered_keys.parquet"),
-        (CP, "filter_cp_features/b1/filtered_keys.parquet"),
+        (EMB, "normalization/b1/filtered_keys.parquet"),
+        (CP, "normalization_cp_features/b1/filtered_keys.parquet"),
     ],
 )
 def test_filtered_keys(layout, expected):
@@ -43,62 +43,43 @@ def test_qc_filter_is_shared_by_both_tracks():
     assert DATA.filtered_cells("b1") == "qc_filter/b1/filtered_cells.parquet"
 
 
-def test_data_aggregates_are_one_file_per_method():
-    assert DATA.aggregate_per_method
+def test_aggregates_are_one_file_per_method():
+    for layout in (DATA, EMB):
+        assert (
+            layout.aggregate("b1", "KS")
+            == "feature_select_batchwise/b1/aggregates/KS.parquet"
+        )
     assert (
-        DATA.aggregate("b1", "KS")
-        == "feature_select_batchwise/b1/aggregates/KS.parquet"
-    )
-    with pytest.raises(ValueError, match="one aggregate file per method"):
-        DATA.aggregate("b1")
-
-
-def test_embeddings_aggregate_is_one_file():
-    assert not EMB.aggregate_per_method
-    assert EMB.aggregate("b1") == EMB.aggregate("b1", "KS")
-    assert EMB.aggregate("b1") == "feature_select_batchwise/b1/aggregate.parquet"
-    assert (
-        CP.aggregate("b1")
-        == "feature_select_batchwise_cp_features/b1/aggregate.parquet"
+        CP.aggregate("b1", "median")
+        == "feature_select_batchwise_cp_features/b1/aggregates/median.parquet"
     )
 
 
-def test_reproducibility_paths():
+@pytest.mark.parametrize("layout", [DATA, EMB], ids=["data", "embeddings"])
+def test_reproducibility_paths(layout):
+    """Both pipelines publish the bootstrap feature selection in one layout."""
     assert (
-        DATA.split("b", 2, 1)
+        layout.split("b", 2, 1)
         == "feature_select_batchwise/b/splits/bootstrap_2/half1.parquet"
     )
     assert (
-        EMB.split("b", 2, 1) == "feature_select_batchwise/b/splits/rep2/half1.parquet"
-    )
-    assert (
-        DATA.half_aggregate("b", 2, 1, "KS")
+        layout.half_aggregate("b", 2, 1, "KS")
         == "feature_select_batchwise/b/half_aggregates/bootstrap_2/KS/half1_agg.parquet"
     )
     assert (
-        EMB.half_aggregate("b", 2, 1, "KS")
-        == "feature_select_batchwise/b/half_aggregates/rep2/half1/KS.parquet"
-    )
-    assert (
-        DATA.correlations("b", 2, "KS")
+        layout.correlations("b", 2, "KS")
         == "feature_select_batchwise/b/correlations/KS/bootstrap_2.parquet"
     )
+    assert layout.blocklist("b") == "feature_select_batchwise/b/blocklist.parquet"
     assert (
-        EMB.correlations("b", 2, "KS")
-        == "feature_select_batchwise/b/correlations/rep2/KS.parquet"
+        layout.method_blocklist("b", "KS")
+        == "feature_select_batchwise/b/blocklists/KS.parquet"
     )
-    for layout in (DATA, EMB):
-        assert layout.blocklist("b") == "feature_select_batchwise/b/blocklist.parquet"
-        assert (
-            layout.method_blocklist("b", "KS")
-            == "feature_select_batchwise/b/blocklists/KS.parquet"
-        )
-        assert (
-            layout.passthrough_aggregate("b", "KSnegLogP")
-            == "feature_select_batchwise/b/passthrough_aggregates/KSnegLogP.parquet"
-        )
-    assert DATA.selected("b") == "feature_select_batchwise/b/output.parquet"
-    assert EMB.selected("b") == "feature_select_batchwise/b/filtered_aggregate.parquet"
+    assert (
+        layout.passthrough_aggregate("b", "KSnegLogP")
+        == "feature_select_batchwise/b/passthrough_aggregates/KSnegLogP.parquet"
+    )
+    assert layout.selected("b") == "feature_select_batchwise/b/output.parquet"
 
 
 def test_cp_features_track_has_no_reproducibility_outputs():
@@ -109,7 +90,18 @@ def test_cp_features_track_has_no_reproducibility_outputs():
     assert CP.half_aggregate("b", 1, 1, "median") is None
     assert CP.correlations("b", 1, "median") is None
     assert CP.selected("b") is None
-    assert CP.aggregate_with_passthrough("b") is None
+
+
+def test_stage_dirs_by_track():
+    assert EMB.stage_dir("filter") == "normalization"
+    assert EMB.stage_dir("feature_select") == "feature_select_batchwise"
+    assert CP.stage_dir("filter") == "normalization_cp_features"
+    assert CP.stage_dir("ovwt") == "ovwt_batchwise_cp_features"
+    assert CP.stage_dir("feature_select") == "feature_select_batchwise_cp_features"
+
+
+def test_data_input():
+    assert DATA.input("b1") == "input/b1.parquet"
 
 
 def test_track_features():
@@ -131,17 +123,19 @@ def test_layouts_compare_by_track():
 
 def test_detect_from_names():
     assert isinstance(
-        detect_from_names(["qc_filter", "normalization"]), DataPipelineLayout
+        detect_from_names(["input", "qc_filter", "normalization"]), DataPipelineLayout
     )
-    assert detect_from_names(["qc_filter", "filter_embeddings"]) == EMB
+    assert detect_from_names(["qc_filter", "normalization", "embeddings"]) == EMB
     assert detect_from_names(["cell_metadata"], track="cp_features") == CP
+    assert detect_from_names(["cp_features"]) == EMB
     with pytest.raises(ValueError, match="neither pipeline"):
-        detect_from_names(["qc_filter"])
+        detect_from_names(["qc_filter", "normalization"])
     with pytest.raises(ValueError, match="both pipelines"):
-        detect_from_names(["normalization", "filter_embeddings"])
+        detect_from_names(["input", "cell_images"])
 
 
 def test_detect_and_list_batches(tmp_path):
+    (tmp_path / "input").mkdir()
     for batch in ("b2", "b1"):
         (tmp_path / "normalization" / batch).mkdir(parents=True)
         (tmp_path / "ovwt_batchwise" / batch).mkdir(parents=True)

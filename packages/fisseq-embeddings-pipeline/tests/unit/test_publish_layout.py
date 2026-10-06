@@ -21,16 +21,19 @@ EXPECTED = {
         EMB.barcode_counts(B),
         EMB.variants_per_barcode(B),
     ],
-    "FILTER_EMBEDDINGS": [EMB.filtered_keys(B), EMB.normalizer(B)],
-    "FILTER_CP_FEATURES": [CP.filtered_keys(B), CP.normalizer(B)],
+    "NORMALIZE": [EMB.filtered_keys(B), EMB.normalizer(B)],
+    "NORMALIZE_CP_FEATURES": [CP.filtered_keys(B), CP.normalizer(B)],
     "OVWT_BATCHWISE": [EMB.ovwt_results(B), EMB.ovwt_cell_scores(B)],
     "OVWT_BATCHWISE_CP_FEATURES": [CP.ovwt_results(B), CP.ovwt_cell_scores(B)],
-    "GENERATE_SPLIT": [EMB.split(B, REP, 1), EMB.split(B, REP, 2)],
-    "AGGREGATE_HALF": [EMB.half_aggregate(B, REP, HALF, METHOD)],
-    "AGGREGATE_PASSTHROUGH": [EMB.passthrough_aggregate(B, METHOD)],
-    "CORRELATE_FEATURES": [EMB.correlations(B, REP, METHOD)],
-    "BLOCKLIST": [EMB.method_blocklist(B, METHOD)],
-    "COMBINE_BLOCKLISTS": [EMB.blocklist(B)],
+    "AGGREGATE_FEATURE_TYPE_BATCHWISE": [EMB.aggregate(B, METHOD)],
+    "AGGREGATE_FEATURE_TYPE_CP_FEATURES": [CP.aggregate(B, METHOD)],
+    "AGGREGATE_FEATURE_TYPE_PASSTHROUGH": [EMB.passthrough_aggregate(B, METHOD)],
+    "AGGREGATE_HALF_BATCHWISE": [EMB.half_aggregate(B, REP, HALF, METHOD)],
+    "GENERATE_SPLIT_BATCHWISE": [EMB.split(B, REP, 1), EMB.split(B, REP, 2)],
+    "CORRELATE_FEATURES_BATCHWISE": [EMB.correlations(B, REP, METHOD)],
+    "BLOCKLIST_BATCHWISE": [EMB.method_blocklist(B, METHOD)],
+    "COMBINE_BLOCKLISTS_BATCHWISE": [EMB.blocklist(B)],
+    "FINALIZE_FEATURE_SELECT_BATCHWISE": [EMB.selected(B)],
 }
 
 
@@ -68,10 +71,6 @@ OWN_MODULES = pathlib.Path(__file__).parents[2] / "modules" / "local"
 @pytest.mark.parametrize(
     "module, path",
     [
-        ("aggregate_embeddings", EMB.aggregate(B)),
-        ("aggregate_cp_features", CP.aggregate(B)),
-        ("filter_aggregate", EMB.selected(B)),
-        ("filter_aggregate", EMB.aggregate_with_passthrough(B)),
         ("build_cell_metadata", EMB.metadata(B)),
         ("build_cp_features", CP.features(B)),
         ("embed_cells", EMB.features(B)),

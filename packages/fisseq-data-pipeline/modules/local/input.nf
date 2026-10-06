@@ -1,15 +1,13 @@
 nextflow.enable.dsl = 2
 
-// INPUT: wraps python -m fisseq_data_pipeline.input. Runs once per mandatory
-// YAML config file in <pipeline_dir>/configs/, producing one input/-ready
-// cell-level Parquet file by loading and merging a batch's input_paths.
-// Every batch must have a config file -- there is no pre-staged-parquet
-// mode. Variant-class/count-based restriction (formerly done here) now
-// happens in QC_FILTER itself (see modules/local/qc_filter.nf's
-// qc_n_variants), so it applies uniformly to every batch.
+// INPUT: wraps python -m fisseq_data_pipeline.input. Runs once per
+// `experiments:` entry of params.yaml, producing one input/-ready cell-level
+// Parquet file by loading and merging that experiment's input_paths.
+// Variant-class/count-based restriction happens in QC_FILTER
+// (params.qc_n_variants), so it applies uniformly to every experiment.
 //
-// Takes the resolved per-batch scalars (see lib/BatchParams.groovy and
-// workflows/fisseq.nf's/ovwt.nf's resolvedBatchConfigs) as individual val()
+// Takes the resolved per-experiment scalars (workflows/fisseq.nf's
+// resolvedExperiments) as individual val()
 // inputs rather than the raw hand-authored YAML file, so Nextflow hashes
 // only these scalars for -resume caching -- a non-semantic edit to the
 // original YAML, or a change to a key this pipeline doesn't consume, no

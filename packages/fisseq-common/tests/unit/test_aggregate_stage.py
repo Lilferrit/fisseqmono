@@ -1,0 +1,395 @@
+"""The aggregation stage's entry point (``python -m fisseq_common.stages.aggregate``): one
+method over the rebuilt normalized cells, or one bootstrap half, written leanly as
+``[label] + <stat columns>``. Moved from the data pipeline's AGGREGATE_FEATURE_TYPE wrapper.
+
+The fixtures write the three files a stage rebuilds the cell table from: a cell table, the
+filter stage's keys (with ``meta_is_control``) and an identity normalizer, so the aggregated
+values are the fixture's raw values.
+"""
+
+from __future__ import annotations
+
+from unittest.mock import patch
+
+import polars as pl
+import pytest
+from omegaconf import OmegaConf
+
+import fisseq_common.stages.aggregate as m
+from fisseq_common.normalizer import Normalizer
+
+LABEL = "meta_aa_changes"
+KEYS = ["meta_cell_index", "meta_variant_tag"]
+
+
+@pytest.fixture(autouse=True)
+def _no_log_files():
+    with patch("fisseq_common.stages.config.setup_logging"):
+        yield
+
+
+def _get_row(df: pl.DataFrame, label: str) -> dict:
+    return df.filter(pl.col(LABEL) == label).to_dicts().pop()
+
+
+def write_inputs(tmp_path, cells: pl.DataFrame) -> None:
+    """
+    Write ``cells`` (a label, ``meta_is_control`` and feature columns) as the stage's three
+    inputs: ``cells.parquet`` (join keys + features), ``filtered_keys.parquet`` (join keys +
+    ``meta_*``) and an identity ``normalizer.parquet``.
+    """
+    cells = cells.with_columns(
+        pl.int_range(pl.len(), dtype=pl.Int64).alias("meta_cell_index"),
+        pl.lit(None, dtype=pl.String).alias("meta_variant_tag"),
+    )
+    features = [c for c in cells.columns if not c.startswith("meta_")]
+    cells.select(KEYS + features).write_parquet(tmp_path / "cells.parquet")
+    cells.select(pl.col("^meta_.*$")).write_parquet(tmp_path / "filtered_keys.parquet")
+    Normalizer(
+        means=pl.DataFrame({f: [0.0] for f in features}),
+        stds=pl.DataFrame({f: [1.0] for f in features}),
+    ).save(tmp_path / "normalizer.parquet")
+
+
+def write_agg_input(tmp_path) -> None:
+    """WT controls and three variants, each with constant per-variant feature values."""
+    labels = ["WT"] * 3 + ["A1A"] * 3 + ["A2A"] * 3 + ["A1B"] * 3
+    write_inputs(
+        tmp_path,
+        pl.DataFrame(
+            {
+                LABEL: labels,
+                "meta_is_control": [lbl == "WT" for lbl in labels],
+                "f1": [0.0] * 3 + [1.0] * 3 + [2.0] * 3 + [10.0] * 3,
+                "f2": [0.0] * 3 + [3.0] * 3 + [4.0] * 3 + [30.0] * 3,
+            }
+        ),
+    )
+
+
+def make_cfg(tmp_path, **overrides) -> OmegaConf:
+    """An :class:`~fisseq_common.stages.aggregate.AggregateConfig` over :func:`write_inputs`'
+    files, aggregating ``mean`` by default."""
+    fields = dict(
+        output_dir=str(tmp_path / "out"),
+        cells_file=str(tmp_path / "cells.parquet"),
+        filtered_keys_file=str(tmp_path / "filtered_keys.parquet"),
+        normalizer_file=str(tmp_path / "normalizer.parquet"),
+        aggregator="mean",
+    )
+    fields.update(overrides)
+    return OmegaConf.structured(m.AggregateConfig(**fields))
+
+
+def run(tmp_path, **overrides) -> pl.DataFrame:
+    """Run the entry point and return its output."""
+    cfg = make_cfg(tmp_path, **overrides)
+    m.main.__wrapped__(cfg)
+    prefix = f"{cfg.output_root}." if cfg.output_root is not None else ""
+    return pl.read_parquet(tmp_path / "out" / f"{prefix}{cfg.output_name}.parquet")
+
+
+# ---------------------------------------------------------------------------
+# config
+# ---------------------------------------------------------------------------
+
+
+def test_config_defaults() -> None:
+    cfg = OmegaConf.structured(m.AggregateConfig)
+    assert cfg.feature_chunk_size == m.DEFAULT_FEATURE_CHUNK_SIZE
+    assert cfg.normalize_to_synonymous is False
+    assert cfg.downsample_wt is None
+    assert cfg.split_file is None
+    assert cfg.output_name == "aggregate"
+    assert list(cfg.join_keys) == KEYS
+
+
+def test_config_accepts_null_feature_chunk_size() -> None:
+    """
+    ``feature_chunk_size=null`` on the CLI must resolve to ``None``.
+
+    The Nextflow module interpolates ``params.aggregate_feature_chunk_size``
+    straight into the command line, so a null param arrives as the literal
+    string ``null`` and Hydra has to resolve it against an ``Optional[int]``
+    field -- exactly how ``downsample_wt`` already behaves.
+    """
+    cfg = OmegaConf.merge(
+        OmegaConf.structured(m.AggregateConfig),
+        OmegaConf.from_dotlist(["feature_chunk_size=null"]),
+    )
+    assert cfg.feature_chunk_size is None
+
+
+# ---------------------------------------------------------------------------
+# feature_chunk_size
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("chunk_size", [1, None])
+def test_main_forwards_feature_chunk_size(tmp_path, chunk_size) -> None:
+    """The Nextflow processes set this per run; it has to reach aggregate_cells()."""
+    write_agg_input(tmp_path)
+    with patch(
+        "fisseq_common.stages.aggregate.aggregate_cells", wraps=m.aggregate_cells
+    ) as spy:
+        run(tmp_path, feature_chunk_size=chunk_size)
+    assert spy.call_args.kwargs["feature_chunk_size"] == chunk_size
+
+
+def test_main_output_identical_across_feature_chunk_sizes(tmp_path) -> None:
+    """Chunking is a memory dial -- the written parquet must not change."""
+    write_agg_input(tmp_path)
+    results = [
+        run(tmp_path, aggregator="KS", feature_chunk_size=chunk_size)
+        for chunk_size in (1, 2, 64, None)
+    ]
+    assert all(results[0].equals(r) for r in results[1:])
+
+
+# ---------------------------------------------------------------------------
+# output
+# ---------------------------------------------------------------------------
+
+
+def test_main_output_has_only_label_and_stat_columns(tmp_path) -> None:
+    write_agg_input(tmp_path)
+    result = run(tmp_path)
+    assert result.columns == [LABEL, "f1_mean", "f2_mean"]
+
+
+def test_main_median_columns_are_suffixed(tmp_path) -> None:
+    """A single-method median job names its columns as a multi-method run does: the
+    blocklist keys features by column name."""
+    write_agg_input(tmp_path)
+    result = run(tmp_path, aggregator="median")
+    assert result.columns == [LABEL, "f1_median", "f2_median"]
+
+
+def test_main_without_split_aggregates_every_cell(tmp_path) -> None:
+    write_agg_input(tmp_path)
+    result = run(tmp_path)
+    # WT is control and excluded; A1A, A2A, A1B remain.
+    assert result[LABEL].to_list() == ["A1A", "A1B", "A2A"]
+    assert _get_row(result, "A1B")["f1_mean"] == pytest.approx(10.0)
+
+
+def test_main_split_file_selects_cells_by_key(tmp_path) -> None:
+    # A1B has three distinct f1 values, so a one-cell half differs from the full mean.
+    write_inputs(
+        tmp_path,
+        pl.DataFrame(
+            {
+                LABEL: ["WT", "WT", "A1B", "A1B", "A1B"],
+                "meta_is_control": [True, True, False, False, False],
+                "f1": [0.0, 0.0, 10.0, 20.0, 30.0],
+            }
+        ),
+    )
+    # Cell 2 is the first A1B cell (f1=10.0); untagged, so its tag is null.
+    split = tmp_path / "half1.parquet"
+    pl.DataFrame(
+        {"meta_cell_index": [2], "meta_variant_tag": [None]},
+        schema={"meta_cell_index": pl.Int64, "meta_variant_tag": pl.String},
+    ).write_parquet(split)
+
+    half = run(tmp_path, split_file=str(split), output_root="half")
+    full = run(tmp_path, output_root="full")
+
+    assert half[LABEL].to_list() == ["A1B"]
+    assert _get_row(half, "A1B")["f1_mean"] == pytest.approx(10.0)
+    assert _get_row(full, "A1B")["f1_mean"] == pytest.approx(20.0)
+
+
+def test_main_split_file_tells_a_pseudo_variant_from_its_source_cell(tmp_path) -> None:
+    """A QC pseudo-variant row shares its source cell's ``meta_cell_index``; the split names
+    a row by its tag too (``row_keys``), so selecting one doesn't select the other."""
+    cells = pl.DataFrame(
+        {
+            "meta_cell_index": [0, 1, 2, 3, 2],
+            "meta_variant_tag": [None, None, None, None, "downsample-1"],
+            LABEL: ["WT", "WT", "A1B", "A1B", "A1B:downsample-1"],
+            "meta_is_control": [True, True, False, False, False],
+            "f1": [0.0, 0.0, 10.0, 20.0, 10.0],
+        }
+    )
+    cells.select(KEYS + ["f1"]).write_parquet(tmp_path / "cells.parquet")
+    cells.drop("f1").write_parquet(tmp_path / "filtered_keys.parquet")
+    Normalizer(
+        means=pl.DataFrame({"f1": [0.0]}), stds=pl.DataFrame({"f1": [1.0]})
+    ).save(tmp_path / "normalizer.parquet")
+    split = tmp_path / "half1.parquet"
+    cells.filter(pl.col("meta_variant_tag").is_not_null()).select(KEYS).write_parquet(
+        split
+    )
+
+    result = run(tmp_path, split_file=str(split))
+    assert result[LABEL].to_list() == ["A1B:downsample-1"]
+
+
+def test_main_output_root_naming(tmp_path) -> None:
+    write_agg_input(tmp_path)
+    run(tmp_path, output_root="run1")
+    assert (tmp_path / "out" / "run1.aggregate.parquet").exists()
+
+
+def test_main_output_name_naming(tmp_path) -> None:
+    """The shared AGGREGATE module names its output after the method."""
+    write_agg_input(tmp_path)
+    run(tmp_path, output_name="mean")
+    assert [p.name for p in (tmp_path / "out").glob("*.parquet")] == ["mean.parquet"]
+
+
+# ---------------------------------------------------------------------------
+# downsample_wt
+# ---------------------------------------------------------------------------
+
+
+def write_downsample_input(tmp_path) -> None:
+    """20 control rows with distinct f1 values, plus one variant group."""
+    write_inputs(
+        tmp_path,
+        pl.DataFrame(
+            {
+                LABEL: ["WT"] * 20 + ["A1B"] * 3,
+                "meta_is_control": [True] * 20 + [False] * 3,
+                "f1": [float(i) for i in range(20)] + [5.0, 5.0, 5.0],
+            }
+        ),
+    )
+
+
+def test_main_downsample_wt_changes_output(tmp_path) -> None:
+    write_downsample_input(tmp_path)
+    full = run(tmp_path, aggregator="KS", output_root="full")
+    down = run(
+        tmp_path, aggregator="KS", output_root="down", downsample_wt=0.25, random_seed=1
+    )
+    assert _get_row(full, "A1B")["f1_KS"] != pytest.approx(
+        _get_row(down, "A1B")["f1_KS"]
+    )
+
+
+def test_main_downsample_wt_none_leaves_output_unaffected(tmp_path) -> None:
+    write_downsample_input(tmp_path)
+    result = run(tmp_path)
+    assert result[LABEL].to_list() == ["A1B"]
+
+
+def test_main_downsample_wt_is_seeded_by_random_seed(tmp_path) -> None:
+    write_downsample_input(tmp_path)
+    rows = [
+        _get_row(
+            run(
+                tmp_path,
+                aggregator="KS",
+                output_root=f"seed{seed}",
+                downsample_wt=0.25,
+                random_seed=seed,
+            ),
+            "A1B",
+        )["f1_KS"]
+        for seed in (1, 2, 1)
+    ]
+    assert rows[0] != pytest.approx(rows[1])
+    assert rows[0] == rows[2]
+
+
+@pytest.mark.parametrize("downsample_wt", [1.5, -1])
+def test_main_invalid_downsample_wt_raises(tmp_path, downsample_wt) -> None:
+    write_downsample_input(tmp_path)
+    with pytest.raises(ValueError):
+        run(tmp_path, downsample_wt=downsample_wt)
+
+
+# ---------------------------------------------------------------------------
+# normalize_to_synonymous
+# ---------------------------------------------------------------------------
+
+# Per-variant f1 means: A1A/A2A/A3A are the synonymous baseline, "A3A:tag" is
+# a tagged duplicate of a synonymous label (never a control), A1B is missense.
+_SYN_F1 = {"A1A": 1.0, "A2A": 2.0, "A3A": 6.0, "A3A:tag": 100.0, "A1B": 10.0}
+
+
+def _run_syn(tmp_path, normalize: bool) -> pl.DataFrame:
+    labels = ["WT"] * 3 + [v for v in _SYN_F1 for _ in range(3)]
+    write_inputs(
+        tmp_path,
+        pl.DataFrame(
+            {
+                LABEL: labels,
+                "meta_is_control": [lbl == "WT" for lbl in labels],
+                "f1": [0.0] * 3 + [_SYN_F1[v] for v in _SYN_F1 for _ in range(3)],
+                # Identical for every synonymous variant -> zero variance -> null.
+                "f2": [0.0] * 3
+                + [5.0 if v != "A1B" else 9.0 for v in _SYN_F1 for _ in range(3)],
+            }
+        ),
+    )
+    return run(tmp_path, normalize_to_synonymous=normalize)
+
+
+def test_main_without_normalize_writes_raw_aggregates(tmp_path) -> None:
+    result = _run_syn(tmp_path, normalize=False)
+    for label, raw in _SYN_F1.items():
+        assert _get_row(result, label)["f1_mean"] == pytest.approx(raw)
+
+
+def test_main_normalize_z_scores_against_synonymous(tmp_path) -> None:
+    result = _run_syn(tmp_path, normalize=True)
+    syn = pl.Series([1.0, 2.0, 6.0])
+    mean, std = syn.mean(), syn.std(ddof=1)
+    for label, raw in _SYN_F1.items():
+        assert _get_row(result, label)["f1_mean"] == pytest.approx((raw - mean) / std)
+
+
+def test_main_normalize_excludes_tagged_labels_from_fit(tmp_path) -> None:
+    """The tagged A3A duplicate is far out; including it would shift the mean."""
+    result = _run_syn(tmp_path, normalize=True)
+    syn_rows = result.filter(pl.col(LABEL).is_in(["A1A", "A2A", "A3A"]))
+    assert syn_rows["f1_mean"].mean() == pytest.approx(0.0, abs=1e-12)
+    assert syn_rows["f1_mean"].std(ddof=1) == pytest.approx(1.0)
+
+
+def test_main_normalize_keeps_output_lean(tmp_path) -> None:
+    result = _run_syn(tmp_path, normalize=True)
+    assert result.columns == [LABEL, "f1_mean", "f2_mean"]
+
+
+def test_main_normalize_zero_variance_feature_is_null(tmp_path) -> None:
+    result = _run_syn(tmp_path, normalize=True)
+    assert result["f2_mean"].null_count() == result.height
+
+
+# ---------------------------------------------------------------------------
+# the normalizer and feature_selector
+# ---------------------------------------------------------------------------
+
+
+def test_main_applies_the_normalizer(tmp_path) -> None:
+    write_agg_input(tmp_path)
+    Normalizer(
+        means=pl.DataFrame({"f1": [1.0], "f2": [0.0]}),
+        stds=pl.DataFrame({"f1": [2.0], "f2": [1.0]}),
+    ).save(tmp_path / "normalizer.parquet")
+    result = run(tmp_path)
+    assert _get_row(result, "A1B")["f1_mean"] == pytest.approx((10.0 - 1.0) / 2.0)
+
+
+def test_main_embeddings_feature_selector_aggregates_only_embedding_columns(
+    tmp_path,
+) -> None:
+    labels = ["WT"] * 2 + ["M1K"] * 2
+    write_inputs(
+        tmp_path,
+        pl.DataFrame(
+            {
+                LABEL: labels,
+                "meta_is_control": [lbl == "WT" for lbl in labels],
+                "emb_0000": [0.0, 0.0, 1.0, 3.0],
+                "Cells_AreaShape_Area": [1.0, 2.0, 3.0, 4.0],
+            }
+        ),
+    )
+    result = run(tmp_path, feature_selector="embeddings")
+    assert result.columns == [LABEL, "emb_0000_mean"]
+    assert _get_row(result, "M1K")["emb_0000_mean"] == pytest.approx(2.0)

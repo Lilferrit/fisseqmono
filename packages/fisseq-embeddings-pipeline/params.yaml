@@ -6,7 +6,7 @@
 #
 # Per-run overrides: `--key value` on the command line wins over this file.
 # Executor/container settings live in nextflow.config and your own site
-# config (`-c site.config`; see docs/nextflow.md) -- never default parameter
+# config (`-c site.config`; see docs/embeddings-pipeline/nextflow.md) -- never default parameter
 # values.
 
 # ── Required, no default (fail fast if unset) ──────────────────────────────
@@ -24,7 +24,7 @@ experiments: []
 #   sequencing_dir, wells, grid_size, segmentation_type, use_corrected,
 #   window, sequencing_reads_params. This is the ONLY stage that touches
 #   starcall-workflow's tree or invokes Snakemake -- see
-#   docs/architecture.md's Data contracts section. `starcall_workflow_dir`
+#   docs/embeddings-pipeline/architecture.md's Data contracts section. `starcall_workflow_dir`
 #   is per-experiment (not a shared global path) since Snakemake keeps
 #   invocation-scoped lock/log state in its own working directory --
 #   nothing requires it to be named "starcall-workflow" or nested under a
@@ -35,7 +35,7 @@ experiments: []
 #   whatever you point it at. It supplies only that experiment's
 #   config.yaml and data trees, not starcall's code: the nested run
 #   executes snakemake/Snakefile, which includes the starcall-workflow
-#   commit the image is built at (docs/architecture.md decision 24), so
+#   commit the image is built at (docs/embeddings-pipeline/architecture.md decision 24), so
 #   no starcall checkout needs to live in it.
 #   `phenotyping_dir`/`segmentation_dir`/`sequencing_dir` are all OPTIONAL
 #   -- each is auto-resolved when omitted: if `starcall_workflow_dir` has
@@ -48,7 +48,7 @@ experiments: []
 #   Set one explicitly only when that tree isn't colocated under
 #   `starcall_workflow_dir` at all for your lab (e.g. `sequencing_dir` on
 #   separate storage) -- an explicit value always wins over both. See
-#   docs/architecture.md and the example below.
+#   docs/embeddings-pipeline/architecture.md and the example below.
 # - CellMetadataConfig (BUILD_CELL_METADATA) and CpFeaturesConfig
 #   (BUILD_CP_FEATURES, only for `cp_features: true` entries):
 #   barcode_col_name/aa_changes_col_name/edit_distance_col_name, routed to
@@ -75,10 +75,10 @@ experiments: []
 # component of starcall-workflow's `{segmentation_type}_reads{params}.csv`
 # output filename -- almost always empty; set it explicitly only if your
 # starcall-workflow config uses a non-empty value there (verify against a
-# real run -- see docs/architecture.md's flagged risks).
+# real run -- see docs/embeddings-pipeline/architecture.md's flagged risks).
 #
 # Set `cp_features: true` on an entry to also run that experiment through
-# the CellProfiler-feature track (see docs/architecture.md):
+# the CellProfiler-feature track (see docs/embeddings-pipeline/architecture.md):
 # BUILD_CP_FEATURES onward, and BUILD_CELL_IMAGES additionally forces +
 # folds in that experiment's CellProfiler CSV. `cellprofiler_pipeline`/
 # `cellprofiler_cycle` can be set directly on a `cp_features: true` entry
@@ -141,7 +141,7 @@ snakemake_cores: 4             # the nested run's --cores in local mode (no star
 # lands on a bare node but has to run inside the pipeline image (starcall's
 # rule bodies execute in the ops env's interpreter), so BUILD_CELL_IMAGES
 # also passes a --jobscript that re-enters starcall_job_image there. See
-# docs/nextflow.md.
+# docs/embeddings-pipeline/nextflow.md.
 starcall_profile: null         # path to a snakemake 7 profile dir; null = local mode
 starcall_job_image: null       # a .sif of container_image on storage every node can read -- required with starcall_profile
 starcall_container_bin: apptainer  # what a child job re-enters the image with; some nodes only ship `singularity`
@@ -170,33 +170,34 @@ embeddings_only: false
 random_seed: 0
 
 # ── QC filtering (QC_FILTER) ─────────────────────────────────────────────────
+# The same QC as fisseq-data-pipeline's. The input column names are
+# BUILD_CELL_METADATA's fixed meta_barcode / meta_aa_changes / meta_edit_distance
+# (set in conf/modules.config, not here).
 barcode_count_threshold: 10
 variant_barcode_count_threshold: 4
 edit_distance_threshold: 1
-# QcFilterConfig's own label_column is wired to filter_label_column below,
-# so overriding one label column changes it pipeline-wide.
-#
-# Deliberately NOT exposed here:
-#   - barcode_col_name / aa_changes_col_name / edit_distance_col_name:
-#     these name BUILD_CELL_METADATA's fixed "meta_barcode"/"meta_aa_changes"/
-#     "meta_edit_distance" output columns -- structural, not something a
-#     per-run override should ever change.
-#   - n_variants / variant_downsample_classes / variant_downsample_mode /
-#     variant_allow_list_file: the optional per-class variant-downsampling
-#     cap (distinct from the dropped downsample_amounts/downsample_classes/
-#     downsample_seed pseudo-variant machinery -- this one is real, just
-#     off by default). n_variants defaults to null (disabled); enable via a
-#     direct Hydra override on QC_FILTER if ever needed. Not promoted to a
-#     global param because variant_downsample_classes' default ("Single
-#     Missense") contains a space, which this repo's List ->
-#     'key=[a,b]' Groovy-interpolation convention (used by
-#     aggregate_methods/cell_dino_channels/etc.) can't round-trip safely
-#     without per-element quoting.
+# Optional int: restrict qc_variant_downsample_classes to at most this many
+# distinct variants (see qc_variant_downsample_mode), applied before QC
+# thresholding; null = disabled.
+qc_n_variants: null
+# classify_variant() categories eligible for the qc_n_variants restriction.
+qc_variant_downsample_classes: ["Single Missense"]
+# "top" (highest cell count) or "random" (seeded by random_seed).
+qc_variant_downsample_mode: "top"
+# Optional single float (0,1] / int, or a list of floats/ints: pseudo-variant
+# downsampling per label_column group, drawn from post-QC cells. A float keeps
+# that fraction of a group; an int keeps that many rows and skips any group
+# with fewer. Each amount gets its own `:downsample-{amount}` tag on
+# meta_aa_changes, with the base label preserved and the tag exposed separately
+# as meta_variant_tag. null = disabled.
+qc_downsample_amounts: null
+# classify_variant() categories eligible for pseudo-variant generation.
+qc_downsample_classes: ["Synonymous", "Single Missense"]
 
 # ── Cell Embeddings / Cell-DINO (EMBED_CELLS) ────────────────────────────────
 # Defaults here match weights/channel_adaptive_dino_vitl16_pretrain_cells-
 # ef7c17ff.pth's real, verified architecture (bag-of-channels vit_large/
-# patch16/224 -- see docs/architecture.md's "Real checkpoint" section).
+# patch16/224 -- see docs/embeddings-pipeline/architecture.md's "Real checkpoint" section).
 # cell_dino_checkpoint itself is deliberately left unset above (required,
 # no default) since a checkpoint path is deployment-specific and weights/
 # is gitignored.
@@ -211,106 +212,77 @@ cell_dino_batch_size: 256
 cell_dino_num_workers: 4
 
 # ── Label column, shared pipeline-wide ──────────────────────────────────────
-# Read by QC_FILTER, FILTER_EMBEDDINGS, AGGREGATE_EMBEDDINGS, OVWT_BATCHWISE,
-# the reproducibility chain, and their CellProfiler-feature-track counterparts
-# (FILTER_CP_FEATURES, AGGREGATE_CP_FEATURES, OVWT_BATCHWISE_CP_FEATURES)
-# -- one override changes the variant label column everywhere at once,
-# rather than each stage needing its own.
+# Read by QC_FILTER, NORMALIZE, OVWT_BATCHWISE, the feature-selection chain and
+# their CellProfiler-feature-track counterparts -- one override changes the
+# variant label column everywhere at once.
 filter_label_column: "meta_aa_changes"
 
-# ── Aggregation (AGGREGATE_EMBEDDINGS) ───────────────────────────────────────
-# One or more of: mean | median | MAD | std | KS | signedKS | QQ | AUROC | KSnegLogP |
-# AUROCnegLogP (the aggregators of fisseq_common.stages.aggregate).
-# Only the literal single-element selection ["median"] keeps
-# aggregate.parquet's columns bare (emb_0000..emb_{D-1}); the default
-# below -- ["median", "KS", "AUROC"] -- suffixes every column by method
-# instead (emb_0000_median, emb_0000_KS, emb_0000_AUROC, ...).
-#
-# KSnegLogP/AUROCnegLogP report -log10(p) for the KS/AUROC statistics
-# (see docs/cli/aggregate.md). Deliberately NOT in the default: they cost
-# ~5.6x and ~2.9x their base statistic, and they're raw uncorrected
-# p-values over every embedding dimension. Add them explicitly when you
-# want evidence strength alongside effect size.
-aggregate_methods: ["median", "KS", "AUROC"]
+# ── Run gates (after EMBED_CELLS) ───────────────────────────────────────────
+run_ovwt: true               # OVWT_BATCHWISE (both tracks)
+run_feature_selection: true  # the batchwise feature-selection chain (cellDINO track)
 
-# Embedding dimensions each aggregator evaluates per Polars query. Aggregating
-# every dimension in one query is what OOM-kills a full-size AGGREGATE_EMBEDDINGS
-# or AGGREGATE_HALF task: peak memory scales with chunk_size x n_variant_labels,
-# and for the reference-based aggregators (KS/AUROC and the two *negLogP
-# variants) with the cross-joined control pool on top of that.
+# ── Feature selection (bootstrap + aggregation + correlation) ───────────────
+# All aggregators that make sense as a reproducibility statistic. Their
+# published per-variant aggregates (feature_select_batchwise/<batch>/aggregates/)
+# are z-scored against the experiment's synonymous variants, so every
+# experiment needs at least two synonymous variants.
+feature_select_types: ["mean", "median", "MAD", "std", "KS", "QQ", "AUROC"]
+# Aggregates that are computed and joined onto the final per-variant table but
+# kept out of feature selection entirely: no bootstrap halves, no correlation
+# blocklist, and no synonymous-baseline normalization. Intended for the p-value
+# statistics (KSnegLogP, AUROCnegLogP), which are wanted in the output but are
+# not reproducibility statistics. Must not overlap
+# feature_select_types; [] = none.
+feature_select_passthrough_types: []
+feature_select_bootstrap_reps: 10
+# Optional float (0,1) or int; null = no wildtype downsampling in
+# AGGREGATE_HALF / AGGREGATE_FEATURE_TYPE.
+feature_select_downsample_wt: null
+feature_select_min_correlation: 0.5
+# Number of feature columns AGGREGATE_FEATURE_TYPE / AGGREGATE_HALF evaluate
+# per Polars query. Aggregating all ~1731 features in one query is what
+# OOM-killed (exit 137) every KS/AUROC/QQ task on the 111925 run; chunking caps
+# peak memory at roughly chunk_size x n_variant_labels (x the control pool, for
+# the reference-based aggregators KS/signedKS/QQ/AUROC and the two p-value
+# variants).
 #
-# THIS VALUE IS SIZED TO THE MEMORY ONE TASK IS GRANTED, not to the embedding
-# dimensionality. fisseq-data-pipeline measured the reference-based aggregators
-# at roughly 3 GB (AUROC) to 4.5 GB (KS, the worst) per feature in the chunk at
-# production shape, giving:
+# THIS VALUE IS SIZED TO THE MEMORY ONE TASK IS GRANTED. Measured at production
+# shape (500k cells x 1731 features x 1900 variants, ~25k control cells):
+# mean/median/std/MAD cost ~1.5 GB at ANY chunk size in this range and are not
+# the constraint. The reference-based aggregators cost roughly 3 GB (AUROC) to
+# 4.5 GB (KS, the worst) PER FEATURE IN THE CHUNK -- AUROC measured 3.3 GB at
+# chunk 1 and was killed above 5.6 GB at chunk 4. So:
 #
 #     chunk_size ~= (memory_per_task_GB - 1) / 4.5
 #
 #   16 GB/task -> 4      64 GB/task -> 14
 #   32 GB/task -> 8     128 GB/task -> 32   <- the default below
 #
-# mean/median are not the constraint at any chunk size in this range. Runtime is
-# dominated by the NUMBER of chunks rather than their width, so raising this only
-# helps until memory runs out; if KS/AUROC tasks come back killed (exit 137),
-# halve it first. A run using only mean/median can raise it freely.
+# Those per-feature costs scale with n_variant_labels x control_pool_size, so a
+# batch with twice the labels or twice the WT pool wants half the chunk. If
+# KS/AUROC/QQ tasks still come back killed, halve this first.
 #
-# It is a pure memory dial: the output is identical at every value, which
-# tests/unit/test_aggregate.py asserts directly. null disables chunking entirely
-# (every dimension in one query) -- an escape hatch for small inputs, not a
-# setting for a full-size batch. Shared by both tracks (AGGREGATE_EMBEDDINGS,
-# AGGREGATE_CP_FEATURES, AGGREGATE_HALF, AGGREGATE_PASSTHROUGH) for the same
-# reason: it is about the task's memory, not the feature space.
+# Raising it only speeds things up until memory runs out: runtime per task is
+# dominated by the number of chunks, so 1731 features at chunk 32 is 55 queries
+# where chunk 1 is 1731 (AUROC took ~17 min at chunk 1 at the shape above). A
+# run using only mean/median/std/MAD can raise this to 128-256 freely.
+#
+# null disables chunking entirely -- every feature in one query, which is the
+# pre-chunking behaviour and therefore the shape that OOM-killed the 111925
+# run. It is an escape hatch for small inputs (or for reproducing the old
+# numbers), not a setting for a full-size batch.
+#
+# NOTE: every AGGREGATE_* process declares `label 'process_medium'`, which
+# nextflow.config deliberately leaves unsized -- this default assumes a site
+# config granting these tasks >=128 GB (e.g. a
+# `withLabel:process_medium { memory = '128 GB' }` selector in your -c file).
 aggregate_feature_chunk_size: 32
 
-# ── Passthrough aggregates (AGGREGATE_PASSTHROUGH, cellDINO track only) ──────
-# Methods that are computed and reported per variant but kept out of
-# reproducibility filtering entirely: no bootstrap halves, no correlation, no
-# blocklist -- and, critically, out of the cross-experiment median and the PCA.
-#
-# Intended for the p-value statistics (KSnegLogP, AUROCnegLogP), which are wanted
-# in the output but are not reproducibility statistics: a median-correlation
-# threshold is not a meaningful test for a p-value, and blocking a dimension's
-# p-value while keeping its statistic would make the output incoherent.
-#
-# Must not overlap aggregate_methods (validate_config rejects that up front);
-# [] = none, the default.
-#
-# Passthrough columns land ONLY in
-# feature_select_batchwise/<batch>/aggregate_with_passthrough.parquet, never in
-# filtered_aggregate.parquet. A consumer that picks feature columns with
-# FEATURE_SELECTOR (exclude meta_*) would match a stat-suffixed
-# emb_0000_KSnegLogP, so it must not assume that FEATURE_SELECTOR over
-# aggregate_with_passthrough.parquet yields reproducibility-filtered features.
-# Nothing in the pipeline reads it.
-aggregate_methods_passthrough: []
-
-# ── Reproducibility filtering (cellDINO track only) ──────────────────────────
-# GENERATE_SPLIT -> AGGREGATE_HALF -> CORRELATE_FEATURES -> BLOCKLIST ->
-# COMBINE_BLOCKLISTS -> FILTER_AGGREGATE, downstream of AGGREGATE_EMBEDDINGS'
-# aggregate.parquet. A dimension is reproducible
-# if the variant-to-variant pattern it reports from one random half of an
-# experiment's cells is the pattern it reports from the other half.
-#
-# Deliberately NOT applied to the CellProfiler track: its columns are
-# hand-engineered and already curated, and the two tracks' aggregates are meant
-# to stay directly comparable to the published CellProfiler analysis.
-#
-# Number of pseudo-replicate splits per experiment. Each one is a fresh
-# stratified 50/50 split at random_seed + rep, and BLOCKLIST takes the MEDIAN
-# correlation across them, so one pathological split cannot condemn or rescue a
-# dimension. Must be >= 2. The cost is linear: reps x 2 x len(aggregate_methods)
-# AGGREGATE_HALF jobs per experiment.
-reproducibility_bootstrap_reps: 10
-# Minimum median Pearson r (across replicates) for a dimension to be kept.
-reproducibility_min_correlation: 0.5
-
-# ── Aggregation (AGGREGATE_CP_FEATURES) ──────────────────────────────────────
-# Same choices as aggregate_methods above, applied to the CellProfiler-
-# feature track. Stays median-only by default -- CellProfiler features are
-# hand-engineered, interpretable columns where a single median summary is
-# the established baseline; KS/AUROC and the two *negLogP methods remain
-# available as an explicit opt-in (one registry serves both tracks).
-aggregate_methods_cp_features: ["median"]
+# ── Aggregation (CellProfiler-feature track) ────────────────────────────────
+# The CellProfiler track is aggregated (AGGREGATE_FEATURE_TYPE_CP_FEATURES, the
+# same stage as AGGREGATE_FEATURE_TYPE_BATCHWISE: z-scored against the
+# synonymous variants) and scored by OvWT, but not reproducibility-filtered.
+feature_select_types_cp_features: ["median"]
 
 # ── OVWT Distinguish-ability Scores (OVWT_BATCHWISE) ─────────────────────────
 # Also reused, unchanged, by OVWT_BATCHWISE_CP_FEATURES -- these are

@@ -18,20 +18,33 @@ The base install needs only polars, pyarrow and numpy:
 | `fisseq_common.global_aggregation` | cross-experiment aggregation: the blocklist vote, median pooling, OvWT z-score-then-median, the reduced PCA view |
 | `fisseq_common.utils` | `batches`, `log`, `metadata`, `splits`, `vectors` |
 
-The `stages` extra (scikit-learn, xgboost, hydra, scipy) adds
-`fisseq_common.stages`, the per-experiment stages both pipelines run. Each pipeline's
-`python -m` module is a thin Hydra entry point over one of them:
+The `stages` extra (scikit-learn, xgboost, hydra, scipy) adds `fisseq_common.stages`: every
+stage both pipelines run, whole. Each module holds the algorithm, its Hydra structured config and
+its entry point, `python -m fisseq_common.stages.<stage>`; the pipelines have no wrapper modules
+of their own. What differs between the pipelines is a config field, set in each pipeline's
+`conf/modules.config` ([Shared stages](stages.md) has the details):
 
-| Stage | Shared module | Parameters each pipeline sets |
-|---|---|---|
-| QC_FILTER | `stages.qcfilter` | input column names; pseudo-variant downsampling (data: on) |
-| NORMALIZE / FILTER_EMBEDDINGS / FILTER_CP_FEATURES | `stages.filter` | `control` (data: WT query; embeddings: synonymous); `join_keys`; `sort_by` |
-| OVWT_BATCHWISE | `stages.ovwt`, `stages.xgbparams` | `feature_selector` |
-| GENERATE_SPLIT | `stages.generatesplit` | `join_keys` |
-| AGGREGATE_FEATURE_TYPE / AGGREGATE_HALF / AGGREGATE_EMBEDDINGS / ... | `stages.aggregate` | `feature_selector`; `downsample_controls`; `normalize_to_synonymous`; `bare_median` |
-| CORRELATE_FEATURES, BLOCKLIST, COMBINE_BLOCKLISTS | `stages.correlatefeatures`, `stages.blocklist`, `stages.combineblocklists` | — |
-| FILTER_AGGREGATE / FINALIZE_FEATURE_SELECT | `stages.filter_aggregate` | — |
+| Entry module | Nextflow process(es) | Data pipeline sets | Embeddings pipeline sets |
+|---|---|---|---|
+| `stages.qcfilter` | QC_FILTER | raw column names (`upBarcode`, `aaChanges`, `editDistance`); `sort_output_by`; `assign_cell_index=true` | `sort_output_by` |
+| `stages.filter` | NORMALIZE (+ NORMALIZE_CP_FEATURES) | `batch_name` | `join_keys` |
+| `stages.ovwt` (+ `stages.xgbparams`) | OVWT_BATCHWISE (+ OVWT_BATCHWISE_CP_FEATURES) | — | `join_keys`; `feature_selector` |
+| `stages.aggregate` | AGGREGATE_FEATURE_TYPE_BATCHWISE, AGGREGATE_FEATURE_TYPE_PASSTHROUGH, AGGREGATE_HALF_BATCHWISE (+ AGGREGATE_FEATURE_TYPE_CP_FEATURES) | `downsample_wt`; `normalize_to_synonymous`; `ext.seed` | the same, plus `join_keys`; `feature_selector` |
+| `stages.generatesplit` | GENERATE_SPLIT_BATCHWISE | — | `join_keys` |
+| `stages.correlatefeatures` | CORRELATE_FEATURES_BATCHWISE | — | — |
+| `stages.blocklist` | BLOCKLIST_BATCHWISE | `minimum_correlation` | `minimum_correlation` |
+| `stages.combineblocklists` | COMBINE_BLOCKLISTS_BATCHWISE | — | — |
+| `stages.finalize` | FINALIZE_FEATURE_SELECT_BATCHWISE | — | — |
 
-The Nextflow processes for these stages also have one copy each, in the repository's
-`nextflow/modules/local/<stage>/main.nf`; each pipeline's `conf/modules.config` sets its entry
-point, arguments and publish paths.
+`stages.config` holds the config base classes, `CellsInput` (the three files a stage rebuilds
+the normalized cells from, plus `join_keys` and `feature_selector`), `row_keys` and
+`stage_main`, which makes each module's entry point. Both pipelines fit the normalizer on the
+wildtype cells.
+
+## Nextflow processes
+
+The Nextflow processes for these stages have one copy each, in
+`packages/fisseq-common/nextflow/modules/local/<stage>/main.nf` (fisseq-common has modules
+only, no workflow). Each module hardcodes its entry point and passes what both pipelines pass
+alike; each pipeline's `conf/modules.config` sets only `ext.args`, `ext.seed` and `publishDir`.
+See [Shared Nextflow modules](nextflow.md).

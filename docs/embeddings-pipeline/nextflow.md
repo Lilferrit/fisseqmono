@@ -3,9 +3,9 @@
 ## Entry point
 
 `main.nf` runs the single `EmbeddingsPipeline` workflow
-(`workflows/embeddings.nf`); every process lives in its own
-`modules/local/<name>/main.nf`, or, for a process shared with fisseq-data-pipeline, the
-repository root's `nextflow/modules/local/<name>/main.nf` (see
+(`workflows/embeddings.nf`). The cellDINO-specific processes live in this package's
+`modules/local/<name>/main.nf`; every process downstream of them is a shared module,
+`packages/fisseq-common/nextflow/modules/local/<stage>/main.nf` (see
 [Shared modules](#shared-modules)).
 
 ```bash
@@ -75,33 +75,31 @@ BUILD_CELL_IMAGES  (nested starcall snakemake, incl. make_cell_shard: one
     │               WebDataset shard per tile; cell_table.parquet + tiles.parquet)
     │
     ├──► BUILD_CELL_METADATA ──► QC_FILTER   (shared by BOTH tracks; see below)
-    │              │
-    ▼              ▼ (metadata.parquet: meta_* joined onto each embedded cell)
-EMBED_CELLS  (reads each tile's shard in place via tiles.parquet)
-                                                                            │
-                                                         QC_FILTER ────────┐│
-                                                                           ▼▼
-                                                                    FILTER_EMBEDDINGS
-                                                                            │
-                                            ┌───────────────────────────────┼──────────────────┐
-                                            ▼                               ▼                  ▼
-                                   AGGREGATE_EMBEDDINGS              OVWT_BATCHWISE    GENERATE_SPLIT (x reps)
-                                            │                               │                  │
-                                            │                               │                  ▼
-                                            │                               │   AGGREGATE_HALF (x reps x 2 halves x methods)
-                                            │                               │                  │
-                                            │                               │                  ▼
-                                            │                               │   CORRELATE_FEATURES (x reps x methods)
-                                            │                               │                  │
-                                            │                               │                  ▼
-                                            │                               │   BLOCKLIST (x methods; gathers all reps)
-                                            │                               │                  │
-                                            │                               │                  ▼
-                                            │                               │   COMBINE_BLOCKLISTS
-                                            │                               │                  │
-                                            └──────── FILTER_AGGREGATE ◄────┴──────────────────┘
-                                                (+ AGGREGATE_PASSTHROUGH)
+    │              │                 │
+    ▼              ▼ (meta_* joined) │
+EMBED_CELLS ◄──────┘                 │
+    │                                │
+    ▼                                │
+NORMALIZE  ◄─────────────────────────┘  (filtered_keys + WT-fitted normalizer)
+    │
+    ├──► OVWT_BATCHWISE                                       (params.run_ovwt)
+    │
+    └──► feature selection                                    (params.run_feature_selection)
+           AGGREGATE_FEATURE_TYPE_BATCHWISE    (x methods; z-scored to the synonymous variants)
+           AGGREGATE_FEATURE_TYPE_PASSTHROUGH  (x passthrough methods; raw)
+           GENERATE_SPLIT_BATCHWISE            (x reps)
+             └► AGGREGATE_HALF_BATCHWISE       (x reps x 2 halves x methods)
+                  └► CORRELATE_FEATURES_BATCHWISE   (x reps x methods)
+                       └► BLOCKLIST_BATCHWISE       (x methods; gathers every replicate)
+                            └► COMBINE_BLOCKLISTS_BATCHWISE
+                                 └► FINALIZE_FEATURE_SELECT_BATCHWISE  (aggregates + blocklist
+                                                                         + passthrough -> output.parquet)
 ```
+
+Downstream of `EMBED_CELLS` this is fisseq-data-pipeline's graph: the same shared modules,
+process names, parameters and publish layout. Only the cell table differs (embedding
+dimensions instead of CellProfiler features), and with it the cell identity (`join_keys`) and
+`feature_selector`, which `conf/modules.config` sets. See [Shared stages](../common/stages.md).
 
 Every process runs per experiment. Pooling experiments is done afterwards by
 `fisseqborn-global` (the fisseqborn package), from the published outputs.
@@ -115,10 +113,12 @@ cellDINO track.
 `BUILD_CELL_METADATA` (`cell_metadata.py`) is a flat projection of
 `BUILD_CELL_IMAGES`' `cell_table.parquet` down to the seven `meta_*`
 columns QC reads (`meta_batch`/`meta_well`/`meta_tile`/`meta_cell_index` --
-`filter.py`'s `JOIN_KEYS` -- plus `meta_barcode`/`meta_aa_changes`/
+the pipeline's `join_keys` -- plus `meta_barcode`/`meta_aa_changes`/
 `meta_edit_distance`). That makes `QC_FILTER` the point where the two
 tracks fan out: see
-[Track independence](#track-independence) below.
+[Track independence](#track-independence) below. `QC_FILTER` is the data
+pipeline's, including `qc_n_variants` and the pseudo-variant downsampling
+(`qc_downsample_amounts`); both are off by default.
 
 `EMBED_CELLS` streams every tile's WebDataset shard (cut inside
 `BUILD_CELL_IMAGES`' nested snakemake by `make_cell_shard` -- see
@@ -127,59 +127,41 @@ the whole point of building the shards up front is that this expensive
 GPU pass runs once per experiment regardless of how many times QC
 thresholds get retuned afterward. A shard's `meta.json` carries only the
 cell's location; `EMBED_CELLS` joins every other `meta_*` column on from
-`BUILD_CELL_METADATA`'s `metadata.parquet`, so `embeddings.parquet` has
-exactly the `meta_*` values QC saw.
-`FILTER_EMBEDDINGS` joins `EMBED_CELLS`' output against `QC_FILTER`'s
+`BUILD_CELL_METADATA`'s `metadata.parquet`.
+`NORMALIZE` joins `EMBED_CELLS`' output against `QC_FILTER`'s
 `filtered_cells.parquet` (only that one of `QC_FILTER`'s three outputs;
-the other two are informational QC-report files). `AGGREGATE_EMBEDDINGS`,
-`OVWT_BATCHWISE` and the reproducibility chain all take the same three
-inputs (`embeddings.parquet`, `filtered_keys.parquet`, `normalizer.parquet`)
-and reconstruct the QC-passed, synonymous-corrected embedding table
-themselves via `load_filtered_embeddings()` -- none reads a pre-normalized
-file.
+the other two are informational QC-report files) and fits the normalizer on the wildtype
+cells. Every later stage takes the same three inputs (`embeddings.parquet`,
+`filtered_keys.parquet`, `normalizer.parquet`) and rebuilds the QC-passed, normalized table
+itself; none reads a pre-normalized file.
 
 `params.embeddings_only: true` stops the cellDINO track after
 `EMBED_CELLS` and skips everything downstream of it, the CellProfiler
 track included -- for when all you want is the embeddings. The
 containerized real-starcall integration tests use it.
 
-### Reproducibility filtering
+### Feature selection
 
-`GENERATE_SPLIT` through `FILTER_AGGREGATE` sit downstream of
-`AGGREGATE_EMBEDDINGS`' `aggregate.parquet`, on the
-cellDINO track only -- see [Architecture](architecture.md) decision 21 for
-what they compute and why. Three things about the *wiring* are worth
-knowing:
+`AGGREGATE_FEATURE_TYPE_BATCHWISE` through `FINALIZE_FEATURE_SELECT_BATCHWISE` are the data
+pipeline's bootstrap feature selection, on the cellDINO track only (see
+[Shared stages](../common/stages.md#aggregate) for what each computes). About the wiring:
 
-- **The fan-out is channel combinatorics.** `GENERATE_SPLIT` gets one task
-  per `channel.of(1..reproducibility_bootstrap_reps)`; each split's two
-  halves are combined with `aggregate_methods` into one `AGGREGATE_HALF`
-  task per (replicate, half, method). `PLAN_EXPERIMENTS` has already
-  rejected an unknown or overlapping method name, because both lists are
-  interpolated straight into task scripts and publish paths.
-- **Gathers use `groupTuple(size: ...)`.** The two halves of a replicate
-  (`size: 2`), every replicate of one method (`size: reps`) and every
-  method's blocklist (`size: len(aggregate_methods)`) are each regrouped
-  with an explicit size, so a group whose member task failed is dropped
-  rather than waiting forever: that method's (and so that experiment's)
-  blocklist is then simply missing. `BLOCKLIST` is the one gather across
-  replicates.
-- **`bare_columns` is decided from the whole method list.** `aggregate.parquet`'s
-  columns are bare (`emb_0000`) only when `aggregate_methods` is exactly
-  `["median"]`. Each `AGGREGATE_HALF` task sees only its own method, so
-  `conf/modules.config` works it out from the whole list and passes it in -- the
-  names have to match or `FILTER_AGGREGATE`'s blocklist finds nothing to drop.
+- **The fan-out is channel combinatorics.** `GENERATE_SPLIT_BATCHWISE` gets one task per
+  `channel.of(1..feature_select_bootstrap_reps)`; each split's two halves are combined with
+  `feature_select_types` into one `AGGREGATE_HALF_BATCHWISE` task per (replicate, half,
+  method). `PLAN_EXPERIMENTS` has already rejected an unknown or overlapping method name,
+  because both lists are interpolated straight into task scripts and publish paths.
+- **`BLOCKLIST_BATCHWISE` is the one gather across replicates**, and
+  `COMBINE_BLOCKLISTS_BATCHWISE` the gather across methods. Both use `groupTuple` keyed on
+  the experiment (and method), so a failed member task leaves its group short: that method's
+  blocklist is computed from the replicates that finished.
+- **Passthrough methods** (`feature_select_passthrough_types`, default `[]`) are aggregated
+  on every cell, raw, and joined onto `output.parquet` by `FINALIZE_FEATURE_SELECT_BATCHWISE`
+  last. With an empty list no `AGGREGATE_FEATURE_TYPE_PASSTHROUGH` task runs.
 
-Across experiments, `fisseqborn-global` reads the *unfiltered* `aggregate.parquet`
-plus each experiment's `blocklist.parquet` and votes, not the per-experiment
-`filtered_aggregate.parquet`: pooling intersects feature columns across
-experiments, so the filtered files would turn any vote into "OK in every
-experiment".
-
-`aggregate_with_passthrough.parquet` is terminal -- nothing downstream reads
-it. With `aggregate_methods_passthrough: []` (the default) no
-`AGGREGATE_PASSTHROUGH` task runs and `FILTER_AGGREGATE` gets an empty
-passthrough list.
+Across experiments, `fisseqborn-global` reads each experiment's per-method
+`aggregates/<method>.parquet` plus its `blocklist.parquet` and votes; it does not read
+`output.parquet`, whose columns are already filtered per experiment.
 
 ## CellProfiler-feature track
 
@@ -193,7 +175,7 @@ and `BUILD_CP_FEATURES` runs against that same output, selecting them back
 out. No entry setting `cp_features: true` -- the default -- skips
 `BUILD_CP_FEATURES` onward entirely. This track reuses that same
 experiment's `QC_FILTER` output rather than running QC a second time, and
-gets no reproducibility filtering: its columns are hand-engineered and
+gets no bootstrap feature selection: its columns are hand-engineered and
 meant to stay comparable to the published CellProfiler analysis.
 
 ```text
@@ -202,24 +184,23 @@ experiments with cp_features: true  +  BUILD_CELL_IMAGES' cell_table.parquet
     ▼
 BUILD_CP_FEATURES
     │
-QC_FILTER ──┐  (the SAME QC_FILTER output FILTER_EMBEDDINGS uses -- no
+QC_FILTER ──┐  (the SAME QC_FILTER output NORMALIZE uses -- no
              │   second QC pass)
              ▼
-      FILTER_CP_FEATURES
+      NORMALIZE_CP_FEATURES
              │
-    ┌────────┴────────┐
-    ▼                  ▼
-AGGREGATE_CP_FEATURES   OVWT_BATCHWISE_CP_FEATURES
+    ┌────────┴──────────────────────────┐
+    ▼                                    ▼
+AGGREGATE_FEATURE_TYPE_CP_FEATURES   OVWT_BATCHWISE_CP_FEATURES (params.run_ovwt)
+(x feature_select_types_cp_features; z-scored to the synonymous variants)
 ```
 
 `BUILD_CP_FEATURES` is a flat read + column-select against
 `BUILD_CELL_IMAGES`' `cell_table.parquet` (no tile discovery, no CSV
 reads of its own -- see
 [Architecture](architecture.md#cell-images-build_cell_images-output-from-starcall-workflow)).
-Every other stage here is a thin wrapper reusing the cellDINO track's own
-function, unchanged, with `feature_selector=FEATURE_SELECTOR` where that
-parameter exists (see [Architecture](architecture.md#architecture-decisions),
-decision 14).
+The other three processes are the same shared modules as the cellDINO track's, run with
+`feature_selector=features` and publishing under `*_cp_features` directories.
 
 ### Track independence
 
@@ -229,7 +210,7 @@ after it is two independent chains meeting nowhere, joined only by the
 neither, since `BUILD_CELL_METADATA` feeds it straight from
 `cell_table.parquet`. Combined with every per-experiment process's
 `errorStrategy 'ignore'`, a failure anywhere in the cellDINO track
-(`EMBED_CELLS`, `FILTER_EMBEDDINGS`, ...) leaves the CellProfiler track
+(`EMBED_CELLS`, `NORMALIZE`, ...) leaves the CellProfiler track
 running to completion, and vice versa.
 `tests/integration/test_integration.py::test_cp_track_survives_embedding_failure`
 pins this by failing `EMBED_CELLS` outright and asserting the
@@ -241,8 +222,8 @@ missing output files, not as an exit code.
 
 QC sees every row of `cell_table.parquet`, so `filtered_cells.parquet`
 can cover cells that never reached `embeddings.parquet` (say, a tile whose
-shard job failed). Every consumer inner-joins it back on `filter.py`'s
-`JOIN_KEYS`, so the extra rows drop out where they don't apply -- and QC
+shard job failed). Every consumer inner-joins it back on the pipeline's
+`join_keys`, so the extra rows drop out where they don't apply -- and QC
 thresholds don't shift depending on whether the embedding pass
 succeeded.
 
@@ -258,8 +239,8 @@ executor, queue or resource settings, and no default parameter values
   aren't root-owned).
 - **`-profile apptainer`** -- the same `docker://` image through Apptainer
   (`apptainer.autoMounts = true`); the usual choice on an HPC cluster.
-- **`-profile local`** -- no container at all: every task runs `python -m
-  fisseq_embeddings_pipeline.<module>` against the invoking environment
+- **`-profile local`** -- no container at all: every task runs its `python -m`
+  module against the invoking environment
   (this repo's own `uv` venv). What `tests/integration/` and CI use. There
   is no `ops` env here, so the nested starcall `snakemake` is whatever
   `snakemake` is on `PATH` -- the test suite puts a stub there.
@@ -444,38 +425,43 @@ re-entering the `.sif` on a node, which only a real cluster can check.
 
 ## Shared modules
 
-The processes both pipelines run have one copy, at the repository root:
-`nextflow/modules/local/<stage>/main.nf` (QC_FILTER, FILTER, OVWT_BATCHWISE,
-GENERATE_SPLIT, AGGREGATE_HALF, CORRELATE_FEATURES, BLOCKLIST, COMBINE_BLOCKLISTS), plus
-`nextflow/modules/local/functions.nf` (`threadEnv`, `hydraList`). A module carries only what
-both pipelines pass the same way; this pipeline's `conf/modules.config` sets, per process:
+The processes both pipelines run have one copy, in fisseq-common:
+`packages/fisseq-common/nextflow/modules/local/<stage>/main.nf` (QC_FILTER, FILTER,
+OVWT_BATCHWISE, AGGREGATE, GENERATE_SPLIT, CORRELATE_FEATURES, BLOCKLIST, COMBINE_BLOCKLISTS,
+FINALIZE_FEATURE_SELECT), plus `functions.nf` (`threadEnv`, `hydraList`). Each hardcodes its
+entry point, `python -m fisseq_common.stages.<stage>`, and passes what both pipelines pass
+alike. The workflow includes them under the data pipeline's process names
+(`include { FILTER as NORMALIZE } from '../../fisseq-common/nextflow/modules/local/filter/main.nf'`),
+and this pipeline's `conf/modules.config` sets, per process name, only:
 
-- `ext.entry`: the `python -m` module the process runs (this pipeline's wrapper);
-- `ext.cells_key` / `ext.split_key` / `ext.args`: the config keys its inputs bind to and
-  pipeline-specific overrides (a closure, so it can use the task's inputs);
-- `publishDir`: where its outputs go under `pipeline_dir`.
+- `ext.args`: `join_keys` (`[meta_batch,meta_well,meta_tile,meta_cell_index]`),
+  `feature_selector` (`embeddings`; `features` on the CP track), QC_FILTER's
+  `sort_output_by`, the aggregate processes' `downsample_wt` and `normalize_to_synonymous`, and
+  BLOCKLIST's `minimum_correlation`;
+- `ext.seed`: `AGGREGATE_HALF_BATCHWISE`'s per-half seed, `random_seed + rep * 2 + half`;
+- `publishDir`: where its outputs go under `pipeline_dir`, matching
+  `fisseq_common.layout.EmbeddingsPipelineLayout` (`tests/unit/test_publish_layout.py` checks).
 
-Where this pipeline runs one shared process under several names, the workflow includes it
-with an alias (`include { FILTER as NORMALIZE }`); the process names, and so every
-`withName` selector, are unchanged.
+See [Shared Nextflow modules](../common/nextflow.md).
 
 ## Modules
 
-Every module follows the same shape:
+This pipeline's own modules (`PLAN_EXPERIMENTS`, `BUILD_CELL_IMAGES`, `BUILD_CELL_METADATA`,
+`EMBED_CELLS`, `BUILD_CP_FEATURES`) follow the same shape as the shared ones:
 
 ```groovy
-include { threadEnv } from '../../../../../nextflow/modules/local/functions'
+include { threadEnv } from '../../../../fisseq-common/nextflow/modules/local/functions'
 
-process AGGREGATE_EMBEDDINGS {
+process EMBED_CELLS {
     errorStrategy 'ignore'
-    label 'process_medium'
+    label 'process_gpu'
     container "${params.container_image}"
-    publishDir { "${params.pipeline_dir}/feature_select_batchwise/${batch_stem}" }, mode: 'copy'
+    publishDir { "${params.pipeline_dir}/embeddings/${batch_stem}" }, mode: 'copy'
     ...
     script:
     """
     ${threadEnv(task.cpus)}
-    python -m fisseq_embeddings_pipeline.aggregate \\
+    python -m fisseq_embeddings_pipeline.embed \\
         output_dir=. \\
         ... \\
         random_seed=${params.random_seed}
@@ -491,13 +477,12 @@ process AGGREGATE_EMBEDDINGS {
   only `cell_table.parquet`/`tiles.parquet`; its scratch files
   (`targets.txt`, `tiles_manifest.csv`, `resolved_dirs.env`, the
   jobscript) stay in its work directory.
-- **`threadEnv(task.cpus)`** (`nextflow/modules/local/functions.nf` at the repository root) exports
+- **`threadEnv(task.cpus)`** (fisseq-common's `functions.nf`) exports
   `POLARS_MAX_THREADS`/`OMP_NUM_THREADS`/`OPENBLAS_NUM_THREADS`/... inside
   the script itself -- not as a `beforeScript`, which runs on the host,
   outside the container. `hydraList(key, values)` renders a list as one
   shell-safe `'key=[a,b]'` override.
-- **`output_dir=.`** and a trailing **`random_seed=${params.random_seed}`**
-  on every stage invocation.
+- **`output_dir=.`** and a trailing **`random_seed=...`** on every stage invocation.
 
 `BUILD_CELL_IMAGES` is the one exception to "one `python -m` call": three
 phases, the middle one a nested `snakemake` (which itself runs `python -m
@@ -518,45 +503,47 @@ changed.
 
 ## Output directory layout
 
+The paths are `fisseq_common.layout.EmbeddingsPipelineLayout`'s. Everything from
+`qc_filter/` down is laid out exactly as in fisseq-data-pipeline.
+
 ```text
 <pipeline_dir>/
   cell_images/<batch>/
-    cell_table.parquet                            # the ONE self-sufficient cell table -- genotype + (if cp_features) CellProfiler columns already joined in
-    tiles.parquet                                 # one row per tile: well, tile, shard_tar -- the tile's shard, a real path under phenotyping_dir
+    cell_table.parquet                    # the ONE self-sufficient cell table -- genotype + (if cp_features) CellProfiler columns already joined in
+    tiles.parquet                         # one row per tile: well, tile, shard_tar -- the tile's shard, a real path under phenotyping_dir
   cell_metadata/<batch>/
-    metadata.parquet                              # QC_FILTER's input, and the meta_* EMBED_CELLS joins on: cell_table.parquet's seven meta_* columns, every cell
+    metadata.parquet                      # QC_FILTER's input, and the meta_* EMBED_CELLS joins on
   qc_filter/<batch>/
-    filtered_cells.parquet
+    filtered_cells.parquet                # QC-passed cells (+ pseudo-variant rows, if enabled)
     barcode_counts.parquet
     variants_per_barcode.parquet
   embeddings/<batch>/embeddings.parquet   # unfiltered, all cells
-  filter_embeddings/<batch>/
-    filtered_keys.parquet                 # QC-passed join key + meta_is_control -- no emb_* columns
-    normalizer.parquet                    # fitted synonymous z-score stats
-  feature_select_batchwise/<batch>/
-    aggregate.parquet                     # Experiment N Aggregates -- EVERY dimension, unfiltered
-    splits/rep<N>/half{1,2}.parquet       # JOIN_KEYS rows only; which cells are in which half
-    half_aggregates/rep<N>/half<H>/<method>.parquet   # lean: label + that method's stat columns
-    correlations/rep<N>/<method>.parquet  # feature, r, r_squared
-    blocklists/<method>.parquet           # feature, median_r, feature_ok -- per method
-    blocklist.parquet                     # the per-method blocklists concatenated
-    passthrough_aggregates/<method>.parquet           # one per aggregate_methods_passthrough entry
-    filtered_aggregate.parquet            # blocklist applied -- the per-experiment deliverable
-    aggregate_with_passthrough.parquet    # + passthrough columns; TERMINAL, nothing in-pipeline reads it
+  normalization/<batch>/
+    filtered_keys.parquet                 # QC-passed cells' meta_* columns + meta_is_control -- no emb_* columns
+    normalizer.parquet                    # z-score stats fitted on the wildtype cells
   ovwt_batchwise/<batch>/
     results.parquet                       # auroc_pooled, auroc_median_barcode, auroc_folds, auroc_median_fold
     cell_scores.parquet                   # per-cell out-of-fold scores, one row per cell per variant scored against
     models.pkl                            # dict[variant] -> list[(model, calibrator)], one pair per CV fold
-  cp_features/<batch>/cp_features.parquet   # unfiltered, all cells -- CellProfiler feature columns
-  filter_cp_features/<batch>/
-    filtered_keys.parquet                 # QC-passed join key + meta_is_control -- no CellProfiler feature columns
-    normalizer.parquet                    # fitted synonymous z-score stats
-  feature_select_batchwise_cp_features/<batch>/
-    aggregate.parquet                     # Experiment N CP Aggregates
+  feature_select_batchwise/<batch>/
+    aggregates/<method>.parquet           # every cell, one method, z-scored to the synonymous variants
+    passthrough_aggregates/<method>.parquet   # one per feature_select_passthrough_types entry, raw
+    splits/bootstrap_<N>/half{1,2}.parquet    # which cells are in which half (row keys only)
+    half_aggregates/bootstrap_<N>/<method>/half<K>_agg.parquet   # lean: label + that method's stat columns
+    correlations/<method>/bootstrap_<N>.parquet   # feature, r, r_squared
+    blocklists/<method>.parquet           # feature, median_r, feature_ok -- per method
+    blocklist.parquet                     # the per-method blocklists concatenated
+    output.parquet                        # FINALIZE: blocklist applied, synonymous z-score, impact score, metadata, passthrough
+  cp_features/<batch>/cp_features.parquet # unfiltered, all cells -- CellProfiler feature columns
+  normalization_cp_features/<batch>/
+    filtered_keys.parquet
+    normalizer.parquet
   ovwt_batchwise_cp_features/<batch>/
     results.parquet
     cell_scores.parquet
     models.pkl
+  feature_select_batchwise_cp_features/<batch>/
+    aggregates/<method>.parquet           # one per feature_select_types_cp_features entry
   .snakemake_cache/                       # the nested starcall snakemake's $XDG_CACHE_HOME/$HOME (snakemake_cache_dir)
 ```
 
@@ -564,8 +551,8 @@ Each stage's own `<stage>.log` (written by `fisseq_common.utils.log` into
 `output_dir`) stays in that task's hashed `work/` directory alongside
 Nextflow's `.command.log`/`.command.err`; it isn't published.
 
-The `cp_features/`, `filter_cp_features/`, `feature_select_batchwise_cp_features/`,
-and `ovwt_batchwise_cp_features/` directories only
+The `cp_features/`, `normalization_cp_features/`, `ovwt_batchwise_cp_features/` and
+`feature_select_batchwise_cp_features/` directories only
 appear when at least one `params.experiments` entry sets `cp_features:
 true` (see [CellProfiler-feature track](#cellprofiler-feature-track)
 above).
@@ -579,5 +566,5 @@ The whole-tile `raw_pt.tif`/`corrected_pt.tif` they're cut from is a
 `temp()` output upstream and no longer a target, so snakemake deletes it
 once the shard is cut -- see [Architecture](architecture.md) decision 17.
 
-See the [Stage Reference](cli/tile_shard.md) pages for each file's exact
-column set.
+See the [Stage Reference](cli/tile_shard.md) pages and
+[Shared stages](../common/stages.md) for each file's exact column set.

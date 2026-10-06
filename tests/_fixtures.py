@@ -10,16 +10,9 @@ Scenarios:
 
 - ``data``: the data pipeline's two-experiment session fixture (``batch1``, ``batch2``).
 - ``embeddings``: the embeddings pipeline's one-experiment session fixture (``batch1``).
-- ``embeddings_global``: synthetic per-experiment outputs (``_global_fixture``).
-
-``tests/reference/<scenario>/global/`` holds what the embeddings pipeline's GLOBAL_* stages made
-of the embeddings scenarios' outputs, captured before those stages were deleted. A run no
-longer writes ``global/``: it is the baseline of ``test_global_parity`` (fisseqborn's
-cross-experiment aggregation), and the reference comparison and ``capture.py`` leave it alone.
 - ``embeddings_two``: the same fixture written twice with different tile images, as
-  ``batch1`` and ``batch2`` in one run, so the cross-experiment vote and median see more
-  than one experiment. Its variants include two synonymous ones
-  (``_MULTI_EXPERIMENT_VARIANTS``), so the per-experiment z-scores are defined.
+  ``batch1`` and ``batch2`` in one run, so fisseqborn's cross-experiment vote and median see
+  more than one experiment.
 """
 
 from __future__ import annotations
@@ -36,7 +29,7 @@ ROOT = Path(__file__).parents[1]
 PACKAGES = ROOT / "packages"
 REFERENCE_DIR = ROOT / "tests" / "reference"
 
-SCENARIOS = ("data", "embeddings", "embeddings_two", "embeddings_global")
+SCENARIOS = ("data", "embeddings", "embeddings_two")
 
 # Stage output directories that hold published results (the rest of a fixture's pipeline_dir is
 # synthetic input: starcall trees, raw batches, stub binaries).
@@ -52,17 +45,14 @@ _EMBEDDINGS_OUTPUT_DIRS = (
     "cell_metadata",
     "qc_filter",
     "embeddings",
-    "filter_embeddings",
+    "normalization",
     "feature_select_batchwise",
     "ovwt_batchwise",
     "cp_features",
-    "filter_cp_features",
+    "normalization_cp_features",
     "feature_select_batchwise_cp_features",
     "ovwt_batchwise_cp_features",
 )
-
-#: The reference subdirectory holding the former global stages' outputs (see the docstring).
-GLOBAL_REFERENCE = "global/"
 
 
 def _load(package: str) -> ModuleType:
@@ -92,17 +82,7 @@ def run_scenario(scenario: str, work_dir: Path) -> Path:
         return _run_embeddings(work_dir, n_experiments=1)
     if scenario == "embeddings_two":
         return _run_embeddings(work_dir, n_experiments=2)
-    if scenario == "embeddings_global":
-        return _run_global(work_dir)
     raise ValueError(f"unknown scenario {scenario!r}")
-
-
-def _run_global(work_dir: Path) -> Path:
-    import _global_fixture
-
-    pipeline_dir = work_dir / "pipeline"
-    _global_fixture.write_inputs(pipeline_dir)
-    return pipeline_dir
 
 
 def _run_data(work_dir: Path) -> Path:
@@ -125,10 +105,8 @@ def _run_embeddings(work_dir: Path, n_experiments: int) -> Path:
     it = _load("fisseq-embeddings-pipeline")
     exp_dir = work_dir / "pipeline"
     exp_dir.mkdir(parents=True, exist_ok=True)
-    original = it._make_tile_image, it._VARIANTS
+    original = it._make_tile_image
     try:
-        if n_experiments > 1:
-            it._VARIANTS = _MULTI_EXPERIMENT_VARIANTS
         it._write_synthetic_experiment(exp_dir)
         params_path = exp_dir / "params.yaml"
         params = yaml.safe_load(params_path.read_text())
@@ -141,7 +119,7 @@ def _run_embeddings(work_dir: Path, n_experiments: int) -> Path:
             entries = yaml.safe_load((other / "params.yaml").read_text())["experiments"]
             params["experiments"].append({**entries[0], "batch_stem": f"batch{i}"})
     finally:
-        it._make_tile_image, it._VARIANTS = original
+        it._make_tile_image = original
     params_path.write_text(yaml.safe_dump(params))
 
     checkpoint = work_dir / "weights" / "checkpoint.pth"
@@ -153,18 +131,6 @@ def _run_embeddings(work_dir: Path, n_experiments: int) -> Path:
     result = it._run_nextflow(exp_dir, checkpoint)
     _check(result)
     return exp_dir
-
-
-# The multi-experiment scenario needs at least two synonymous variants per experiment: the
-# cross-experiment OvWT step z-scores each experiment's scores against its synonymous variants,
-# and with one the standard deviation is undefined. Three cells per barcode (fewer leaves OvWT
-# without scorable variants) and 24 cells in all, within the fixture tile's 25 cell positions.
-_MULTI_EXPERIMENT_VARIANTS = {
-    "WT": ("bc_wt_{i}", 2, 3),
-    "A1A": ("bc_syn_{i}", 2, 3),
-    "A2A": ("bc_syn2_{i}", 2, 3),
-    "M1K": ("bc_mis_{i}", 2, 3),
-}
 
 
 def _seeded_tile_image(it: ModuleType, seed: int):

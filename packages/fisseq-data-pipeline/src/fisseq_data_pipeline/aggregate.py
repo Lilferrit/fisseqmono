@@ -4,7 +4,7 @@ The aggregators (mean, median, MAD, std, KS, signedKS, QQ, AUROC, KSnegLogP, AUR
 live in :mod:`fisseq_common.stages.aggregate` and are re-exported here. This entry point
 aggregates with one of them, z-scores the result against the synonymous variants, attaches
 per-variant metadata and an impact score. It isn't wired into the Nextflow workflow; the
-feature-selection branch aggregates with :mod:`.aggregatefeaturetype`.
+feature-selection branch aggregates with :mod:`fisseq_common.stages.aggregate`'s entry point.
 """
 
 import dataclasses

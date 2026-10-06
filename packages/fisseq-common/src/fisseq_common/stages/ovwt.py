@@ -26,13 +26,13 @@ out-of-fold score for every cell and several distinguishability numbers per vari
   out-of-fold score and every output column keeps its meaning -- what changes is that they
   measure whether a variant's signal *generalizes to an unseen barcode*.
 
-Which columns are features is the caller's choice (``feature_selector``): the data pipeline
-scores its CellProfiler features (``FEATURE_SELECTOR``), the embeddings pipeline its embedding
-dimensions (``EMBEDDING_SELECTOR``). The cells come in already normalized by the pipeline's
-filter stage, against that pipeline's control rows.
+Which columns are features is the ``feature_selector`` field: the data pipeline and the
+embeddings pipeline's CellProfiler track score CellProfiler features (``"features"``), the
+embeddings track its embedding dimensions (``"embeddings"``). The cells come in normalized by the
+filter stage, against the wildtype cells.
 
-Each pipeline's ``ovwt`` module is the entry point: its config subclasses :class:`OvwtParams`
-with the pipeline's inputs, it loads the normalized cells and calls :func:`run_ovwt`.
+Entry point: ``python -m fisseq_common.stages.ovwt`` (:class:`OvwtConfig`): it rebuilds the
+normalized cells (:func:`fisseq_common.stages.filter.load_cells`) and calls :func:`run_ovwt`.
 """
 
 import dataclasses
@@ -53,7 +53,8 @@ from omegaconf import OmegaConf
 
 from fisseq_common.schema import FEATURE_SELECTOR, META_BARCODE_COL, META_SELECTOR
 
-from .config import AppConfig
+from .config import AppConfig, CellsInput, feature_selector, stage_main
+from .filter import load_cells
 from .xgbparams import (
     XGBoostConfig,
     get_dmatrix,
@@ -919,3 +920,20 @@ def run_ovwt(
         pickle.dump(models, f)
 
     logging.info("Done")
+
+
+@dataclasses.dataclass
+class OvwtConfig(CellsInput, OvwtParams):
+    """OVWT_BATCHWISE's configuration: the normalized cells (:class:`~.config.CellsInput`) and
+    :class:`OvwtParams`."""
+
+
+def run_ovwt_stage(cfg: OvwtConfig) -> None:
+    """Score the normalized cells ``cfg`` names (:func:`run_ovwt`)."""
+    run_ovwt(load_cells(cfg), cfg, feature_selector(cfg.feature_selector))
+
+
+main = stage_main("ovwt_main", OvwtConfig, run_ovwt_stage)
+
+if __name__ == "__main__":
+    main()

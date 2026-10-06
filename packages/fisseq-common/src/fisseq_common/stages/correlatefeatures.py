@@ -3,6 +3,8 @@
 For one bootstrap replicate and one aggregation method, correlates every aggregate column across
 the variants of the replicate's two halves. A correlation that is undefined (a constant column,
 NaN) is stored as null, and an aggregate with no feature columns gives an empty table.
+
+Entry point: ``python -m fisseq_common.stages.correlatefeatures``.
 """
 
 import dataclasses
@@ -14,7 +16,7 @@ from omegaconf import MISSING
 
 from fisseq_common.schema import FEATURE_SELECTOR
 
-from .config import AppConfig
+from .config import AppConfig, stage_main
 
 
 def compute_feature_correlations(
@@ -125,3 +127,11 @@ def run_correlate_features(cfg: CorrelateFeaturesParams) -> None:
     corr_df.write_parquet(out_path)
 
     logging.info("Done")
+
+
+main = stage_main(
+    "correlate_features_main", CorrelateFeaturesParams, run_correlate_features
+)
+
+if __name__ == "__main__":
+    main()

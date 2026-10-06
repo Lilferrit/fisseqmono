@@ -38,7 +38,8 @@ TRACK_FILES = {
 def _batch_aggregate(
     labels: list[str], values: list[list[float]], prefix: str = "emb_"
 ) -> pl.DataFrame:
-    """One experiment's per-variant aggregate.parquet: label_column + features."""
+    """One experiment's per-variant aggregates (``aggregates/median.parquet``): label_column +
+    features."""
     n_dims = len(values[0])
     return pl.DataFrame(
         {
@@ -121,10 +122,10 @@ def _emb_run(
     ]
     for i, df in enumerate(aggregates):
         batch = f"e{i + 1}"
-        _write(root / emb.aggregate(batch), df)
+        _write(root / emb.aggregate(batch, "median"), df)
         _write(root / emb.blocklist(batch), blocklists[i])
         if cp_aggregates is not None:
-            _write(root / cp.aggregate(batch), cp_aggregates[i])
+            _write(root / cp.aggregate(batch, "median"), cp_aggregates[i])
         if ovwt:
             _write(root / emb.ovwt_results(batch), results[i])
             if cp_aggregates is not None:

@@ -1,17 +1,19 @@
 # Input
 
 `python -m fisseq_data_pipeline.input` (Nextflow process `INPUT`, runs once per
-mandatory config file in `<pipeline_dir>/configs/` — see
+`experiments:` entry — see
 [Configuration](../configuration.md#declaring-experiments))
-reads a hand-authored YAML config describing one or more raw cell-score files
+reads a YAML config describing one or more raw cell-score files
 (CSV or Parquet) and merges them into a single `input/`-ready cell-level
-Parquet file.
+Parquet file. The Nextflow process writes that YAML from the experiment's entry. INPUT is the
+only stage this package owns; every later stage is a
+[shared stage](../../common/stages.md).
 
 Variant-class/count-based restriction (previously done here via
 `top_n_missense`) now happens downstream, in `QC_FILTER`'s `n_variants` /
 `variant_downsample_classes` / `variant_downsample_mode` (see
-[CLI Reference: qcfilter](qcfilter.md)), so it applies uniformly to every
-batch rather than only to batches routed through this optional stage.
+[Shared stages: qcfilter](../../common/stages.md#qcfilter)), so it applies uniformly to every
+batch.
 
 ## Config fields
 
@@ -32,9 +34,9 @@ csv_schema_scan_rows: 100         # optional, default 100
 ```
 
 - `input_paths` — one or more raw cell-score files (CSV or Parquet), concatenated.
-  **Required, and batch-YAML-only** — there is no pipeline-wide default for a
-  per-batch list of raw data files (see
-  [Per-batch parameter overrides](../configuration.md#declaring-experiments)).
+  **Required, and per-experiment only** — there is no pipeline-wide default for a
+  per-experiment list of raw data files (see
+  [Declaring experiments](../configuration.md#declaring-experiments)).
 - `feature_allowlist_file` / `feature_blocklist_file` — optional paths to plain
   text files, one fnmatch-style glob pattern per line (e.g.
   `Cells_AreaShape_*`), matched against feature column names. If an allowlist
@@ -51,17 +53,16 @@ csv_schema_scan_rows: 100         # optional, default 100
 Except for `input_paths`, every field above is also a
 plain `params.yaml` pipeline-wide default (`params.feature_allowlist_file`,
 `params.feature_blocklist_file`, `params.csv_schema_scan_rows`) — set one on
-the command line or in `params.yaml` to apply it to every batch, and/or
-override it for a specific batch in that batch's YAML. See
-[Per-batch parameter overrides](../configuration.md#declaring-experiments)
-for the full mechanism.
+the command line or in `params.yaml` to apply it to every experiment, and/or
+override it for one experiment in its `experiments:` entry. See
+[Declaring experiments](../configuration.md#declaring-experiments).
 
 ## Output files
 
 Written to `output_dir`, prefixed `{output_root}.` when `output_root` is set:
 
-- `output.parquet` — the selected/filtered cells, ready to be placed in
-  `<pipeline_dir>/input/`
+- `output.parquet` — the selected/filtered cells. The Nextflow process publishes it as
+  `<pipeline_dir>/input/<batch_stem>.parquet`.
 
 ## Example
 
@@ -73,12 +74,7 @@ uv run python -m fisseq_data_pipeline.input \
 
 ## Common config fields
 
-Every CLI tool's config extends `AppConfig`, which supplies:
-
-| Field | Default | Description |
-| ----- | ------- | ----------- |
-| `output_dir` | **required** | Directory for all output files; created if absent. |
-| `output_root` | `null` | If set, output files are prefixed `{output_root}.{name}` instead of being placed directly under `output_dir`. |
-| `log_level` | `"info"` | Logging verbosity (`debug`, `info`, `warning`, `error`, `critical`). |
+Every config extends `AppConfig` (`output_dir`, `output_root`, `log_level`, `random_seed`); see
+[Shared stages: Common config fields](../../common/stages.md#common-config-fields).
 
 See [API Reference: input](../api/input.md) for full function documentation.

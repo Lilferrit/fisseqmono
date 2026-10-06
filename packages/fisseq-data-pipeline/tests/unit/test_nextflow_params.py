@@ -15,8 +15,8 @@ import re
 
 import yaml
 
-from fisseq_data_pipeline.aggregate import _AGGREGATORS
-from fisseq_data_pipeline.ovwt import CV_MODES
+from fisseq_common.stages.aggregate import _AGGREGATORS
+from fisseq_common.stages.ovwt import CV_MODES
 
 WORKFLOW = pathlib.Path(__file__).parents[2] / "workflows" / "fisseq.nf"
 

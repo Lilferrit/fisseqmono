@@ -1,5 +1,8 @@
 """COMBINE_BLOCKLISTS: one experiment's per-method blocklists in a single table, sorted by
-``feature``."""
+``feature``.
+
+Entry point: ``python -m fisseq_common.stages.combineblocklists``.
+"""
 
 import dataclasses
 import glob
@@ -9,7 +12,7 @@ import pathlib
 import polars as pl
 from omegaconf import MISSING
 
-from .config import AppConfig
+from .config import AppConfig, stage_main
 
 
 @dataclasses.dataclass
@@ -49,3 +52,11 @@ def run_combine_blocklists(cfg: CombineBlocklistsParams) -> None:
     combined.write_parquet(out_path)
 
     logging.info("Done")
+
+
+main = stage_main(
+    "combine_blocklists_main", CombineBlocklistsParams, run_combine_blocklists
+)
+
+if __name__ == "__main__":
+    main()

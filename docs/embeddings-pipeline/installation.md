@@ -4,10 +4,12 @@
 
 This project is managed with [uv](https://docs.astral.sh/uv/):
 
+The pipeline is a package of the fisseqmono uv workspace:
+
 ```bash
-git clone https://github.com/Lilferrit/fisseq-embeddings-pipeline.git
-cd fisseq-embeddings-pipeline
-uv sync --group dev
+git clone https://github.com/Lilferrit/fisseqmono.git
+cd fisseqmono
+uv sync                     # every package + dev tools
 ```
 
 `requires-python = ">=3.13,<3.14"` -- pinned to a narrow range because
@@ -80,6 +82,6 @@ fixture (see `testing_data/README.md`).
 
 ## Development environment
 
-`.devcontainer/` provides a containerized dev environment (VS Code /
+The workspace's `.devcontainer/` provides a containerized dev environment (VS Code /
 Claude Code) with Nextflow and Docker-outside-of-Docker access
-already configured, mirroring `fisseq-data-pipeline`'s own `.devcontainer/`.
+already configured.

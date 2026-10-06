@@ -12,8 +12,8 @@ of four packages (documentation: <https://lilferrit.github.io/fisseqmono/>):
 
 ```text
 packages/<package>/          # src/, tests/{unit,integration}/, pyproject.toml (+ pipelines: Nextflow, Dockerfile)
-nextflow/modules/local/      # the Nextflow processes both pipelines run (one copy each)
-tests/                       # cross-package tests: reference outputs, layout, global parity, release
+packages/fisseq-common/nextflow/  # the Nextflow modules of the stages both pipelines run (one copy each)
+tests/                       # cross-package tests: reference outputs, layout, release
 docs/                        # the one MkDocs site (mkdocs.yml); docs/diff-reports/: output changes
 scripts/release.py           # set the one workspace version
 ```

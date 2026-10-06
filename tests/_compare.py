@@ -13,10 +13,6 @@ is free to change:
 - The run's own directory, which appears in path columns (``meta_origin_file``,
   ``shard_tar``). :func:`load` replaces it with ``<RUN>``, both when references are captured
   and when a run is compared with them.
-- PCA components with no variance. A full-rank PCA's last component explains ~1e-32 of the
-  variance and its direction is arbitrary, so the smallest perturbation of the input turns it.
-  Components whose ``meta_variance_explained`` is below ``DEGENERATE_VARIANCE`` in the reference
-  are left out of the ``pca_*`` comparisons.
 
 Column sets and dtypes must match exactly.
 """
@@ -31,7 +27,6 @@ from polars.testing import assert_frame_equal
 
 REL_TOL = 1e-6
 ABS_TOL = 1e-9
-DEGENERATE_VARIANCE = 1e-12
 RUN_PLACEHOLDER = "<RUN>"
 
 
@@ -68,26 +63,6 @@ def canonical(df: pl.DataFrame) -> pl.DataFrame:
     return df.sort(keys, nulls_last=True) if keys else df
 
 
-def _degenerate_components(reference_file: Path) -> list[int]:
-    variance = reference_file.parent / "pca_variance_explained.parquet"
-    if not reference_file.name.startswith("pca_") or not variance.exists():
-        return []
-    return (
-        pl.read_parquet(variance)
-        .filter(pl.col("meta_variance_explained") < DEGENERATE_VARIANCE)
-        .get_column("meta_component_idx")
-        .to_list()
-    )
-
-
-def _drop_components(df: pl.DataFrame, components: list[int]) -> pl.DataFrame:
-    if not components:
-        return df
-    if "meta_component_idx" in df.columns:
-        df = df.filter(~pl.col("meta_component_idx").is_in(components))
-    return df.drop([f"meta_pc_{k}" for k in components], strict=False)
-
-
 def assert_frames_equal(
     actual: pl.DataFrame, expected: pl.DataFrame, name: str
 ) -> None:
@@ -110,29 +85,22 @@ def compare_trees(
     reference_dir: Path,
     run_root: Path,
     prefix: str = "",
-    skip: tuple[str, ...] = (),
 ) -> list[str]:
     """Problems found comparing ``actual`` (relative path -> file) with ``reference_dir``.
 
-    Only reference files under ``prefix``, and not under any of ``skip``, are considered.
+    Only reference files under ``prefix`` are considered.
     """
     expected = {
         rel: p
         for p in reference_dir.rglob("*.parquet")
         if (rel := p.relative_to(reference_dir).as_posix()).startswith(prefix)
-        and not rel.startswith(skip)
     }
     actual = {k: v for k, v in actual.items() if k.startswith(prefix)}
     problems = [f"missing from run: {k}" for k in sorted(set(expected) - set(actual))]
     problems += [f"not in reference: {k}" for k in sorted(set(actual) - set(expected))]
     for key in sorted(set(actual) & set(expected)):
-        degenerate = _degenerate_components(expected[key])
         try:
-            assert_frames_equal(
-                _drop_components(load(actual[key], run_root), degenerate),
-                _drop_components(load(expected[key]), degenerate),
-                key,
-            )
+            assert_frames_equal(load(actual[key], run_root), load(expected[key]), key)
         except AssertionError as err:
             problems.append(f"{key}: {err}")
     return problems

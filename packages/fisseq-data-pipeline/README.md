@@ -10,10 +10,15 @@ variant's cell population differs from wildtype (WT) controls using
 morphological features. The high-level shape:
 
 ```text
-raw CellProfiler features -> QC filtering -> WT normalization
-    -> one-vs-WT cross-validated scoring -> cross-experiment score aggregation
-    -> bootstrap feature selection -> cross-experiment feature selection
+raw CellProfiler features -> INPUT -> QC filtering -> WT normalization
+    -> one-vs-WT cross-validated scoring
+    -> bootstrap feature selection (per-method aggregates, blocklist, output.parquet)
 ```
+
+Every output is per experiment; cross-experiment aggregation is `fisseqborn-global`'s. Every
+stage after INPUT is a shared fisseq-common stage (`python -m fisseq_common.stages.<stage>`,
+Nextflow modules in `packages/fisseq-common/nextflow/`), the same ones the embeddings pipeline
+runs.
 
 Every parameter lives in `params.yaml`, including the single `random_seed` that
 drives every stochastic step, and the `experiments:` list that declares what to
@@ -24,16 +29,18 @@ run over.
 Install the environment ([uv](https://docs.astral.sh/uv/)-managed):
 
 ```bash
-git clone https://github.com/Lilferrit/fisseq-data-pipeline.git
-cd fisseq-data-pipeline
-uv sync --group dev
+git clone https://github.com/Lilferrit/fisseqmono.git
+cd fisseqmono
+uv sync
 ```
 
-Run the full pipeline end to end with [Nextflow](https://www.nextflow.io/) (≥ 26.04).
+Run the full pipeline end to end with [Nextflow](https://www.nextflow.io/) (≥ 26.04), from a
+checkout of the workspace (the workflow includes fisseq-common's modules).
 `-params-file` is required — `nextflow.config` holds no parameter defaults:
 
 ```bash
-nextflow run Lilferrit/fisseq-data-pipeline \
+cd packages/fisseq-data-pipeline
+nextflow run . \
     -params-file params.yaml \
     --pipeline_dir /path/to/experiment
 ```

@@ -1,6 +1,7 @@
 # Configuration
 
-Every pipeline parameter lives in **`params.yaml`** at the repo root. It must be
+Every pipeline parameter lives in **`params.yaml`** at the package root
+(`packages/fisseq-data-pipeline/`). It must be
 passed explicitly:
 
 ```bash
@@ -14,7 +15,7 @@ never parameter defaults.
 
 1. A bare CLI flag (`--ovwt_min_cells 500`) — highest.
 2. `-params-file params.yaml`.
-3. The Python Hydra dataclass default for that stage.
+3. The Python Hydra dataclass default for that stage (see [Shared stages](../common/stages.md)).
 
 Nextflow accepts only one `-params-file` at a time, so to run an alternate
 parameter set, copy `params.yaml` and edit the copy.
@@ -67,7 +68,7 @@ missing or blank `batch_stem`, a missing or empty `input_paths`, and duplicate
 Every stage runs per experiment, and nothing in the pipeline combines
 experiments. Cross-experiment aggregation — merging blocklists, per-variant
 medians across experiments, AUROC re-centering against synonymous variants — is
-done downstream by [fisseqborn](https://github.com/FowlerLab/fisseqborn), which
+done downstream by [fisseqborn](../fisseqborn/index.md), which
 reads the published per-experiment outputs (see
 [Architecture](architecture.md#cross-experiment-aggregation)).
 
@@ -83,8 +84,8 @@ wildtype subsampling, OvWT's fold shuffle / inner calibration split / XGBoost
 `seed`. Changing it moves all of them coherently.
 
 Stages that must differ from one another derive a fixed offset rather than
-owning a seed of their own (`GENERATE_SPLIT` uses `random_seed + bootstrap_idx`;
-`AGGREGATE_HALF` uses `random_seed + bootstrap_idx * 2 + half_num`), so
+owning a seed of their own (`GENERATE_SPLIT_BATCHWISE` uses `random_seed + bootstrap_idx`;
+`AGGREGATE_HALF_BATCHWISE` uses `random_seed + bootstrap_idx * 2 + half_num`), so
 bootstrap replicates still draw independent subsamples.
 
 There is deliberately no stage-local `random_state` anywhere, and
@@ -134,7 +135,7 @@ All pipeline-wide.
 | `qc_n_variants` | `null` | Cap the number of distinct variants in `qc_variant_downsample_classes`. |
 | `qc_variant_downsample_classes` | `["Single Missense"]` | Classes eligible for that cap. |
 | `qc_variant_downsample_mode` | `"top"` | `"top"` (highest cell count) or `"random"` (seeded by `random_seed`). |
-| `qc_downsample_amounts` | `null` | Float in (0,1] or int, or a list of them: pseudo-variant downsampling per label group. Each amount gets its own `:downsample-{amount}` tag. |
+| `qc_downsample_amounts` | `null` | Float in (0,1] or int, or a list of them: pseudo-variant downsampling per label group. Each amount gets its own `:downsample-{amount}` tag, and its rows their own `meta_variant_tag`. |
 | `qc_downsample_classes` | `["Synonymous", "Single Missense"]` | Classes eligible for pseudo-variant generation. |
 
 ### OVWT_BATCHWISE
@@ -148,7 +149,7 @@ All pipeline-wide.
 | `ovwt_min_cells` | `250` | Minimum cells for a variant to be scored; wildtype always kept. `null` disables. |
 | `ovwt_downsample_wt` | `true` | Barcode-proportional wildtype downsampling to the largest remaining variant group. |
 
-See [One-vs-WT](cli/ovwt.md) for what these actually do.
+See [Shared stages: ovwt](../common/stages.md#ovwt) for what these actually do.
 
 ### Feature selection
 
@@ -157,12 +158,12 @@ See [One-vs-WT](cli/ovwt.md) for what these actually do.
 | `feature_select_types` | `["mean","median","MAD","std","KS","QQ","AUROC"]` | Aggregators to compute and correlate. Their published aggregates (`feature_select_batchwise/<batch>/aggregates/`) are z-scored against the experiment's synonymous variants. |
 | `feature_select_passthrough_types` | `[]` | Aggregators computed and joined onto the final per-variant table but excluded from every selection step — no bootstrap, no blocklist, no normalization; published raw to `passthrough_aggregates/`. Intended for the p-value statistics (`KSnegLogP`, `AUROCnegLogP`). Must not overlap `feature_select_types`. |
 | `feature_select_bootstrap_reps` | `10` | Bootstrap replicates per feature type. |
-| `feature_select_downsample_wt` | `null` | Optional wildtype downsampling during aggregation. |
+| `feature_select_downsample_wt` | `null` | Optional wildtype downsampling in the `AGGREGATE_*` processes: a float in (0,1) keeps that fraction, an int that many. |
 | `feature_select_min_correlation` | `0.5` | Median-`r` threshold for a feature to pass. |
-| `aggregate_feature_chunk_size` | `32` | Feature columns `AGGREGATE_FEATURE_TYPE` / `AGGREGATE_HALF` evaluate per Polars query. A memory dial: peak memory scales with `chunk_size × n_variant_labels` (× the control pool, for the reference-based aggregators), while runtime is essentially flat in it. Halve it if a task is OOM-killed (exit 137); raise it for runs using only `mean`/`median`/`std`/`MAD`. `null` disables chunking entirely (every feature in one query) — the pre-chunking shape, for small inputs only. See [Feature chunking](cli/aggregate.md#feature-chunking). |
+| `aggregate_feature_chunk_size` | `32` | Feature columns the `AGGREGATE_*` processes evaluate per Polars query. A memory dial: peak memory scales with `chunk_size × n_variant_labels` (× the control pool, for the reference-based aggregators), while runtime is essentially flat in it. Halve it if a task is OOM-killed (exit 137); raise it for runs using only `mean`/`median`/`std`/`MAD`. `null` disables chunking entirely (every feature in one query) — the pre-chunking shape, for small inputs only. See [Feature chunking](../common/stages.md#feature-chunking). |
 
 !!! note "Each experiment needs at least two synonymous variants"
-    The `feature_select_types` aggregates and `FINALIZE_FEATURE_SELECT`'s
+    The `feature_select_types` aggregates and `FINALIZE_FEATURE_SELECT_BATCHWISE`'s
     output are z-scored against the experiment's synonymous variants (mean and
     `ddof=1` std). A single synonymous variant leaves the std undefined and
     nulls every feature for that experiment; zero-variance features are null
@@ -171,8 +172,8 @@ See [One-vs-WT](cli/ovwt.md) for what these actually do.
 ### Removed parameters
 
 `run_pca`, `pca_n_components`, `run_umap` and `umap_*` are gone: the pipeline does no
-dimensionality reduction (cross-experiment PCA is `fisseqborn-global`'s). A run that still sets
-one logs a warning and ignores it.
+dimensionality reduction (cross-experiment PCA is `fisseqborn-global`'s), and no pycytominer
+step. A run that still sets one logs a warning and ignores it.
 
 ## Passing list values on the CLI
 

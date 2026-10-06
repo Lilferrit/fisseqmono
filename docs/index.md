@@ -10,9 +10,11 @@ One repository, [`Lilferrit/fisseqmono`](https://github.com/Lilferrit/fisseqmono
 | [fisseq-embeddings-pipeline](embeddings-pipeline/index.md) | Nextflow pipeline scoring variants on Cell-DINO embeddings (plus a CellProfiler track), per experiment. |
 | [fisseqborn](fisseqborn/index.md) | Plots, and aggregation across experiments (`fisseqborn-global`), of either pipeline's outputs. |
 
-Both pipelines produce per-experiment outputs only; `fisseqborn-global` pools experiments.
-The [diff reports](diff-reports/README.md) record every deliberate change to a pipeline's
-outputs made while merging the repositories.
+The two pipelines differ only in their cell tables (CellProfiler features vs. Cell-DINO
+embeddings). From QC on they run the same [shared stages](common/stages.md), with the same
+parameters and publish layout. Both produce per-experiment outputs only; `fisseqborn-global`
+pools experiments. The [diff reports](diff-reports/README.md) record every deliberate change to
+a pipeline's outputs.
 
 ## Working in the repository
 

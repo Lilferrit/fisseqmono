@@ -25,8 +25,7 @@
 //   {pipeline_dir}/
 //     input/{batch_stem}.parquet                     INPUT output
 //     qc_filter/{batch_stem}/                        filtered_cells, barcode_counts, variants_per_barcode
-//     normalization/cells/{batch_stem}.parquet
-//     normalization/normalizers/{batch_stem}.normalizer.parquet
+//     normalization/{batch_stem}/                    filtered_keys, normalizer
 //     ovwt_batchwise/{batch_stem}/                   results, cell_scores, models.pkl
 //     feature_select_batchwise/{batch_stem}/         aggregates, passthrough_aggregates, splits,
 //                                                    correlations, blocklists, blocklist, output

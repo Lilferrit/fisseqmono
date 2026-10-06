@@ -13,23 +13,46 @@
 ## Project overview
 
 `fisseq-embeddings-pipeline` is the embedding-space sibling of
-`fisseq-data-pipeline` — same overall shape (a workflow engine orchestrating
-Python/Hydra/polars stages, per-experiment batches, a QC → normalize →
-one-vs-wildtype → aggregate structure; pooling across experiments is
-fisseqborn's `fisseqborn-global`), but scores genetic
-variants against a pretrained **Cell-DINO** vision transformer's learned
-embeddings instead of hand-engineered CellProfiler features. See
-[`docs/embeddings-pipeline/architecture.md`](../../docs/embeddings-pipeline/architecture.md) for the full picture and
-its ASCII DAG.
+`fisseq-data-pipeline`: it scores genetic variants against a pretrained **Cell-DINO** vision
+transformer's learned embeddings instead of hand-engineered CellProfiler features. Upstream
+of the embeddings it is its own (starcall-workflow run, cell crops, Cell-DINO); **downstream
+of `EMBED_CELLS` it runs the data pipeline's stages**: the same `fisseq_common.stages` entry
+points and `packages/fisseq-common/nextflow` modules, the same process names
+(`QC_FILTER` → `NORMALIZE` → `OVWT_BATCHWISE` + the `*_BATCHWISE` bootstrap feature
+selection ending in `FINALIZE_FEATURE_SELECT_BATCHWISE`), the same `params.yaml` names and
+defaults, and the same publish layout (`fisseq_common.layout`). Pooling across experiments is
+fisseqborn's `fisseqborn-global`. See
+[`docs/embeddings-pipeline/architecture.md`](../../docs/embeddings-pipeline/architecture.md)
+and [`docs/common/stages.md`](../../docs/common/stages.md).
+
+**This package's code** (everything else is fisseq-common's):
+
+```text
+src/fisseq_embeddings_pipeline/
+  config/__init__.py              re-exports fisseq_common.stages.config's AppConfig & co.
+  config/experiments.py           PLAN_EXPERIMENTS: params validation, per-experiment routing,
+                                  RENAMED_PARAMS / removed-param warnings
+  build_cell_images_enumerate.py  BUILD_CELL_IMAGES phase 1 (tiles, starcall targets, jobscript)
+  tile_shard.py                   make_cell_shard rule body (phase 2, inside the nested snakemake)
+  build_cell_images_table.py      BUILD_CELL_IMAGES phase 3 (cell_table.parquet, tiles.parquet)
+  cell_metadata.py                BUILD_CELL_METADATA (QC_FILTER's input)
+  embed.py                        EMBED_CELLS (Cell-DINO)
+  cp_features.py                  BUILD_CP_FEATURES (CellProfiler track's cell table)
+  utils/cell_table.py             cell_table.parquet -> meta_* projection
+  vendor/dinov2/                  vendored dinov2 subset
+modules/local/                    PLAN_EXPERIMENTS, BUILD_CELL_IMAGES, BUILD_CELL_METADATA,
+                                  EMBED_CELLS, BUILD_CP_FEATURES
+conf/modules.config               ext.args / ext.seed / publishDir of the shared modules
+snakemake/Snakefile               BUILD_CELL_IMAGES' nested run (starcall + make_cell_shard)
+```
 
 **Related code:**
 - `fisseq-data-pipeline` (`packages/fisseq-data-pipeline/` in this workspace) — the
-  CellProfiler-feature version of this same analysis. The stages both pipelines run live
-  once in `fisseq-common` (`packages/fisseq-common/`, `fisseq_common.stages`); this
-  package's modules are Hydra entry points over them. `docs/embeddings-pipeline/architecture.md`
-  has the terminology map.
+  CellProfiler-feature version of this same analysis, running the same shared stages.
+- `fisseq-common` (`packages/fisseq-common/`) — `fisseq_common.stages` (algorithm, Hydra
+  config and entry point of every shared stage) and their Nextflow modules.
 - `starcall-workflow` — the Snakemake pipeline whose `origin/devel` branch
-  produces this pipeline's two inputs (Cell Info Table, Cell Images). This
+  produces this pipeline's raw input. This
   package's `Dockerfile` clones it at **one pinned commit**
   (`ARG STARCALL_WORKFLOW_COMMIT`): the code `BUILD_CELL_IMAGES`' nested
   snakemake actually runs, through `snakemake/Snakefile`, and what the
@@ -60,14 +83,15 @@ rebuild the image, and run `tests/integration --container`.
 
 ## Repo conventions
 
-- **Python stages**: each `src/fisseq_embeddings_pipeline/<stage>.py` is a
-  Hydra entry point invoked as `python -m fisseq_embeddings_pipeline.<stage>`
-  (see any module in `modules/local/` for the exact CLI shape), with a
-  `@dataclasses.dataclass class <Stage>Config(AppConfig)` registered via
-  `ConfigStore`, matching `fisseq-data-pipeline`'s pattern exactly.
-- **Every config extends `AppConfig`** (`config/app.py`), which carries the
-  one shared `random_seed` field every stochastic stage reads from — never
-  add a stage-local `random_state`/seed field.
+- **Python stages**: each cellDINO-specific `src/fisseq_embeddings_pipeline/<stage>.py` is a
+  Hydra entry point invoked as `python -m fisseq_embeddings_pipeline.<stage>`, with a
+  `@dataclasses.dataclass class <Stage>Config(AppConfig)` registered via `ConfigStore`.
+  Don't add a module for a stage the data pipeline also runs: change the shared one in
+  `fisseq_common.stages` (both pipelines' outputs move with it), or add a config field there
+  and set it in `conf/modules.config`.
+- **Every config extends `AppConfig`** (`fisseq_common.stages.config`, re-exported by
+  `config/__init__.py`), which carries the one shared `random_seed` field every stochastic
+  stage reads from — never add a stage-local `random_state`/seed field.
 - **polars, not pandas**, for all tabular data except where the pipeline
   explicitly uses pandas (`build_cell_images_table.py`'s per-tile CSV
   reads — matching `starcall-workflow`'s own CSV-reading convention there;
@@ -84,30 +108,53 @@ rebuild the image, and run `tests/integration --container`.
   write a full copy of another stage's table to disk (rather than a join
   key + something new), stop and check whether that violates the no-copy
   principle — see `docs/embeddings-pipeline/architecture.md`'s architecture decisions.
-- **Nextflow processes**: one per stage, in
-  `modules/local/<name>/main.nf` (or, if shared with fisseq-data-pipeline,
-  the repo root's `nextflow/modules/local/<name>/main.nf`, configured by
-  `conf/modules.config`), wired together in
-  `workflows/embeddings.nf`. Each carries `errorStrategy 'ignore'`, a
-  `process_*` label, `container "${params.container_image}"` and a
+- **Nextflow processes**: this pipeline's own in `modules/local/<name>/main.nf`; the shared
+  ones in `packages/fisseq-common/nextflow/modules/local/<stage>/main.nf`, included under the
+  data pipeline's process names and configured only by `conf/modules.config` (`ext.args`:
+  `join_keys`, `feature_selector`, ...; `ext.seed`; `publishDir`, which must match
+  `fisseq_common.layout.EmbeddingsPipelineLayout` — `tests/unit/test_publish_layout.py`
+  checks). All wired together in `workflows/embeddings.nf`. Each carries
+  `errorStrategy 'ignore'`, a `process_*` label, `container "${params.container_image}"`, a
   `publishDir ..., mode: 'copy'` into `pipeline_dir`, and a `script:` of
-  `${threadEnv(task.cpus)}` (`nextflow/modules/local/functions.nf`) plus one
-  `python -m <pkg>.<module>` invocation with `output_dir=.` and a trailing
-  `random_seed=${params.random_seed}` — see `EMBED_CELLS` for the
-  fully-worked example, and `BUILD_CELL_IMAGES` for the one genuine
-  exception (a nested starcall `snakemake`, run against
-  `snakemake/Snakefile`, whose `make_cell_shard` rule calls `python -m
-  fisseq_embeddings_pipeline.tile_shard` once per tile). `PLAN_EXPERIMENTS` runs first
-  and owns validation/routing (`config/experiments.py`) — add new
-  per-experiment routing there, in Python, not in Groovy. See
+  `${threadEnv(task.cpus)}` (fisseq-common's `functions.nf`) plus one `python -m` invocation
+  with `output_dir=.` and a trailing `random_seed=...` — see `EMBED_CELLS` for the
+  worked example, and `BUILD_CELL_IMAGES` for the one genuine exception (a nested starcall
+  `snakemake`, run against `snakemake/Snakefile`, whose `make_cell_shard` rule calls
+  `python -m fisseq_embeddings_pipeline.tile_shard` once per tile). `PLAN_EXPERIMENTS` runs
+  first and owns validation/routing (`config/experiments.py`) — add new per-experiment
+  routing there, in Python, not in Groovy. See
   [`docs/embeddings-pipeline/nextflow.md`](../../docs/embeddings-pipeline/nextflow.md#modules).
 - **No scheduler-specific code.** Cluster settings are the user's: a
   `-c site.config` for Nextflow and a snakemake 7 `starcall_profile` for
   the nested starcall run. Only the generic image re-entry jobscript
   (`render_starcall_jobscript`) lives here.
-- **Config**: defaults belong in `params.yaml` (repo root), never in
+- **Config**: defaults belong in `params.yaml` (package root), never in
   `nextflow.config` or a profile — see
   [`docs/embeddings-pipeline/configuration.md`](../../docs/embeddings-pipeline/configuration.md).
+  The parameters the shared stages read have the data pipeline's names and defaults; keep
+  them identical in both `params.yaml` files. A renamed parameter goes in `RENAMED_PARAMS`
+  (warned about and ignored), a removed one in the removed-param warnings.
+
+## Gotchas
+
+- **Cell identity is `(meta_batch, meta_well, meta_tile, meta_cell_index)`**:
+  `meta_cell_index` is per tile. Every shared process reading the normalized cells needs
+  `join_keys` set to that in `conf/modules.config`; the shared default is the data
+  pipeline's `(meta_cell_index, meta_variant_tag)`. Rows are sorted and split on
+  `row_keys(join_keys)`, which adds `meta_variant_tag` so QC pseudo-variant rows stay
+  distinct from their source cells.
+- **`feature_selector`**: `embeddings` (`emb_NNNN` only) on the cellDINO track, `features`
+  on the CP track. The embeddings table has no other non-`meta_` columns today, but don't
+  rely on that.
+- **Controls are the wildtype cells** (NORMALIZE), and every per-method aggregate is
+  z-scored against the synonymous variants: an experiment needs at least two synonymous
+  variants, or those columns come out null.
+- **The CP track has no feature selection**: no splits, blocklists or `output.parquet`
+  under `feature_select_batchwise_cp_features/`, only `aggregates/`.
+- **Output changes are deliberate**: the root `tests/test_reference_outputs.py` compares
+  every published parquet with `tests/reference/embeddings*/`. A change to a shared stage
+  moves both pipelines' outputs; regenerate the references and add a diff report (root
+  `AGENTS.md`).
 
 ## Git workflow
 
@@ -142,15 +189,16 @@ see **CI** below for what runs where.
 ## Testing
 
 ```bash
-uv run pytest tests/unit                      # fast, no GPU needed
-uv run pytest tests/integration                # real `nextflow run -profile local`; needs nextflow + java on PATH
-uv run pytest tests/integration --container    # real starcall instead; needs docker + testing_data/lmna_t3_mini
+uv run --package fisseq-embeddings-pipeline pytest packages/fisseq-embeddings-pipeline/tests/unit
+uv run --package fisseq-embeddings-pipeline pytest packages/fisseq-embeddings-pipeline/tests/integration   # real `nextflow run -profile local`; needs nextflow + java
+uv run --package fisseq-embeddings-pipeline pytest packages/fisseq-embeddings-pipeline/tests/integration --container   # real starcall; needs docker + testing_data/lmna_t3_mini
 uv run pre-commit run --all-files
 ```
 
-`tests/unit/` mirrors `fisseq-data-pipeline`'s layout (one test module per
-pipeline stage). `tests/integration/test_integration.py` is modeled
-directly on that repo's own integration suite — a synthetic fixture, a
+`tests/unit/` has one test module per cellDINO-specific stage, plus
+`test_experiments.py` (params validation/routing) and `test_publish_layout.py`; the shared
+stages' unit tests are fisseq-common's. `tests/integration/test_integration.py` is a
+synthetic fixture, a
 `subprocess`-driven end-to-end `nextflow run -profile local`, and
 output-file/column assertions. BUILD_CELL_IMAGES' nested `snakemake` is a
 stub on PATH that records its argv; the fixture pre-writes the
@@ -190,8 +238,10 @@ CI (the workspace's `.github/workflows/`; see the root `AGENTS.md`):
   tests, alone in its own venv, when it or `fisseq-common` changes
 - `root.yml` — lint, `uv lock --check`, Nextflow lint and the cross-package tests
   (`tests/`), on every change
-- `docker.yml` — builds both pipelines' images on PRs; pushes `:latest` + `:<short-sha>`
-  on push to `main`, and `:<version>` on a `v*` tag
+- `docker-fisseq-embeddings-pipeline.yml` (via the reusable `_docker.yml`) — builds this
+  image on PRs and pushes `:latest` + `:<short-sha>` from `main`, `:<version>` from a `v*`
+  tag; its `paths` filter lists exactly the files the `Dockerfile` copies (Nextflow files,
+  tests and docs never reach the image), and every tag push builds
 - `docs.yml` — builds the one MkDocs site on PRs, deploys it on push to `main`
 
 Release with `scripts/release.py X.Y.Z` (one version for the whole workspace), then tag

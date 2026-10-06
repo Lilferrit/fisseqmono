@@ -1,59 +1,41 @@
-# Aggregate
+# Standalone aggregate
 
-Cell-level aggregation is implemented as two Hydra entry points across two modules:
+`python -m fisseq_data_pipeline.aggregate` aggregates a cell-level table to one row per
+variant with one aggregator, z-scores the result against the synonymous variants, and attaches
+per-variant metadata and an impact score. It is not wired into the Nextflow workflow: the
+pipeline aggregates with the shared stage
+[`fisseq_common.stages.aggregate`](../../common/stages.md#aggregate), one task per method, and
+FINALIZE_FEATURE_SELECT joins the methods.
 
-- **`python -m fisseq_data_pipeline.aggregate`** — standalone: aggregates
-  cell-level data to one row per variant, then normalizes the result to a
-  synonymous-variant baseline and attaches per-variant metadata. Not wired into
-  the Nextflow pipeline directly.
-- **`python -m fisseq_data_pipeline.aggregatefeaturetype`** (Nextflow processes
-  `AGGREGATE_FEATURE_TYPE` and `AGGREGATE_HALF`) — a leaner version used by the
-  feature-selection branch: runs a single aggregator, writes only
-  `[label_column] + <stat columns>`, with no metadata join or impact score.
-  Optionally z-scores the output against the synonymous variants
-  (`normalize_to_synonymous`). Imports `aggregate()`, `downsample_control()` and
-  `variant_classification()` from `fisseq_data_pipeline.aggregate`.
+The aggregators, feature chunking and the synonymous z-score are the shared stage's; see
+[Shared stages: aggregate](../../common/stages.md#aggregate). The aggregators exclude the
+control rows, so the input needs a boolean `meta_is_control` column.
 
-Both accept `input_file` as a glob pattern (via `load_batches`) or a concrete
-single-file path.
+## Config fields
 
-## Aggregators
-
-Eight strategies are available via the `aggregator` field — there is **no**
-`"multi"`/combined option; combining feature types happens in Nextflow by running
-`AGGREGATE_FEATURE_TYPE` once per `params.feature_select_types` entry. Note that
-`signedKS` is not included in the default `params.feature_select_types` list (see
-[Parameters](../configuration.md#parameter-reference)) — it must be opted into explicitly.
-
-| Value | Description |
-| ----- | ----------- |
-| `mean` | Per-variant feature mean |
-| `median` | Per-variant feature median |
-| `MAD` | Per-variant median absolute deviation |
-| `std` | Per-variant standard deviation |
-| `KS` | Kolmogorov-Smirnov statistic vs. WT/control distribution |
-| `signedKS` | Same magnitude as `KS`, but signed by which empirical CDF is larger at the maximizing point: positive when the variant group's CDF exceeds the reference's there (group skews lower), negative when the reference's CDF is larger (group skews higher). |
-| `QQ` | Q-Q Pearson correlation vs. WT/control distribution |
-| `AUROC` | AUROC vs. WT/control distribution. Directional: `0.5` means identical distributions, `1.0` means the variant is consistently higher than the reference, `0.0` means consistently lower (not symmetrized to `[0.5, 1]`). |
-
-## `python -m fisseq_data_pipeline.aggregate` config fields
-
-Extends `LabeledInputConfig` (adds `input_file`, `label_column`) plus the
-[common config fields](qcfilter.md#common-config-fields).
+Extends `LabeledInputConfig` (`input_file`, `label_column`) and the
+[common config fields](../../common/stages.md#common-config-fields).
 
 | Field | Default | Description |
 | ----- | ------- | ----------- |
-| `input_file` | **required** | Glob pattern or path to cell-level data. |
-| `label_column` | `"meta_aa_changes"` | Column identifying variant labels. |
-| `aggregator` | **required** | One of the eight aggregators above. |
-| `save_normalizer` | `true` | Write the synonymous-baseline normalizer. |
-| `block_list_file` | `null` | Parquet with `feature` and `feature_ok` columns; blocked features are skipped. |
-| `compute_impact_score` | `true` | Append an impact score column derived from variant classification. |
-| `feature_chunk_size` | `32` | Feature columns aggregated per Polars query; `null` disables chunking. See [Feature chunking](#feature-chunking). |
+| `input_file` | **required** | Glob pattern or path to cell-level data (read with `load_batches`; each file is one batch, `meta_batch` = its stem). |
+| `label_column` | `"meta_aa_changes"` | Variant label column. |
+| `aggregator` | **required** | One of `mean`, `median`, `MAD`, `std`, `KS`, `signedKS`, `QQ`, `AUROC`, `KSnegLogP`, `AUROCnegLogP`. |
+| `block_list_file` | `null` | Parquet with `feature` and `feature_ok` columns; a statistic whose `feature_ok` is false is not computed. |
+| `compute_impact_score` | `true` | Add `meta_impact_score` (cosine distance from the synonymous variants' median). |
+| `save_normalizer` | `true` | Also write the synonymous-fitted normalizer, `normalizer.parquet`. |
+| `feature_chunk_size` | `32` | Feature columns per Polars query; `null` disables chunking. See [Feature chunking](../../common/stages.md#feature-chunking). |
 
-**Output**: glob input → `{output_root}.output.parquet` or `{output_dir}/output.parquet`;
-single-file input → `{output_root}.{stem}.{ext}` or `{output_dir}/{filename}`. Plus
-`normalizer.parquet` when `save_normalizer=true`.
+## Output
+
+- Glob input: `{output_dir}/output.parquet`, or `{output_root}.output.parquet`.
+- Single-file input: `{output_dir}/<stem>.parquet`, or `{output_root}.<stem>.parquet`.
+- With `save_normalizer`: `normalizer.parquet` (or `{output_root}.normalizer.parquet`).
+
+`output_root` takes priority over `output_dir`: the prefixed file is written relative to the
+working directory.
+
+## Example
 
 ```bash
 uv run python -m fisseq_data_pipeline.aggregate \
@@ -62,110 +44,4 @@ uv run python -m fisseq_data_pipeline.aggregate \
     aggregator=KS
 ```
 
-## `python -m fisseq_data_pipeline.aggregatefeaturetype` config fields
-
-Extends `LabeledInputConfig` plus the [common config fields](qcfilter.md#common-config-fields).
-
-| Field | Default | Description |
-| ----- | ------- | ----------- |
-| `cells_file` | **required** | QC_FILTER's `filtered_cells.parquet`. |
-| `filtered_keys_file` | **required** | NORMALIZE's `filtered_keys.parquet`. |
-| `normalizer_file` | **required** | NORMALIZE's `normalizer.parquet`. |
-| `input_file` | `null` | Deprecated: a pre-normalized cell table (or glob), instead of the three files above. |
-| `label_column` | `"meta_aa_changes"` | Column identifying variant labels. |
-| `aggregator` | **required** | One of the eight aggregators above. |
-| `index_file` | `null` | Optional split file written by `python -m fisseq_data_pipeline.generatesplit` (the half's `meta_cell_index`/`meta_variant_tag` keys), restricting aggregation to a pseudo-replicate half. Old positional split files (a `tmp_cell_idx` column) are still read, with a warning. |
-| `downsample_wt` | `null` | Optional downsample of control (wildtype) rows before aggregation. A float in `(0, 1)` keeps that fraction; an int keeps that many. `null` disables downsampling. |
-| `feature_chunk_size` | `32` | Feature columns aggregated per Polars query; `null` disables chunking. Driven by `params.aggregate_feature_chunk_size`. See [Feature chunking](#feature-chunking). |
-| `normalize_to_synonymous` | `false` | Z-score every output stat column against the synonymous variants' rows. See [Synonymous normalization](#synonymous-normalization). |
-
-The `downsample_wt` draw is seeded from the common `random_seed` field.
-
-**Output**: glob input → `{output_root}.output.parquet` or `{output_dir}/output.parquet`;
-single-file input → `{output_root}.{stem}.parquet` or `{output_dir}/{stem}.parquet`.
-
-```bash
-uv run python -m fisseq_data_pipeline.aggregatefeaturetype \
-    output_dir=./out \
-    cells_file=out/qc_filter/batch1/filtered_cells.parquet \
-    filtered_keys_file=out/normalization/batch1/filtered_keys.parquet \
-    normalizer_file=out/normalization/batch1/normalizer.parquet \
-    aggregator=mean \
-    index_file=./half1.parquet \
-    downsample_wt=0.5 \
-    random_seed=1
-```
-
-In the Nextflow pipeline, `downsample_wt`/`random_seed` are driven by `params.feature_select_downsample_wt`
-(see [Parameters](../configuration.md#parameter-reference)) — `AGGREGATE_HALF` derives a distinct seed per
-`(bootstrap_idx, half_num)` so each pseudo-replicate half draws an independent wildtype
-subsample, which is what lets the bootstrap comparison test feature reproducibility against
-different WT samples rather than reusing one fixed sample everywhere. `AGGREGATE_FEATURE_TYPE`
-(the full, un-split aggregation) uses a fixed seed, since it has no repeated per-instance
-identity to vary by.
-
-## Synonymous normalization
-
-With `normalize_to_synonymous=true`, the aggregated per-variant table is
-z-scored before it is written: synonymous, untagged labels are flagged by
-`variant_classification()`, a `Normalizer` is fit on those rows only (mean and
-`ddof=1` std), applied to every row, and the temporary `meta_is_control` column
-is dropped again — so the output is still `[label_column] + <stat columns>`.
-This synonymous baseline is a different population from the wildtype cells the
-aggregators compare against.
-
-In the Nextflow pipeline:
-
-- `AGGREGATE_FEATURE_TYPE` sets it for every `params.feature_select_types`
-  entry, published to `feature_select_batchwise/<batch>/aggregates/`.
-- `AGGREGATE_FEATURE_TYPE` leaves it off for every
-  `params.feature_select_passthrough_types` entry, published raw to
-  `feature_select_batchwise/<batch>/passthrough_aggregates/` — p-values such as
-  `KSnegLogP`/`AUROCnegLogP` must keep their own scale.
-- `AGGREGATE_HALF` leaves it off: the bootstrap halves stay raw.
-
-!!! note "Needs at least two synonymous variants"
-    With fewer than two synonymous variants in the experiment the std is
-    undefined and every stat column comes out null. Zero-variance features are
-    null as well.
-
-## Feature chunking
-
-Both entry points evaluate `feature_chunk_size` feature columns per Polars
-query rather than all of them at once, joining the per-chunk results back
-together on the label column. The statistic is unaffected — each chunk runs the
-same expression over a narrower projection — but peak memory becomes
-proportional to the chunk width instead of the full feature count.
-
-This is not a tuning nicety. Aggregating all ~1731 production features in one
-query OOM-killed (exit 137) every `KS`, `AUROC`, `KSnegLogP` and
-`AUROCnegLogP` task of the 111925 run, inside `sink_parquet`. Because every
-`AGGREGATE_*` process carries `errorStrategy 'ignore'`, those tasks vanished
-silently and the feature-selection branch never reached `CORRELATE_FEATURES`.
-
-Peak memory scales with `feature_chunk_size × n_variant_labels`, and for the
-reference-based aggregators (`KS`, `signedKS`, `QQ`, `AUROC`, and the two
-p-value variants) with the size of the cross-joined control pool on top.
-Runtime, by contrast, is essentially **flat** in this value for those
-aggregators — so it is a memory dial, not a speed/memory trade-off, and
-halving it when a task is killed costs close to nothing.
-
-`KS` is the aggregator that pins the default; it needs a smaller chunk than
-`AUROC` does. If `KS`/`AUROC` tasks still come back killed, halve
-`params.aggregate_feature_chunk_size`; a run using only `mean`/`median`/`std`/
-`MAD` can raise it. Measured numbers and the benchmark harness live in
-`tests/benchmarks/`.
-
-Setting `feature_chunk_size` to `null` turns chunking off: every feature is
-evaluated in one query, which is exactly the shape that OOM-killed the
-production tasks described above. It exists for small inputs and for
-reproducing the pre-chunking behaviour — not for a full-size batch. The
-aggregated values are identical either way; only the number of queries (and
-the peak memory) differs.
-
-Output rows are sorted by the label column, so aggregate output is
-reproducible run to run — `group_by` alone is not order-preserving under
-Polars' multithreaded execution.
-
-See [API Reference: aggregate](../api/aggregate.md) for full function
-documentation, including the `BaseAggregator` class hierarchy.
+See [API Reference: aggregate](../api/aggregate.md) for the function documentation.

@@ -1,5 +1,5 @@
-"""Both pipelines' per-experiment outputs are where ``fisseq_common.layout`` says, and load in
-fisseqborn through it.
+"""Both pipelines' per-experiment outputs are where ``fisseq_common.layout`` says, load in
+fisseqborn through it, and go through ``fisseqborn-global``.
 
 The runs are the saved reference outputs of each pipeline's integration fixture
 (``tests/reference``), which ``test_reference_outputs`` keeps equal to a fresh run.
@@ -24,7 +24,13 @@ from fisseq_common.layout import (
 
 DATA_RUN = REFERENCE_DIR / "data"
 EMB_RUN = REFERENCE_DIR / "embeddings_two"
-EMB_METHODS = ["median", "KS", "AUROC"]
+#: The methods the embeddings fixture aggregated (its feature_select_types).
+EMB_METHODS = sorted(
+    p.stem
+    for p in (
+        EMB_RUN / EmbeddingsPipelineLayout().aggregate("batch1", "x")
+    ).parent.iterdir()
+)
 
 # Placeholders for a layout's arguments, turned into one-path-segment regex groups.
 _ARGS = {
@@ -57,14 +63,13 @@ def _patterns(layout: PipelineLayout) -> list[re.Pattern[str]]:
         layout.selected(b),
     ]
     if isinstance(layout, DataPipelineLayout):
-        paths += [layout.input(b), layout.pca_components(b)]
+        paths += [layout.input(b)]
     else:
         paths += [
             layout.cell_table(b),
             layout.tiles(b),
             layout.metadata(b),
             layout.features(b),
-            layout.aggregate_with_passthrough(b),
         ]
     patterns = []
     for path in paths:
@@ -81,9 +86,7 @@ def _published(run: Path) -> list[str]:
     return sorted(
         p.relative_to(run).as_posix()
         for p in run.rglob("*")
-        if p.is_file()
-        and p.name != "MANIFEST.json"
-        and "global" not in p.relative_to(run).parts
+        if p.is_file() and p.name != "MANIFEST.json"
     )
 
 
@@ -159,7 +162,7 @@ def test_embeddings_profiles_load():
     )
     df = profiles.collect()
     aggregate = pl.read_parquet(
-        EMB_RUN / EmbeddingsPipelineLayout().aggregate("batch1")
+        EMB_RUN / EmbeddingsPipelineLayout().aggregate("batch1", "KS")
     )
     for method in [*EMB_METHODS, "KSnegLogP"]:
         assert any(c.endswith(f"_{method}") for c in df.columns), method
@@ -194,11 +197,11 @@ def test_cp_features_profiles_load():
         EMB_RUN, types=["median"], track="cp_features"
     ).collect()
     aggregate = pl.read_parquet(
-        EMB_RUN / EmbeddingsPipelineLayout("cp_features").aggregate("batch1")
+        EMB_RUN / EmbeddingsPipelineLayout("cp_features").aggregate("batch1", "median")
     )
     features = [c for c in aggregate.columns if not c.startswith("meta_")]
-    # A median-only run writes bare feature columns.
-    assert features and set(features) <= set(df.columns)
+    assert features and all(c.endswith("_median") for c in features)
+    assert set(features) <= set(df.columns)
     assert sorted(df["meta_experiment"].unique()) == ["batch1", "batch2"]
 
 
@@ -215,3 +218,25 @@ def test_cp_features_ovwt_load():
 def test_cp_features_track_has_no_blocklists():
     with pytest.raises(ValueError, match="no blocklists"):
         fb.Blocklists.from_pipeline(EMB_RUN, track="cp_features")
+
+
+# --- fisseqborn-global ------------------------------------------------------------------------
+
+
+def test_fisseqborn_global_runs_on_the_embeddings_run(tmp_path):
+    """The cross-experiment step over both tracks of a two-experiment run. One experiment's
+    verdict is enough to keep a feature: the fixture is too small for most to be
+    reproducible in both."""
+    written = fb.write_global(EMB_RUN, tmp_path, min_batches=1, metadata=True)
+    for name in (
+        "embeddings/blocklist",
+        "embeddings/median_aggregate",
+        "embeddings/pca_reduced",
+        "distinguishability/global_scores",
+        "cp_features/median_aggregate",
+        "distinguishability_cp_features/global_scores",
+    ):
+        assert name in written, name
+    median = pl.read_parquet(written["embeddings/median_aggregate"])
+    assert sorted(median["meta_aa_changes"]) == ["A1A", "A2A", "M1K"]
+    assert "meta_num_cells" in median.columns

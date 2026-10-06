@@ -3,6 +3,8 @@
 A column is reproducible (``feature_ok``) when the median of its per-replicate correlations is
 at least ``minimum_correlation``. A null median (the correlation was undefined in every
 replicate) counts as not reproducible. The output is sorted by ``feature``.
+
+Entry point: ``python -m fisseq_common.stages.blocklist``.
 """
 
 import dataclasses
@@ -13,7 +15,7 @@ import pathlib
 import polars as pl
 from omegaconf import MISSING
 
-from .config import AppConfig
+from .config import AppConfig, stage_main
 
 
 def compute_blocklist(
@@ -98,3 +100,9 @@ def run_blocklist(cfg: BlocklistParams) -> None:
     blocklist_df.write_parquet(out_path)
 
     logging.info("Done")
+
+
+main = stage_main("blocklist_main", BlocklistParams, run_blocklist)
+
+if __name__ == "__main__":
+    main()

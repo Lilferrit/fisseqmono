@@ -6,9 +6,10 @@ CellProfiler output to final feature-selected results.
 ## 1. Install
 
 ```bash
-git clone https://github.com/Lilferrit/fisseq-data-pipeline.git
-cd fisseq-data-pipeline
-uv sync --group dev
+git clone https://github.com/Lilferrit/fisseqmono.git
+cd fisseqmono
+uv sync
+cd packages/fisseq-data-pipeline
 ```
 
 See [Installation](installation.md) for details, including cluster/HPC setup.
@@ -46,6 +47,8 @@ This chains every stage described in [Architecture](architecture.md):
    filtering, per experiment. Also assigns `meta_cell_index`, the stable
    per-cell identity everything downstream depends on for reproducibility.
 3. `NORMALIZE` — z-score normalization fit on WT control cells, per experiment.
+   It publishes only the QC-passed keys and the normalizer; every later stage rebuilds the
+   normalized cells from them.
 4. `OVWT_BATCHWISE` — k-fold cross-validated one-vs-wildtype scoring, per
    experiment (`params.run_ovwt`). Each variant gets a pooled AUROC and a
    median-of-per-barcode AUROC, and every cell gets one out-of-fold score.
@@ -56,7 +59,7 @@ This chains every stage described in [Architecture](architecture.md):
 
 Every stage runs per experiment. Combining experiments (cross-experiment
 medians, AUROC re-centering against synonymous variants) is done downstream by
-[fisseqborn](https://github.com/FowlerLab/fisseqborn) — see
+[fisseqborn](../fisseqborn/index.md) — see
 [Architecture: Cross-experiment aggregation](architecture.md#cross-experiment-aggregation).
 
 Override any [parameter](configuration.md#parameter-reference) on the command
@@ -100,17 +103,25 @@ The results most analyses care about:
 
 ## 5. Running individual steps
 
-Every Nextflow process wraps a standalone `python -m fisseq_data_pipeline.<module>`
-invocation. To debug or rerun one stage manually, invoke it directly — see the
-[CLI Reference](cli/qcfilter.md) for each tool's config fields:
+INPUT runs `python -m fisseq_data_pipeline.input` ([CLI Reference](cli/input.md)); every
+other process runs a shared stage, `python -m fisseq_common.stages.<stage>`. To debug or rerun
+one stage manually, invoke it directly — see [Shared stages](../common/stages.md) for each
+stage's config fields:
 
 ```bash
-uv run python -m fisseq_data_pipeline.qcfilter \
-    output_dir=./out \
-    'cell_files=[data/plate1.parquet]' \
-    bc_threshold=10
+uv run python -m fisseq_common.stages.qcfilter \
+    output_dir=./out/qc \
+    'cell_files=[out/input/plate1.parquet]' \
+    barcode_col_name=upBarcode aa_changes_col_name=aaChanges edit_distance_col_name=editDistance \
+    "'sort_output_by=[meta_cell_index,meta_variant_tag]'" assign_cell_index=true
 
-uv run python -m fisseq_data_pipeline.normalize \
-    output_dir=./out \
-    input_file=out/filtered_cells.parquet
+uv run python -m fisseq_common.stages.filter \
+    output_dir=./out/norm \
+    cells_file=out/qc/filtered_cells.parquet \
+    qc_passed_file=out/qc/filtered_cells.parquet \
+    batch_name=plate1
 ```
+
+The arguments this pipeline passes are its `conf/modules.config` `ext.args` plus what the
+[shared module](../common/nextflow.md) passes; a task's `.command.sh` under `work/` shows the
+exact command.

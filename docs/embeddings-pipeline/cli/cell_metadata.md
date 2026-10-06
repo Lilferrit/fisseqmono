@@ -11,7 +11,7 @@ image-reading cellDINO track. Before it, QC's input was the (since
 removed) `BUILD_DATASET` stage's own `metadata.parquet`, written inside
 its WebDataset shard-writing loop -- which made the expensive dataset
 build a hard dependency of the CellProfiler track too, since
-`FILTER_CP_FEATURES` consumes the same QC output. See
+`NORMALIZE_CP_FEATURES` consumes the same QC output. See
 [Nextflow Workflow: Track independence](../nextflow.md#track-independence).
 
 `EMBED_CELLS` reads this same `metadata.parquet` too: a cell shard's
@@ -20,12 +20,12 @@ column is joined on from here (see [Cell Embeddings](embed.md)) -- so a
 cell's `meta_*` values are identical in QC's input and in
 `embeddings.parquet`.
 
-`QC_FILTER` can't simply read `cell_table.parquet` itself: its
-`filter_columns` does rename the barcode/edit-distance/amino-acid-changes
+`QC_FILTER` ([shared](../../common/stages.md#qcfilter)) can't simply read
+`cell_table.parquet` itself: its `filter_columns` does rename the barcode/edit-distance/amino-acid-changes
 columns to their canonical `meta_*` names, but its closing `select` keeps
 only `meta_`-prefixed (and CellProfiler-looking) columns -- so the cell
 table's unprefixed `well`/`tile`/`tile_cell_index` would be dropped,
-leaving `FILTER_EMBEDDINGS`/`FILTER_CP_FEATURES` with no join key. This
+leaving `NORMALIZE`/`NORMALIZE_CP_FEATURES` with no join key. This
 stage mints those four. The projection is shared with
 `BUILD_CP_FEATURES` via `utils/cell_table.py` so the two can't drift.
 
@@ -62,7 +62,8 @@ Note this covers *every* row of `cell_table.parquet`, where the removed
 `BUILD_DATASET` stage's own `metadata.parquet` only ever held cells that
 made it into a shard. `filtered_cells.parquet` can therefore cover strictly more
 cells than it used to; every downstream consumer inner-joins it back on
-`filter.py`'s `JOIN_KEYS`, so the extra rows drop out where they don't
+the pipeline's `join_keys` (`meta_batch`, `meta_well`, `meta_tile`, `meta_cell_index`), so
+the extra rows drop out where they don't
 apply.
 
 ## Example

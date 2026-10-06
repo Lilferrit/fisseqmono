@@ -1,9 +1,8 @@
 """Each pipeline's integration fixture still produces its saved reference outputs.
 
-Rule: the embeddings pipeline's per-experiment outputs never change in a refactor. The data
-pipeline's change only in a commit that swaps a stage to the shared implementation, together
+Rule: a pipeline's outputs change only in a commit that changes them deliberately, together
 with a diff report under docs/diff-reports/ and regenerated references
-(``uv run python tests/reference/capture.py data``).
+(``uv run python tests/reference/capture.py <scenario>``).
 """
 
 from __future__ import annotations
@@ -13,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from _compare import compare_trees
-from _fixtures import GLOBAL_REFERENCE, REFERENCE_DIR, SCENARIOS, published_parquets
+from _fixtures import REFERENCE_DIR, SCENARIOS, published_parquets
 
 
 @pytest.fixture(scope="module", params=SCENARIOS)
@@ -32,6 +31,5 @@ def test_outputs_match_reference(scenario_run) -> None:
         published_parquets(pipeline_dir, scenario),
         REFERENCE_DIR / scenario,
         run_root,
-        skip=(GLOBAL_REFERENCE,),
     )
     assert not problems, "\n".join(problems)

@@ -1,8 +1,9 @@
 """Per-experiment pipeline stages shared by fisseq-data-pipeline and fisseq-embeddings-pipeline.
 
-Each module holds a stage's algorithm and its Hydra structured-config base class. The pipelines'
-own modules are the entry points (``python -m fisseq_<pipeline>.<stage>``): they subclass the
-config to set that pipeline's defaults and inputs, and call the functions here.
+Each module holds a stage's algorithm, its Hydra structured config and its entry point,
+``python -m fisseq_common.stages.<stage>`` (:func:`.config.stage_main`). Both pipelines run the
+same entry points, from the same Nextflow modules (``packages/fisseq-common/nextflow``); what
+differs between them is a config field each pipeline's ``conf/modules.config`` sets.
 
 Needs the ``stages`` extra: ``pip install "fisseq-common[stages]"``.
 """

@@ -13,14 +13,13 @@ bypass that cap. See :func:`select_variants`. Disabled by default.
 
 If ``downsample_amounts`` is set, ``filtered_cells.parquet`` also gets reproducibly
 downsampled "pseudo variant" rows (``:downsample-{amount}``-tagged), built from the QC-passing
-cells of ``downsample_classes`` (:func:`add_downsampled_pseudo_variants`). The data pipeline
-uses them to calibrate its per-feature analyses; the embeddings pipeline leaves them off, since
-per-dimension calibration doesn't translate to dense, non-interpretable embedding dimensions.
+cells of ``downsample_classes`` (:func:`add_downsampled_pseudo_variants`). Disabled by default
+in both pipelines.
 
-Each pipeline's ``qcfilter`` module is the entry point. Its config subclasses
-:class:`QcFilterParams` to set the input column names (raw starcall CSV names in the data
+Entry point: ``python -m fisseq_common.stages.qcfilter``. Each pipeline's
+``conf/modules.config`` sets the input column names (raw starcall CSV names in the data
 pipeline, the already-renamed ``meta_*`` names of the embeddings pipeline's
-``metadata.parquet``), and it calls :func:`run_qc_filter`.
+``metadata.parquet``), ``sort_output_by`` and ``assign_cell_index``.
 """
 
 import dataclasses
@@ -40,7 +39,7 @@ from fisseq_common.schema import (
 )
 from fisseq_common.variant import classify_variant
 
-from .config import AppConfig
+from .config import AppConfig, stage_main
 
 DOWNSAMPLE_TAG = "downsample"
 DOWNSAMPLE_CLASSES = ("Synonymous", "Single Missense")
@@ -51,7 +50,7 @@ VARIANT_DOWNSAMPLE_MODES = ("top", "random")
 @dataclasses.dataclass
 class QcFilterParams(AppConfig):
     """
-    QC_FILTER settings shared by both pipelines; each pipeline's ``QcFilterConfig`` sets its
+    QC_FILTER's configuration; each pipeline's ``conf/modules.config`` sets its
     input column names.
 
     Extends AppConfig (output_dir, output_root, log_level, random_seed); ``select_variants``'
@@ -118,6 +117,12 @@ class QcFilterParams(AppConfig):
     downsample_classes : List[str]
         Classes eligible for ``downsample_amounts`` pseudo-variant
         generation. Defaults to ``["Synonymous", "Single Missense"]``.
+    sort_output_by : List[str], optional
+        Columns to sort ``filtered_cells`` by (see :func:`run_qc_filter`). Defaults to
+        ``None``: the join order.
+    assign_cell_index : bool
+        Assign ``meta_cell_index`` from the input row order (see :func:`run_qc_filter`).
+        Defaults to ``False``.
     """
 
     cell_files: Any = MISSING
@@ -138,6 +143,8 @@ class QcFilterParams(AppConfig):
     downsample_classes: List[str] = dataclasses.field(
         default_factory=lambda: list(DOWNSAMPLE_CLASSES)
     )
+    sort_output_by: Optional[List[str]] = None
+    assign_cell_index: bool = False
 
 
 # --- read_file / combine_cell_files ---
@@ -243,7 +250,7 @@ def filter_columns(lf: pl.LazyFrame, cfg: QcFilterParams) -> pl.LazyFrame:
     ----------
     lf : pl.LazyFrame
         Lazy frame containing all raw input columns.
-    cfg : QcFilterConfig
+    cfg : QcFilterParams
         Supplies column name mappings.
 
     Returns
@@ -284,7 +291,7 @@ def get_barcode_counts(lf: pl.LazyFrame, cfg: QcFilterParams) -> pl.LazyFrame:
     lf : pl.LazyFrame
         Cell-level lazy frame containing ``META_BARCODE_COL`` and
         ``cfg.label_column`` (as produced by :func:`filter_columns`).
-    cfg : QcFilterConfig
+    cfg : QcFilterParams
         Supplies ``bc_threshold`` and ``label_column``.
 
     Returns
@@ -325,7 +332,7 @@ def get_barcodes_per_variant(
     cells_lf : pl.LazyFrame
         Cell-level lazy frame containing ``META_BARCODE_COL`` and
         ``cfg.label_column`` (as produced by :func:`filter_columns`).
-    cfg : QcFilterConfig
+    cfg : QcFilterParams
         Supplies ``variant_bc_threshold`` and ``label_column``.
 
     Returns
@@ -366,7 +373,7 @@ def add_qc_queries(
     ----------
     lf : pl.LazyFrame
         Cell-level lazy frame to filter.
-    cfg : QcFilterConfig
+    cfg : QcFilterParams
         Supplies QC thresholds and column names.
 
     Returns
@@ -538,7 +545,10 @@ def add_downsampled_pseudo_variants(
     amount of ``500``). This gives pseudo-variant rows their own distinct
     label value, so downstream label-based grouping (e.g. aggregation)
     treats them as a separate calibration group rather than pooling them
-    with the real variant's rows.
+    with the real variant's rows. The tag also becomes the row's
+    ``META_VARIANT_TAG_COL``: a pseudo-variant row is its source cell under
+    another tag, which is how the stages downstream tell the two rows apart
+    (:func:`fisseq_common.stages.config.row_keys`).
 
     `downsample_amount` is interpreted per ``cfg.label_column`` group:
 
@@ -605,7 +615,10 @@ def add_downsampled_pseudo_variants(
     pseudo = (
         ranked.filter(group_eligible & (pl.col("_rank") <= target))
         .drop(["_rand", "_rank", "_group_size"])
-        .with_columns((pl.col(cfg.label_column) + ":" + tag).alias(cfg.label_column))
+        .with_columns(
+            (pl.col(cfg.label_column) + ":" + tag).alias(cfg.label_column),
+            pl.lit(tag).alias(META_VARIANT_TAG_COL),
+        )
     )
     return pseudo
 
@@ -613,7 +626,7 @@ def add_downsampled_pseudo_variants(
 def run_qc_filter(
     cfg: QcFilterParams,
     sort_output_by: Optional[List[str]] = None,
-    assign_cell_index: bool = False,
+    assign_cell_index: Optional[bool] = None,
 ) -> None:
     """
     Run QC_FILTER with ``cfg`` and write its three outputs to ``cfg.output_dir``.
@@ -628,16 +641,15 @@ def run_qc_filter(
         so without a sort the same input yields the same rows in a different order
         on every run, and every downstream seeded step (OvWT's wildtype downsample
         and fold assignment, the feature-selection bootstrap splits) diverges despite
-        a fixed ``random_seed``. The data pipeline sorts on
-        ``(META_CELL_INDEX_COL, META_VARIANT_TAG_COL)``, which is total even with
-        pseudo-variant rows: two of them sharing a cell index always come from
-        different downsample amounts and so carry different tags; the embeddings
-        pipeline on its cell keys ``(meta_batch, meta_well, meta_tile, meta_cell_index)``.
-        ``None`` keeps the join order.
-    assign_cell_index : bool
+        a fixed ``random_seed``. Each pipeline sorts on its cell keys plus
+        ``META_VARIANT_TAG_COL`` (:func:`fisseq_common.stages.config.row_keys`), which
+        is total even with pseudo-variant rows: each carries its downsample amount's
+        tag. ``None`` (the default) uses ``cfg.sort_output_by``.
+    assign_cell_index : bool, optional
         Assign ``META_CELL_INDEX_COL`` from the input row order (:func:`combine_cell_files`):
         the data pipeline's raw cells have no other identity. The embeddings pipeline's
         input already carries its own per-tile ``meta_cell_index``, so it leaves this off.
+        ``None`` (the default) uses ``cfg.assign_cell_index``.
 
     Notes
     -----
@@ -649,6 +661,10 @@ def run_qc_filter(
     """
     output_dir = pathlib.Path(cfg.output_dir)
     prefix = f"{cfg.output_root}." if cfg.output_root is not None else ""
+    if sort_output_by is None:
+        sort_output_by = cfg.sort_output_by
+    if assign_cell_index is None:
+        assign_cell_index = cfg.assign_cell_index
 
     cell_files = (
         [cfg.cell_files] if isinstance(cfg.cell_files, str) else list(cfg.cell_files)
@@ -721,3 +737,9 @@ def run_qc_filter(
         lf.sink_parquet(output_dir / f"{prefix}{name}.parquet")
 
     logging.info("Done")
+
+
+main = stage_main("qc_filter_main", QcFilterParams, run_qc_filter)
+
+if __name__ == "__main__":
+    main()

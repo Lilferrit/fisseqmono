@@ -89,9 +89,9 @@ def validate_config(config: Mapping[str, Any]) -> List[Dict[str, Any]]:
         ``experiments`` is missing/empty/not a list, if any entry is not a
         mapping, if any entry lacks a non-blank string ``batch_stem``, if
         any entry's ``cp_features`` is not a boolean, if two entries
-        share a ``batch_stem``, if ``aggregate_methods`` /
-        ``aggregate_methods_passthrough`` name an unknown aggregator or
-        overlap each other, if ``reproducibility_bootstrap_reps`` is
+        share a ``batch_stem``, if ``feature_select_types`` /
+        ``feature_select_passthrough_types`` name an unknown aggregator or
+        overlap each other, if ``feature_select_bootstrap_reps`` is
         below 2, or if ``ovwt_cv_mode`` / ``ovwt_n_folds`` are invalid.
     """
     if config.get("pipeline_dir") is None:
@@ -134,6 +134,7 @@ def validate_config(config: Mapping[str, Any]) -> List[Dict[str, Any]]:
     _validate_aggregate_methods(config)
     _validate_reproducibility(config)
     _warn_removed_global_params(config)
+    _warn_renamed_params(config)
     _validate_ovwt(config)
     _validate_starcall_profile(config)
 
@@ -152,14 +153,18 @@ def _validate_aggregate_methods(config: Mapping[str, Any]) -> None:
     Python counterpart of the ``aggregatorKeys()`` check
     fisseq-data-pipeline does in Groovy.
     """
-    from ..aggregate import _AGGREGATORS
+    from fisseq_common.stages.aggregate import _AGGREGATORS
 
     known = sorted(_AGGREGATORS)
     lists = {
-        "aggregate_methods": config.get("aggregate_methods") or [],
-        "aggregate_methods_cp_features": config.get("aggregate_methods_cp_features")
+        "feature_select_types": config.get("feature_select_types") or [],
+        "feature_select_types_cp_features": config.get(
+            "feature_select_types_cp_features"
+        )
         or [],
-        "aggregate_methods_passthrough": config.get("aggregate_methods_passthrough")
+        "feature_select_passthrough_types": config.get(
+            "feature_select_passthrough_types"
+        )
         or [],
     }
     for key, value in lists.items():
@@ -179,15 +184,16 @@ def _validate_aggregate_methods(config: Mapping[str, Any]) -> None:
                 f"{key} has duplicate entry/entries: {', '.join(duplicates)}."
             )
 
-    if not lists["aggregate_methods"]:
-        raise ValueError("aggregate_methods must name at least one aggregator.")
+    if not lists["feature_select_types"]:
+        raise ValueError("feature_select_types must name at least one aggregator.")
 
     overlap = sorted(
-        set(lists["aggregate_methods"]) & set(lists["aggregate_methods_passthrough"])
+        set(lists["feature_select_types"])
+        & set(lists["feature_select_passthrough_types"])
     )
     if overlap:
         raise ValueError(
-            "aggregate_methods_passthrough overlaps aggregate_methods: "
+            "feature_select_passthrough_types overlaps feature_select_types: "
             f"{', '.join(overlap)}. A method is either reproducibility-filtered "
             "or passed through, never both."
         )
@@ -197,27 +203,35 @@ def _validate_reproducibility(config: Mapping[str, Any]) -> None:
     """
     Check the reproducibility-filtering knobs.
 
-    ``reproducibility_bootstrap_reps`` must be at least 2: BLOCKLIST takes
+    ``feature_select_bootstrap_reps`` must be at least 2: BLOCKLIST takes
     a median across replicates, and a median of one value is that value --
     a single replicate would make the whole verdict hostage to one random
     split.
     """
-    reps = config.get("reproducibility_bootstrap_reps")
+    reps = config.get("feature_select_bootstrap_reps")
+    # A command-line override (--feature_select_bootstrap_reps 3) arrives as a string.
+    if isinstance(reps, str) and reps.strip().isdigit():
+        reps = int(reps)
     if not isinstance(reps, int) or isinstance(reps, bool) or reps < 2:
         raise ValueError(
-            "reproducibility_bootstrap_reps must be an integer >= 2 (got "
+            "feature_select_bootstrap_reps must be an integer >= 2 (got "
             f"{reps!r}); BLOCKLIST medians across replicates, so one "
             "replicate is not a reproducibility test."
         )
 
-    min_corr = config.get("reproducibility_min_correlation")
+    min_corr = config.get("feature_select_min_correlation")
+    if isinstance(min_corr, str):
+        try:
+            min_corr = float(min_corr)
+        except ValueError:
+            pass
     if not isinstance(min_corr, (int, float)) or isinstance(min_corr, bool):
         raise ValueError(
-            f"reproducibility_min_correlation must be a number, got {min_corr!r}."
+            f"feature_select_min_correlation must be a number, got {min_corr!r}."
         )
     if not (-1.0 <= float(min_corr) <= 1.0):
         raise ValueError(
-            "reproducibility_min_correlation must be a Pearson r in [-1, 1], got "
+            "feature_select_min_correlation must be a Pearson r in [-1, 1], got "
             f"{min_corr!r}."
         )
 
@@ -244,10 +258,30 @@ def _warn_removed_global_params(config: Mapping[str, Any]) -> None:
             )
 
 
+#: Parameters renamed to fisseq-data-pipeline's names, and their new names. Still accepted
+#: (and ignored), with a warning: the run uses the new key's value.
+RENAMED_PARAMS = {
+    "aggregate_methods": "feature_select_types",
+    "aggregate_methods_passthrough": "feature_select_passthrough_types",
+    "aggregate_methods_cp_features": "feature_select_types_cp_features",
+    "reproducibility_bootstrap_reps": "feature_select_bootstrap_reps",
+    "reproducibility_min_correlation": "feature_select_min_correlation",
+}
+
+
+def _warn_renamed_params(config: Mapping[str, Any]) -> None:
+    """Warn about each set parameter that now has fisseq-data-pipeline's name."""
+    for key, new in RENAMED_PARAMS.items():
+        if config.get(key) is not None:
+            logging.warning(
+                "%s is ignored: it was renamed %s (set that instead).", key, new
+            )
+
+
 def _validate_ovwt(config: Mapping[str, Any]) -> None:
     """
     Check ``ovwt_cv_mode`` and ``ovwt_n_folds``, mirroring
-    :func:`fisseq_embeddings_pipeline.ovwt.ovwt_batchwise`'s own guards.
+    :func:`fisseq_common.stages.ovwt.ovwt_batchwise`'s own guards.
 
     Both OVWT tasks carry ``errorStrategy 'ignore'``, so a bad value caught
     only inside ``ovwt_batchwise`` would silently drop every experiment's
@@ -260,7 +294,7 @@ def _validate_ovwt(config: Mapping[str, Any]) -> None:
     (``--ovwt_n_folds null``), so ``"null"``/blank and digit strings are
     understood as well as real ``None``/integers.
     """
-    from ..ovwt import CV_MODE_BARCODE_HOLDOUT, CV_MODES
+    from fisseq_common.stages.ovwt import CV_MODE_BARCODE_HOLDOUT, CV_MODES
 
     cv_mode = config.get("ovwt_cv_mode")
     if cv_mode not in CV_MODES:

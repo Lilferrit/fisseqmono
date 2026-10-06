@@ -1,8 +1,10 @@
 """Where each pipeline publishes its per-experiment outputs, relative to the run's ``pipeline_dir``.
 
-Both pipelines publish one directory per experiment (``batch``) under a few stage directories.
-The data pipeline's Nextflow ``publishDir`` settings (``conf/modules.config``) are written to
-match :class:`DataPipelineLayout`, the embeddings pipeline's to match
+Both pipelines publish one directory per experiment (``batch``) under a few stage directories,
+in the same layout: :class:`PipelineLayout`. The embeddings pipeline adds its cellDINO outputs
+(cell images, metadata, embeddings) and a second track, the CellProfiler features, whose stage
+directories carry a ``_cp_features`` suffix. Each pipeline's Nextflow ``publishDir`` settings
+(``conf/modules.config``) are written to match :class:`DataPipelineLayout` /
 :class:`EmbeddingsPipelineLayout` (each pipeline has a unit test checking this), and fisseqborn
 reads every run through these classes.
 
@@ -16,16 +18,9 @@ read over scp. Join them onto the run directory to open a file::
 A layout method returns ``None`` for a file its pipeline (or track) never writes, e.g. the
 embeddings pipeline's CellProfiler track has no blocklist.
 
-Aggregate files differ in shape between the pipelines:
-
-- data pipeline: one file per method, ``aggregates/<method>.parquet``, columns ``<feature>_<method>``
-  (z-scored against the experiment's synonymous variants);
-- embeddings pipeline: one ``aggregate.parquet`` holding every method of the run, columns
-  ``<feature>_<method>``, except that a run whose only method is ``median`` writes bare
-  ``<feature>`` columns. :attr:`PipelineLayout.aggregate_per_method` tells them apart.
-
-Passthrough aggregates (methods aggregated but never blocklisted) are one file per method in
-both pipelines.
+Aggregates are one file per method, ``aggregates/<method>.parquet``, columns
+``<feature>_<method>``, z-scored against the experiment's synonymous variants. Passthrough
+aggregates (methods aggregated but never blocklisted) are one raw file per method.
 """
 
 import abc
@@ -42,12 +37,10 @@ Track = Literal["embeddings", "cp_features"]
 
 
 class PipelineLayout(abc.ABC):
-    """The per-experiment output paths of one pipeline (and track)."""
+    """The per-experiment output paths both pipelines share, for one pipeline (and track)."""
 
     #: ``"data"`` or ``"embeddings"``.
     pipeline: str
-    #: Whether aggregates are one file per method (:meth:`aggregate`) or one file for all.
-    aggregate_per_method: bool
     #: Every top-level directory of a run this layout reads (for :func:`detect`).
     stage_dirs: dict[str, str]
 
@@ -113,48 +106,69 @@ class PipelineLayout(abc.ABC):
 
     # --- aggregation and feature selection --------------------------------------------------
 
-    @abc.abstractmethod
-    def aggregate(self, batch: str, method: Optional[str] = None) -> str:
-        """The per-variant aggregates: ``method``'s file when :attr:`aggregate_per_method`,
-        else the one file holding every method (``method`` is ignored)."""
+    def _feature_select(self) -> bool:
+        """Whether this layout's track runs the bootstrap feature selection."""
+        return True
+
+    def aggregate(self, batch: str, method: str) -> str:
+        """One method's per-variant aggregates over every cell (z-scored against the
+        synonymous variants)."""
+        return f"{self.batch_dir('feature_select', batch)}/aggregates/{method}.parquet"
 
     def passthrough_aggregate(self, batch: str, method: str) -> Optional[str]:
         """One passthrough method's aggregates (never blocklisted; raw values)."""
+        if not self._feature_select():
+            return None
         return f"{self.batch_dir('feature_select', batch)}/passthrough_aggregates/{method}.parquet"
 
     def blocklist(self, batch: str) -> Optional[str]:
         """The combined blocklist of every method: ``feature``, ``median_r``, ``feature_ok``."""
+        if not self._feature_select():
+            return None
         return f"{self.batch_dir('feature_select', batch)}/blocklist.parquet"
 
     def method_blocklist(self, batch: str, method: str) -> Optional[str]:
         """One method's blocklist."""
+        if not self._feature_select():
+            return None
         return f"{self.batch_dir('feature_select', batch)}/blocklists/{method}.parquet"
 
-    @abc.abstractmethod
     def split(self, batch: str, rep: int, half: int) -> Optional[str]:
         """One bootstrap replicate's half (cell keys)."""
+        if not self._feature_select():
+            return None
+        return f"{self.batch_dir('feature_select', batch)}/splits/bootstrap_{rep}/half{half}.parquet"
 
-    @abc.abstractmethod
     def half_aggregate(
         self, batch: str, rep: int, half: int, method: str
     ) -> Optional[str]:
         """One method's aggregates over one bootstrap half."""
+        if not self._feature_select():
+            return None
+        return (
+            f"{self.batch_dir('feature_select', batch)}/half_aggregates/bootstrap_{rep}/"
+            f"{method}/half{half}_agg.parquet"
+        )
 
-    @abc.abstractmethod
     def correlations(self, batch: str, rep: int, method: str) -> Optional[str]:
         """One method's per-feature correlation between one replicate's two halves."""
+        if not self._feature_select():
+            return None
+        return f"{self.batch_dir('feature_select', batch)}/correlations/{method}/bootstrap_{rep}.parquet"
 
-    @abc.abstractmethod
     def selected(self, batch: str) -> Optional[str]:
-        """The aggregates after the blocklist (and, for the data pipeline, the synonymous
-        z-score, impact score and per-variant metadata)."""
+        """FINALIZE_FEATURE_SELECT's per-variant table: the aggregates after the blocklist,
+        z-scored to the synonymous variants, with the impact score, per-variant metadata and
+        the passthrough aggregates."""
+        if not self._feature_select():
+            return None
+        return f"{self.batch_dir('feature_select', batch)}/output.parquet"
 
 
 class DataPipelineLayout(PipelineLayout):
     """fisseq-data-pipeline's per-experiment outputs."""
 
     pipeline = "data"
-    aggregate_per_method = True
     stage_dirs = {
         "input": "input",
         "qc_filter": "qc_filter",
@@ -176,41 +190,17 @@ class DataPipelineLayout(PipelineLayout):
         """INPUT's combined cell table."""
         return f"input/{batch}.parquet"
 
-    def aggregate(self, batch: str, method: Optional[str] = None) -> str:
-        if method is None:
-            raise ValueError("The data pipeline writes one aggregate file per method")
-        return f"{self.batch_dir('feature_select', batch)}/aggregates/{method}.parquet"
-
-    def split(self, batch: str, rep: int, half: int) -> str:
-        return f"{self.batch_dir('feature_select', batch)}/splits/bootstrap_{rep}/half{half}.parquet"
-
-    def half_aggregate(self, batch: str, rep: int, half: int, method: str) -> str:
-        return (
-            f"{self.batch_dir('feature_select', batch)}/half_aggregates/bootstrap_{rep}/"
-            f"{method}/half{half}_agg.parquet"
-        )
-
-    def correlations(self, batch: str, rep: int, method: str) -> str:
-        return f"{self.batch_dir('feature_select', batch)}/correlations/{method}/bootstrap_{rep}.parquet"
-
-    def selected(self, batch: str) -> str:
-        return f"{self.batch_dir('feature_select', batch)}/output.parquet"
-
-    def pca_components(self, batch: str) -> str:
-        """FINALIZE_FEATURE_SELECT's PCA loadings (only with ``run_pca``)."""
-        return f"{self.batch_dir('feature_select', batch)}/pca_components.parquet"
-
 
 class EmbeddingsPipelineLayout(PipelineLayout):
     """fisseq-embeddings-pipeline's per-experiment outputs, for one track.
 
     ``track="embeddings"`` is the Cell-DINO track; ``"cp_features"`` the CellProfiler-feature
-    track, which shares QC_FILTER and has no reproducibility filtering (no splits, half
-    aggregates, correlations, blocklists or passthrough aggregates).
+    track, which shares QC_FILTER, publishes under ``*_cp_features`` stage directories and has
+    no bootstrap feature selection (no splits, half aggregates, correlations, blocklists,
+    passthrough aggregates or ``output.parquet``).
     """
 
     pipeline = "embeddings"
-    aggregate_per_method = False
 
     def __init__(self, track: Track = "embeddings") -> None:
         if track not in ("embeddings", "cp_features"):
@@ -223,16 +213,11 @@ class EmbeddingsPipelineLayout(PipelineLayout):
             "cell_images": "cell_images",
             "cell_metadata": "cell_metadata",
             "qc_filter": "qc_filter",
-            "filter": "filter_embeddings"
-            if track == "embeddings"
-            else "filter_cp_features",
+            "features": track,
+            "filter": f"normalization{suffix}",
             "ovwt": f"ovwt_batchwise{suffix}",
             "feature_select": f"feature_select_batchwise{suffix}",
         }
-        if track == "embeddings":
-            self.stage_dirs["features"] = "embeddings"
-        else:
-            self.stage_dirs["features"] = "cp_features"
 
     def __repr__(self) -> str:
         return f"EmbeddingsPipelineLayout(track={self.track!r})"
@@ -243,7 +228,7 @@ class EmbeddingsPipelineLayout(PipelineLayout):
     def __hash__(self) -> int:
         return hash((type(self), self.track))
 
-    def _reproducibility(self) -> bool:
+    def _feature_select(self) -> bool:
         return self.track == "embeddings"
 
     def cell_table(self, batch: str) -> str:
@@ -264,65 +249,15 @@ class EmbeddingsPipelineLayout(PipelineLayout):
         name = self.stage_dirs["features"]
         return f"{name}/{batch}/{name}.parquet"
 
-    def aggregate(self, batch: str, method: Optional[str] = None) -> str:
-        return f"{self.batch_dir('feature_select', batch)}/aggregate.parquet"
-
-    def passthrough_aggregate(self, batch: str, method: str) -> Optional[str]:
-        return (
-            super().passthrough_aggregate(batch, method)
-            if self._reproducibility()
-            else None
-        )
-
-    def blocklist(self, batch: str) -> Optional[str]:
-        return super().blocklist(batch) if self._reproducibility() else None
-
-    def method_blocklist(self, batch: str, method: str) -> Optional[str]:
-        return (
-            super().method_blocklist(batch, method) if self._reproducibility() else None
-        )
-
-    def split(self, batch: str, rep: int, half: int) -> Optional[str]:
-        if not self._reproducibility():
-            return None
-        return f"{self.batch_dir('feature_select', batch)}/splits/rep{rep}/half{half}.parquet"
-
-    def half_aggregate(
-        self, batch: str, rep: int, half: int, method: str
-    ) -> Optional[str]:
-        if not self._reproducibility():
-            return None
-        return (
-            f"{self.batch_dir('feature_select', batch)}/half_aggregates/rep{rep}/"
-            f"half{half}/{method}.parquet"
-        )
-
-    def correlations(self, batch: str, rep: int, method: str) -> Optional[str]:
-        if not self._reproducibility():
-            return None
-        return f"{self.batch_dir('feature_select', batch)}/correlations/rep{rep}/{method}.parquet"
-
-    def selected(self, batch: str) -> Optional[str]:
-        """FILTER_AGGREGATE's blocklist-filtered ``aggregate.parquet``."""
-        if not self._reproducibility():
-            return None
-        return f"{self.batch_dir('feature_select', batch)}/filtered_aggregate.parquet"
-
-    def aggregate_with_passthrough(self, batch: str) -> Optional[str]:
-        """FILTER_AGGREGATE's filtered aggregates with the passthrough methods joined on."""
-        if not self._reproducibility():
-            return None
-        return f"{self.batch_dir('feature_select', batch)}/aggregate_with_passthrough.parquet"
-
 
 #: Top-level directories only one pipeline writes, used by :func:`detect`.
 _MARKERS = {
-    "data": {"normalization", "input"},
+    "data": {"input"},
     "embeddings": {
-        "filter_embeddings",
-        "filter_cp_features",
-        "embeddings",
+        "cell_images",
         "cell_metadata",
+        "embeddings",
+        "cp_features",
     },
 }
 

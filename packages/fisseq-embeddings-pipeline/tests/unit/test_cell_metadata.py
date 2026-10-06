@@ -6,7 +6,7 @@ empty-table handling and the Hydra main() CLI end-to-end.
 
 The projection itself is shared with BUILD_CP_FEATURES via
 utils/cell_table.py, so the two stages can't drift on the four columns
-that become filter.py's JOIN_KEYS; test_projection_matches_cp_features
+that become the shared stages' EMBEDDINGS_JOIN_KEYS; test_projection_matches_cp_features
 below pins that.
 """
 
@@ -23,13 +23,13 @@ from fisseq_common.schema import (
     META_BATCH_COL,
     META_EDIT_DISTANCE_COL,
 )
+from fisseq_common.stages.config import EMBEDDINGS_JOIN_KEYS as JOIN_KEYS
 from fisseq_embeddings_pipeline.cell_metadata import (
     CellMetadataConfig,
     build_cell_metadata,
     main,
 )
 from fisseq_embeddings_pipeline.cp_features import CpFeaturesConfig, build_cp_features
-from fisseq_embeddings_pipeline.filter import JOIN_KEYS
 from fisseq_embeddings_pipeline.utils.cell_table import CELL_METADATA_SCHEMA
 
 # ---------------------------------------------------------------------------

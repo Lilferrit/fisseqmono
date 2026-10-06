@@ -23,7 +23,7 @@ The directories are named after the old global outputs of each pipeline:
 - data pipeline: ``feature_select/`` and ``ovwt_distinguishability/``;
 - embeddings pipeline: ``embeddings/`` and ``distinguishability/`` for the Cell-DINO track,
   ``cp_features/`` and ``distinguishability_cp_features/`` for the CellProfiler track (no
-  blocklist: that track has no reproducibility filtering).
+  blocklist and no summed metadata: that track has no feature selection).
 """
 
 import argparse
@@ -258,6 +258,10 @@ def _write_track(
         written[f"{directory.name}/{stem}"] = path
 
     names = src.batches("feature_select", exclude=exclude)
+    if metadata and lay.selected(names[0]) is None:
+        # The embeddings pipeline's CellProfiler track writes no output.parquet.
+        logger.info("%s: no per-variant metadata to sum", track.features_dir)
+        metadata = False
     frames, meta_paths = batch_aggregates(
         src, names, types, passthrough, variant_col, metadata=metadata
     )

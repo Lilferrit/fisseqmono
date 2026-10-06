@@ -4,71 +4,65 @@
 
 - **Python 3.13** (pinned in `.python-version`)
 - **[uv](https://docs.astral.sh/uv/)** for Python dependency and environment management
-- **[Nextflow](https://www.nextflow.io/) ≥ 23.10** (only needed to run the full
+- **[Nextflow](https://www.nextflow.io/) ≥ 26.04** (only needed to run the full
   pipeline via `main.nf`, not for standalone Python CLI usage)
 - No required environment variables
 
 ## Install
 
 ```bash
-# Clone the repo
-git clone https://github.com/Lilferrit/fisseq-data-pipeline.git
-cd fisseq-data-pipeline
+# Clone the workspace
+git clone https://github.com/Lilferrit/fisseqmono.git
+cd fisseqmono
 
-# Install all runtime + dev dependencies into .venv
-uv sync --group dev
+# Install every package + the dev tools into .venv
+uv sync
 
 # Install pre-commit hooks (one-time)
 uv run pre-commit install
 ```
 
-The package installs in editable mode, so every pipeline step is immediately
-runnable via `uv run python -m fisseq_data_pipeline.qcfilter`,
-`uv run python -m fisseq_data_pipeline.normalize`, etc. See the
-[CLI Reference](cli/qcfilter.md) for every available command.
+The packages install in editable mode, so every stage is immediately runnable:
+`uv run python -m fisseq_data_pipeline.input` (INPUT) and
+`uv run python -m fisseq_common.stages.<stage>` (every other stage; see
+[Shared stages](../common/stages.md)).
 
 ### Install with pip (no clone)
 
-If you just need the pipeline steps importable — e.g. on a compute node, in a
-container, or for a quick one-off install — `pip install` directly from GitHub
-instead of cloning and using `uv sync`:
+If you just need the pipeline steps importable — e.g. on a compute node or in a
+container — `pip install` the package from a release tag. It pulls in
+`fisseq-common[stages]`, which holds the shared stages:
 
 ```bash
-pip install git+https://github.com/Lilferrit/fisseq-data-pipeline.git
+pip install "fisseq-data-pipeline @ git+https://github.com/Lilferrit/fisseqmono@v2.0.0#subdirectory=packages/fisseq-data-pipeline"
 ```
 
-Pin a branch, tag, or commit with `@`:
-
-```bash
-pip install git+https://github.com/Lilferrit/fisseq-data-pipeline.git@main
-```
-
-To run the pipeline directly from GitHub without cloning, see the
-[Nextflow Workflow](nextflow.md) page's Quickstart section — Nextflow can pull and
-cache the repository itself.
+Running the Nextflow workflow itself needs a checkout of the workspace: it includes the
+shared modules from `packages/fisseq-common/nextflow/`. See
+[Nextflow Workflow](nextflow.md#running).
 
 ## Cluster / HPC
 
-The repo ships a `nextflow.config` at the root with default `params` values and
+The package ships a `nextflow.config` with default `params` values and
 commented-out profile stubs for `venv`, `conda`, `singularity`, and `sge` executors.
 To run on a cluster:
 
 1. Write your own config (or copy and adapt `nextflow.config`).
 2. Uncomment and fill in a profile block — pick one `beforeScript` option to make
-   the `fisseq_data_pipeline` package available on each compute node:
+   the `fisseq_data_pipeline` and `fisseq_common` packages available on each compute node:
 
    ```groovy
    // Option A: activate a pre-existing venv (recommended for shared clusters)
    beforeScript = 'source /path/to/your/venv/bin/activate'
 
    // Option B: install from GitHub on each run (simpler, slower)
-   beforeScript = 'uv pip install git+https://github.com/your-org/fisseq-data-pipeline.git@main --system'
+   beforeScript = 'uv pip install "fisseq-data-pipeline @ git+https://github.com/Lilferrit/fisseqmono@v2.0.0#subdirectory=packages/fisseq-data-pipeline" --system'
    ```
 
 3. Pass it at run time:
 
    ```bash
-   nextflow run . -c your.config -profile sge --pipeline_dir /path/to/experiment
+   nextflow run . -c your.config -profile sge --pipeline_dir /path/to/experiment -params-file params.yaml
    ```
 
 See [Configuration](configuration.md) for the full parameter reference.

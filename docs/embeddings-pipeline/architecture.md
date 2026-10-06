@@ -11,31 +11,29 @@ embeds each cell with a pretrained **Cell-DINO** vision transformer and
 runs the same downstream variant-vs-wildtype analysis on the learned
 embedding space instead of a curated feature space.
 
+Downstream of the embeddings, the analysis *is* fisseq-data-pipeline's: the same shared
+stages (`fisseq_common.stages`), Nextflow modules, process names, parameters and publish
+layout (see [Shared stages](../common/stages.md)). What this pipeline adds is everything
+upstream of a cell table: the starcall-workflow run, the cell crops and the Cell-DINO
+embeddings.
+
 High-level shape:
 
 ```text
-Batch Aggregates And Variant Scores          (per experiment, runs independently)
-  starcall-workflow ─► Cell Images ─┬─► Cell Shards ──► Cell Embeddings (Cell DINO) ┐
-    (raw tree)       (incl. per-tile │     (per tile)       ▲ (meta_* joined on)     │
-                      Cell Shards)   └─► Cell Metadata ──────┴──► QC Filtering ───────┤
-                                                                                      ├─► Filter Embeddings
-                                                                     ┌────────────────┴──────┐
-                                                                     ▼                        ▼
-                                                    Aggregation (Synonymous        OVWT Distinguish-ability
-                                                    STD Corrected)                  Scores (Synonymous STD
-                                                          │                          Corrected)
-                                                          ▼                                ▼
-                                              Experiment N Aggregates          Experiment N Distinguish-
-                                                          │                     ability Scores
-                                                          │
-Reproducibility Filtering                    (per experiment; cellDINO track only)
-  Filter Embeddings ─► Pseudo-Replicate Split (x reps) ─► Half Aggregation (x 2 halves x methods)
-                            └─► Half Correlation ─► Blocklist (median r) ─► Combine Blocklists
-                                                                                 │
-  Experiment N Aggregates ──────────────────────────────────────────────────────┤
-  Passthrough Aggregation (methods kept out of filtering) ──────────────────────┤
-                                                                                 ▼
-                                             Experiment N Filtered Aggregates + Passthrough View
+Per experiment (runs independently)
+  starcall-workflow ─► Cell Images ─┬─► Cell Shards ──► Cell Embeddings (EMBED_CELLS) ─┐
+    (raw tree)       (incl. per-tile │     (per tile)       ▲ (meta_* joined on)        │
+                      Cell Shards)   └─► Cell Metadata ──────┴──► QC_FILTER ────────────┤
+                                                                                         ▼
+                                                                                    NORMALIZE
+                                                                     (QC-passed keys + WT-fitted z-score)
+                                                                   ┌────────────────────┴─────────┐
+                                                                   ▼                              ▼
+                                                  Bootstrap feature selection             OVWT_BATCHWISE
+                                                  (per-method aggregates z-scored         (distinguishability
+                                                  to the synonymous variants; split       scores)
+                                                  halves -> correlation -> blocklist
+                                                  -> FINALIZE_FEATURE_SELECT)
 ```
 
 Every output is per experiment. The cross-experiment steps (the blocklist vote, variant-wise
@@ -66,80 +64,73 @@ off either track, so neither track can take the other down -- see
 decision 19.
 
 ```text
-Batch Aggregates And Variant Scores (CellProfiler)  (per experiment, runs independently)
-  Cell Images (BUILD_CELL_IMAGES,  ─► CellProfiler Feature Dataset ─┐
-    same cell_table.parquet as                                      ├─► Filter CP Features
-    the embeddings track above)                                     │         │
-                    └─► QC Filtering (shared with the embeddings ────┘         │
-                                       track above -- not rerun)      ┌────────┴────────┐
-                                                                       ▼                  ▼
-                                                       Aggregation (Synonymous    OVWT Distinguish-ability
-                                                       STD Corrected)              Scores (Synonymous STD
-                                                             │                      Corrected)
-                                                             ▼                            ▼
-                                                 Experiment N CP Aggregates    Experiment N CP Distinguish-
-                                                                                ability Scores
+Per experiment, cp_features: true only
+  Cell Images (BUILD_CELL_IMAGES,  ─► BUILD_CP_FEATURES ─┐
+    same cell_table.parquet)                             ├─► NORMALIZE_CP_FEATURES
+                    └─► QC_FILTER (shared with the  ─────┘          │
+                        embeddings track -- not rerun)   ┌──────────┴──────────────┐
+                                                          ▼                         ▼
+                                       AGGREGATE_FEATURE_TYPE_CP_FEATURES   OVWT_BATCHWISE_CP_FEATURES
 ```
+
+The CellProfiler track runs the same shared modules on the CellProfiler columns
+(`feature_selector=features`), without the bootstrap feature selection.
 
 ## Terminology map
 
-| Diagram node | This pipeline's stage | Reuses / adapts from `fisseq-data-pipeline` |
+| Diagram node | This pipeline's stage | Code |
 | --- | --- | --- |
-| Cell Images | `BUILD_CELL_IMAGES` (new) | the ONLY stage that touches `starcall-workflow`'s tree (`phenotyping_dir`/`segmentation_dir`/`sequencing_dir`) or runs its snakemake -- **`origin/devel`**, cloned into the image at a pinned commit and run unmodified through `snakemake/Snakefile`. Requests each tile's shard, cell table and reads table, joins the segmentation-side cell table to the sequencing-side genotype table into one self-sufficient `cell_table.parquet`, and records where each tile's shard is in `tiles.parquet` -- see [Data contracts](#cell-images-build_cell_images-output-from-starcall-workflow) |
-| Cell Shards | `make_cell_shard` (new; a snakemake rule inside `BUILD_CELL_IMAGES`, body `tile_shard.py`) | crops every cell of one tile (bbox midpoint, `window` px, zero-padded) straight out of starcall's whole-tile image into that tile's WebDataset shard -- `tile_shard.crop_cell`, see decisions 17 and 24 |
-| QC Filtering | `QC_FILTER` (vendored, ~unchanged) | `qcfilter.py` directly |
-| Cell Embeddings (Cell DINO) | `EMBED_CELLS` (new) | none -- wraps Meta's `dinov2` Cell-DINO |
-| Filter Embeddings | `FILTER_EMBEDDINGS` (adapted) | `normalize.py`'s `Normalizer`, retargeted to a synonymous control query -- publishes a join key + fitted stats, not a normalized copy of the embeddings |
-| Aggregation (Synonymous STD Corrected) | `AGGREGATE_EMBEDDINGS` (shared) | `fisseq_common.stages.aggregate.aggregate_methods` + `get_aggregate_meta_data` |
-| OVWT Distinguish-ability Scores (Synonymous STD Corrected) | `OVWT_BATCHWISE` (adapted) | `ovwt.py` + `utils/xgbparams.py`, training/eval primitives reused per-fold under a *k*-fold CV loop |
-| Pseudo-Replicate Split | `GENERATE_SPLIT` (adapted) | `generatesplit.py`, retargeted from a positional row index to the `JOIN_KEYS` composite cell key -- see decision 22 |
-| Half Aggregation / Passthrough Aggregation | `AGGREGATE_HALF` / `AGGREGATE_PASSTHROUGH` (adapted) | `aggregatefeaturetype.py` -- one Python module behind two Nextflow processes, as that repo includes one process under two aliases |
-| Half Correlation | `CORRELATE_FEATURES` (adapted) | `correlatefeatures.py`'s `compute_feature_correlations`, plus a NaN->null normalization -- see decision 22 |
-| Blocklist | `BLOCKLIST` (vendored, ~unchanged) | `blocklist.py` |
-| Combine Blocklists | `COMBINE_BLOCKLISTS` (vendored, ~unchanged) | `combineblocklists.py` |
-| Filtered Aggregates | `FILTER_AGGREGATE` (adapted) | the blocklist-drop and passthrough-join halves of `featureselect.py`; its pycytominer variance/correlation filtering is deliberately not ported -- see decision 22 |
-| CellProfiler Feature Dataset | `BUILD_CP_FEATURES` (new) | selects `cp_*`-prefixed CellProfiler columns straight out of `BUILD_CELL_IMAGES`' `cell_table.parquet` (that stage already folded in each tile's CellProfiler CSV, by row position) -- see [Data contracts](#cell-images-build_cell_images-output-from-starcall-workflow) |
-| Filter CP Features | `FILTER_CP_FEATURES` (thin wrapper) | reuses `filter.py`'s `filter_and_fit_normalizer`/`load_filtered_embeddings` directly (already feature-agnostic) -- joins against `QC_FILTER`'s existing output, not a second QC run |
-| Aggregation (CellProfiler track) | `AGGREGATE_CP_FEATURES` (thin wrapper) | `fisseq_common.stages.aggregate.aggregate_methods` with `feature_selector=FEATURE_SELECTOR` |
-| OVWT Distinguish-ability Scores (CellProfiler track) | `OVWT_BATCHWISE_CP_FEATURES` (thin wrapper) | reuses `ovwt.py`'s `ovwt_batchwise` with `feature_selector=FEATURE_SELECTOR` |
+| Cell Images | `BUILD_CELL_IMAGES` | the ONLY stage that touches `starcall-workflow`'s tree (`phenotyping_dir`/`segmentation_dir`/`sequencing_dir`) or runs its snakemake -- **`origin/devel`**, cloned into the image at a pinned commit and run unmodified through `snakemake/Snakefile`. Requests each tile's shard, cell table and reads table, joins the segmentation-side cell table to the sequencing-side genotype table into one self-sufficient `cell_table.parquet`, and records where each tile's shard is in `tiles.parquet` -- see [Data contracts](#cell-images-build_cell_images-output-from-starcall-workflow) |
+| Cell Shards | `make_cell_shard` (a snakemake rule inside `BUILD_CELL_IMAGES`, body `tile_shard.py`) | crops every cell of one tile (bbox midpoint, `window` px, zero-padded) straight out of starcall's whole-tile image into that tile's WebDataset shard -- `tile_shard.crop_cell`, see decisions 17 and 24 |
+| Cell Metadata | `BUILD_CELL_METADATA` | `cell_metadata.py`: `cell_table.parquet`'s seven `meta_*` columns |
+| Cell Embeddings | `EMBED_CELLS` | `embed.py`, wrapping Meta's `dinov2` Cell-DINO |
+| QC_FILTER | `QC_FILTER` (shared) | `fisseq_common.stages.qcfilter` |
+| NORMALIZE | `NORMALIZE` (shared) | `fisseq_common.stages.filter`: QC-passed keys + a normalizer fit on the wildtype cells |
+| OVWT_BATCHWISE | `OVWT_BATCHWISE` (shared) | `fisseq_common.stages.ovwt` |
+| Bootstrap feature selection | `AGGREGATE_FEATURE_TYPE_BATCHWISE`, `AGGREGATE_FEATURE_TYPE_PASSTHROUGH`, `GENERATE_SPLIT_BATCHWISE`, `AGGREGATE_HALF_BATCHWISE`, `CORRELATE_FEATURES_BATCHWISE`, `BLOCKLIST_BATCHWISE`, `COMBINE_BLOCKLISTS_BATCHWISE`, `FINALIZE_FEATURE_SELECT_BATCHWISE` (shared) | `fisseq_common.stages.{aggregate,generatesplit,correlatefeatures,blocklist,combineblocklists,finalize}` |
+| CellProfiler Feature Dataset | `BUILD_CP_FEATURES` | `cp_features.py`: selects `cp_*`-prefixed CellProfiler columns straight out of `cell_table.parquet` (that stage already folded in each tile's CellProfiler CSV, by row position) |
+| CellProfiler track | `NORMALIZE_CP_FEATURES`, `AGGREGATE_FEATURE_TYPE_CP_FEATURES`, `OVWT_BATCHWISE_CP_FEATURES` (shared) | the same modules, `feature_selector=features` |
 
 ## Architecture decisions
 
-1. **Standalone repo**, sibling to `fisseq-data-pipeline` and
-   `starcall-workflow`, following the same Python (Hydra + polars)
+1. **A package of the fisseqmono workspace**, next to `fisseq-data-pipeline`, and a
+   sibling of `starcall-workflow`, following the same Python (Hydra + polars)
    conventions. Orchestration is Nextflow DSL2. It was briefly rewritten in
    Snakemake and then moved back, so the nested starcall-workflow run could
    be driven by a user-supplied snakemake profile from a single task -- see
    decisions 18 and 20.
-2. **Shared code lives in `fisseq-common`.** This pipeline once vendored the
-   pieces of `fisseq-data-pipeline` it needed; in the fisseqmono workspace both
-   pipelines import them from `fisseq-common` instead (`Normalizer`, the schema,
-   `classify_variant`, and the shared stages under `fisseq_common.stages`: QC,
-   filter, OvWT, the reproducibility chain, aggregation, PCA). This package keeps
-   the Cell-DINO and image stages, its Hydra entry points and its workflow.
+2. **Every stage downstream of the cell table is fisseq-common's.** This pipeline once
+   vendored the pieces of `fisseq-data-pipeline` it needed, then shared them through thin
+   wrapper modules with its own process names, parameters and outputs. Now both pipelines
+   run the same entry points (`python -m fisseq_common.stages.<stage>`) from the same
+   Nextflow modules, under the same process names, with the same parameters and publish
+   layout. This package keeps only the cellDINO-specific stages (`BUILD_CELL_IMAGES`,
+   `BUILD_CELL_METADATA`, `EMBED_CELLS`, `BUILD_CP_FEATURES`, `PLAN_EXPERIMENTS`) and its
+   workflow; its `conf/modules.config` sets what differs: `join_keys`, `feature_selector`
+   and the publish paths.
 3. **Cell-DINO** = Meta's `dinov2` repo, run in **Bag of Channels** mode by
    default (though not every real checkpoint is bag-of-channels -- see
    [below](#embed_cells-cell-dino-inference-internals)).
 4. **OvWT distinguish-ability metric**: one binary XGBoost classifier per
    variant vs. wildtype, run on embedding columns instead of CellProfiler
    feature columns -- *k*-fold cross-validated, producing an out-of-fold
-   score for every cell and two summary numbers per variant: a pooled
-   AUROC and a median-across-barcodes AUROC.
-5. **"Synonymous STD Corrected"** = a full z-score (subtract synonymous-
-   population mean, divide by synonymous-population std), computed per
-   embedding dimension, mechanically identical to `fisseq-data-pipeline`'s
-   `Normalizer` -- just fit on synonymous rows rather than the wildtype
-   rows `normalize.py` uses for the CellProfiler pipeline.
-6. **PCA only on the embeddings branch**. The distinguish-ability-scores
-   branch is a plain cross-batch median with no dimensionality reduction.
-7. The synonymous z-score is folded into `FILTER_EMBEDDINGS` itself (fit
-   once per experiment, applied once), rather than duplicated inside both
-   downstream stages.
+   score for every cell and several summary numbers per variant (pooled,
+   median-across-barcodes and median-across-folds AUROCs) -- the shared
+   [OvWT stage](../common/stages.md#ovwt).
+5. **Cells are z-scored against wildtype, aggregates against the synonymous variants**, as
+   in fisseq-data-pipeline. `NORMALIZE` fits a per-dimension `Normalizer` on the wildtype
+   cells; the per-method aggregates are then z-scored against the experiment's synonymous
+   variants (`normalize_to_synonymous`), which needs at least two synonymous variants per
+   experiment. (This pipeline used to fit the cell-level z-score on untagged synonymous
+   variants instead.)
+6. **No PCA or UMAP in the pipeline.** Cross-experiment PCA is `fisseqborn-global`'s.
+7. **The normalizer is fit once per experiment** (`NORMALIZE`) and applied by each
+   consumer when it rebuilds the normalized cells, rather than refit inside each stage.
 8. **No cross-experiment stages.** The pipeline's former global stages
    (GLOBAL_BLOCKLIST, GLOBAL_VARIANT_EMBEDDINGS, GLOBAL_VARIANT_DISTINGUISHABILITY and the
    two CellProfiler-track ones) moved to fisseqborn (`fisseqborn-global`,
    `fisseq_common.global_aggregation`), which pools either pipeline's runs with the same
-   methods; the monorepo's `tests/test_global_parity.py` checks it reproduces their outputs.
+   methods.
 9. **Cross-experiment distinguish-ability pooling is two steps, not one**
    (now in fisseqborn): each experiment's
    `auroc_pooled`/`auroc_median_barcode`/`auroc_median_fold` is first z-scored against that same experiment's
@@ -147,8 +138,8 @@ Batch Aggregates And Variant Scores (CellProfiler)  (per experiment, runs indepe
    experiments -- rather than medianing raw AUROC directly.
 10. **No pipeline stage copies another stage's data wholesale -- outputs
     reference each other by join key instead**, the same pattern
-    `QC_FILTER` already uses. `FILTER_EMBEDDINGS` publishes only the
-    QC-passed join keys and the fitted `Normalizer` stats; every
+    `QC_FILTER` already uses. `NORMALIZE` publishes only the
+    QC-passed keys and the fitted `Normalizer` stats; every
     downstream consumer joins back to `EMBED_CELLS`' single
     `embeddings.parquet` and applies the normalizer itself.
 11. **One `random_seed` field, defined once on the shared `AppConfig`
@@ -156,9 +147,10 @@ Batch Aggregates And Variant Scores (CellProfiler)  (per experiment, runs indepe
     `random_state`/seed field owned by each stage's own config. A single
     pipeline-level `--random_seed` override therefore reproduces an
     entire run's stochastic stages (`OVWT_BATCHWISE`'s CV/XGBoost/
-    calibration, `GENERATE_SPLIT`'s halves) at once.
+    calibration, `GENERATE_SPLIT_BATCHWISE`'s halves, the wildtype and pseudo-variant
+    downsampling) at once.
 12. **Default pipeline parameters live in a YAML file (`params.yaml`,
-    repo root), not in a profile**. Profiles carry executor/deployment
+    package root), not in a profile**. Profiles carry executor/deployment
     settings only; see [Configuration](configuration.md).
 13. **The pipeline runs containerized by default**: one Docker image
     bundles the Python package, its dependencies, (for `EMBED_CELLS`) the
@@ -167,22 +159,15 @@ Batch Aggregates And Variant Scores (CellProfiler)  (per experiment, runs indepe
     same image through Apptainer, and `-profile local` opts out entirely
     (what the test suite and CI use) -- see
     [Nextflow Workflow](nextflow.md#profiles-and-containers).
-14. **The CellProfiler-feature track is a set of thin wrappers, not a
-    fork.** `filter.py` and the former global stages
-    were already feature-agnostic (keyed off `FEATURE_SELECTOR`/
-    `JOIN_KEYS`/`META_SELECTOR`, never `EMBEDDING_SELECTOR`) and are
-    imported directly, unchanged. `aggregate.py`/`ovwt.py` needed one
-    small parameterization each -- a `feature_selector` argument,
-    defaulting to `EMBEDDING_SELECTOR` so existing behavior is untouched
-    -- rather than a duplicated copy of their KS/AUROC/k-fold-XGBoost
-    logic. Every `*_CP_FEATURES` module in the table above is a thin Hydra
-    entry point around one of these reused functions, mirroring the
-    precedent `aggregate.py` already set by importing
-    `load_filtered_embeddings` from `filter.py`.
+14. **The CellProfiler-feature track is the same shared modules, not a fork.**
+    `NORMALIZE_CP_FEATURES`, `AGGREGATE_FEATURE_TYPE_CP_FEATURES` and
+    `OVWT_BATCHWISE_CP_FEATURES` are the shared `FILTER`, `AGGREGATE` and `OVWT_BATCHWISE`
+    modules, run on `cp_features.parquet` with `feature_selector=features` and published
+    under `*_cp_features` directories.
 15. **QC filtering is computed once, reused by both tracks.** Both tracks
     score the same cells, and QC filtering (edit distance / barcode
     counts / variant barcode counts) only ever looks at `meta_*` columns
-    -- never the feature space -- so `FILTER_CP_FEATURES` joins directly
+    -- never the feature space -- so `NORMALIZE_CP_FEATURES` joins directly
     against `QC_FILTER`'s existing `filtered_cells.parquet` rather than
     running a second `QC_FILTER` process. See decision 19 for where that
     single `QC_FILTER` sits in the graph.
@@ -321,8 +306,8 @@ Batch Aggregates And Variant Scores (CellProfiler)  (per experiment, runs indepe
     `qcfilter.py`'s `filter_columns` renames the barcode/edit-distance/
     amino-acid-changes columns but then keeps only `meta_`-prefixed (and
     CellProfiler-looking) columns, so the cell table's unprefixed
-    `well`/`tile`/`tile_cell_index` would be dropped and `filter.py`'s
-    `JOIN_KEYS` would have nothing to join on. It's shared with
+    `well`/`tile`/`tile_cell_index` would be dropped and the pipeline's
+    `join_keys` would have nothing to join on. It's shared with
     `BUILD_CP_FEATURES` via `utils/cell_table.py` instead, so the two
     stages can't drift on those keys.
 
@@ -339,7 +324,7 @@ Batch Aggregates And Variant Scores (CellProfiler)  (per experiment, runs indepe
     `BUILD_CELL_METADATA`'s output back on, decision 24), so a cell's
     `meta_*` values are identical wherever they appear, and `null` -- the
     correct representation -- is what they are.
-    Nothing joins on these columns (`JOIN_KEYS` is batch/well/tile/
+    Nothing joins on these columns (`join_keys` is batch/well/tile/
     cell_index), so this changes no join behavior; it only affects how
     unmatched cells are labeled, and those are cells QC exists to drop.
     It also removed the last unjustified pandas use in the pipeline --
@@ -349,7 +334,7 @@ Batch Aggregates And Variant Scores (CellProfiler)  (per experiment, runs indepe
     Consequence: QC sees every row of `cell_table.parquet` rather than
     only the cells that were embedded, so `filtered_cells.parquet` can
     cover strictly more cells than `embeddings.parquet`. Every consumer
-    inner-joins it back on `JOIN_KEYS`, so the extra rows drop where they
+    inner-joins it back on `join_keys`, so the extra rows drop where they
     don't apply -- and QC thresholds don't shift with whether the
     embedding pass succeeded. The integration suite pins the decoupling
     by failing `EMBED_CELLS` outright
@@ -375,94 +360,39 @@ Batch Aggregates And Variant Scores (CellProfiler)  (per experiment, runs indepe
     engine's own cluster settings (`-c site.config`) are independent of the
     starcall profile's.
 
-21. **Per-dimension reproducibility filtering is back, for the cellDINO
-    track only, as its own chain of stages between the aggregates and the
-    filtered aggregates.** This reverses an earlier decision. `aggregate.py`
-    was originally adapted without `fisseq-data-pipeline`'s bootstrap
-    feature-selection machinery, on the theory that per-feature
-    reproducibility "doesn't obviously translate to dense,
-    non-interpretable embedding dimensions the way it does to named
-    morphological features". Analysis since showed it matters: filtering on
-    reproducibility materially improves the embeddings PCA consumes.
+21. **Bootstrap feature selection, on the cellDINO track only.** The data pipeline's
+    chain: `AGGREGATE_FEATURE_TYPE_BATCHWISE` per method, `GENERATE_SPLIT_BATCHWISE` per
+    bootstrap replicate, `AGGREGATE_HALF_BATCHWISE` per (replicate, half, method),
+    `CORRELATE_FEATURES_BATCHWISE` per (replicate, method), `BLOCKLIST_BATCHWISE` per method
+    as the single synchronization point across replicates, `COMBINE_BLOCKLISTS_BATCHWISE`
+    and `FINALIZE_FEATURE_SELECT_BATCHWISE`. A dimension is kept when the variant-to-variant
+    pattern it reports from one random half of an experiment's cells is the pattern it
+    reports from the other half, at median Pearson *r* >= `feature_select_min_correlation`
+    across replicates. This was first added to improve the embeddings the cross-experiment
+    PCA consumes.
 
-    The chain mirrors the sibling repo's, including its fan-out --
-    `GENERATE_SPLIT` per bootstrap replicate, `AGGREGATE_HALF` per
-    (replicate, half, method), `CORRELATE_FEATURES` per (replicate, method),
-    then `BLOCKLIST` per method as the single synchronization point across
-    replicates, `COMBINE_BLOCKLISTS` per experiment, and `FILTER_AGGREGATE`.
-    A dimension is kept when the variant-to-variant pattern it reports from
-    one random half of an experiment's cells is the pattern it reports from
-    the other half, at median Pearson *r* >=
-    `reproducibility_min_correlation` across replicates.
+    **The CellProfiler track is deliberately excluded.** Its columns are hand-engineered and
+    already curated, and its aggregates are meant to stay directly comparable to the
+    published CellProfiler analysis.
 
-    One method per `AGGREGATE_HALF` job is what keeps the reference-based
-    aggregators' peak memory bounded -- together with **column batching**
-    (`aggregate_feature_chunk_size`), ported from the sibling's
-    `aggregate.py` at the same time and for the same reason. Chunking is a
-    pure memory dial with no effect on the numbers, and it applies to both
-    tracks since it is sized to a task's memory rather than to the feature
-    space.
+22. **One implementation, no divergences.** The embeddings pipeline used to run its own
+    variant of this chain (synonymous controls at cell level, one multi-method aggregate
+    table, its own blocklist-applying stage and a separate passthrough view). It now runs the data pipeline's, with that pipeline's
+    outputs: one `aggregates/<method>.parquet` per method and `output.parquet`. What made
+    the old divergences necessary is now in the shared stages: split files name cells by
+    key (`row_keys(join_keys)`), not by row position, since no stage materializes a
+    normalized cell table; an undefined correlation is stored as null, so `BLOCKLIST`'s
+    median skips it; and `FINALIZE_FEATURE_SELECT` joins the passthrough columns last, after
+    the synonymous z-score and the impact score. Cross-experiment pooling (fisseqborn) reads
+    the per-method aggregates and the per-experiment blocklists, not `output.parquet`, so a
+    `--min-batches` vote isn't reduced to "reproducible in every experiment".
 
-    **The CellProfiler track is deliberately excluded.** Its columns are
-    hand-engineered and already curated, and the two tracks' aggregates are
-    meant to stay directly comparable to the published CellProfiler
-    analysis. `aggregate_cp_features.py` gains the chunking knob and nothing
-    else.
-
-    The sibling's pycytominer step (variance threshold, its own static
-    blocklist, correlation-threshold redundancy removal) is **not** ported.
-    Those filters are written for named morphological features; the
-    reproducibility verdict is the only selection this pipeline applies.
-
-22. **Three deliberate divergences from the sibling's implementation of
-    that chain**, each forced by something structural about this pipeline:
-
-    - **Split files name cells by `JOIN_KEYS`, not by row index.** The
-      sibling's `GENERATE_SPLIT` writes positional row indices, which is
-      safe there because both it and `AGGREGATE_HALF` read the same
-      already-materialized normalized parquet in the same order. This
-      pipeline never materializes a normalized cell-level table (decision
-      10) -- both stages reconstruct it via `load_filtered_embeddings`,
-      i.e. through a join, whose row order Polars does not guarantee to be
-      stable across two processes. The composite cell key is
-      order-independent by construction, and `GENERATE_SPLIT` can then read
-      `filtered_keys.parquet` alone rather than the full embeddings.
-
-    - **Passthrough aggregates live in a separate output file, not just a
-      later join.** The sibling keeps passthrough columns out of selection
-      and PCA by joining them last, within one process. That is not enough
-      here: a consumer re-reads the files from disk and may select features
-      with `FEATURE_SELECTOR` (exclude `meta_*`), which matches a stat-suffixed
-      `emb_0000_KSnegLogP`. So `FILTER_AGGREGATE` writes two files:
-      `filtered_aggregate.parquet` (no passthrough) and
-      `aggregate_with_passthrough.parquet`. A passthrough column that never
-      enters the first cannot leak into a PCA however a consumer uses the
-      selector.
-
-    - **Cross-experiment pooling reads the *unfiltered* per-experiment
-      aggregates and applies its own cross-experiment vote** (fisseqborn).
-      Reading the per-experiment `filtered_aggregate.parquet` instead would
-      let the median's column intersection silently reduce every setting to
-      "reproducible in every experiment", making a `--min-batches` vote inert.
-
-    A fourth, smaller one: `CORRELATE_FEATURES` normalizes a NaN
-    correlation (a dimension constant in one half) to null, where the
-    sibling passes NaN through. NaN would propagate through `BLOCKLIST`'s
-    median and condemn a dimension on the strength of one degenerate
-    replicate; null is skipped by `median`, so the dimension is judged on
-    the replicates that produced a number.
-
-23. **`aggregate.parquet` is sorted by the label column, and
-    `get_aggregate_meta_data`'s `*_counts` lists are sorted by value.**
-    Polars' `group_by`, its joins, and `value_counts` are all free to
-    return rows in an implementation-defined order under multithreaded
-    execution, so two runs over identical input produced identical numbers
-    in a different order. That was harmless while nothing compared two
-    runs; it stops being harmless once a rerun at the same `random_seed` is
-    expected to reproduce the same blocklist. Both sorts are cheap (one row
-    per variant) and make every published per-experiment table
-    byte-reproducible. The sorted `*_counts` lists are in
-    `fisseq_common.utils.metadata`, which both pipelines now use.
+23. **Every published table has a reproducible row order.** Polars' `group_by`, its joins
+    and `value_counts` are free to return rows in an implementation-defined order under
+    multithreaded execution. The shared stages sort: `QC_FILTER` on `sort_output_by`, the
+    filter stage and every consumer on `row_keys(join_keys)`, the aggregates by label, and
+    `get_aggregate_meta_data`'s `*_counts` lists by value. A rerun at the same `random_seed`
+    reproduces the same splits, blocklist and scores.
 24. **starcall-workflow is pinned to one commit at image build time, run
     through a wrapper Snakefile; a cell shard's `meta.json` carries only
     the cell's location.** The root `Dockerfile` clones upstream
@@ -520,26 +450,27 @@ Batch Aggregates And Variant Scores (CellProfiler)  (per experiment, runs indepe
 ## Repository layout
 
 ```text
-fisseq-embeddings-pipeline/
+packages/fisseq-embeddings-pipeline/
   params.yaml                     # every default pipeline parameter
   nextflow.config                 # container/profile settings only (docker default,
                                    # apptainer, local); no executor settings
   main.nf                         # entry point: runs EmbeddingsPipeline
   workflows/
     embeddings.nf                 # the whole DAG: channel wiring, both tracks,
-                                   # the reproducibility fan-out
-  conf/modules.config             # entry point/args/publishDir of each shared module
-  modules/local/                  # this pipeline's own processes; the ones shared with
-                                   # fisseq-data-pipeline (and functions.nf) are in the
-                                   # repository root's nextflow/modules/local/
+                                   # the feature-selection fan-out
+  conf/modules.config             # ext.args / ext.seed / publishDir of each shared module
+  modules/local/                  # this pipeline's own processes; the shared ones (and
+                                   # functions.nf) are in packages/fisseq-common/nextflow/
     plan_experiments/             # PLAN_EXPERIMENTS: runs config/experiments.py
     build_cell_images/            # BUILD_CELL_IMAGES: the only process touching
                                    # starcall-workflow's tree (nested snakemake)
-    <stage>/main.nf               # one process per stage, named after it
+    build_cell_metadata/          # BUILD_CELL_METADATA
+    embed_cells/                  # EMBED_CELLS
+    build_cp_features/            # BUILD_CP_FEATURES
   snakemake/
     Snakefile                     # BUILD_CELL_IMAGES' nested run: includes
                                    # starcall's Snakefile, adds make_cell_shard
-  Dockerfile                      # this repo's own image (torch/Cell-DINO/polars),
+  Dockerfile                      # this package's image (torch/Cell-DINO/polars),
                                    # plus starcall-workflow (cloned at a pinned
                                    # commit, decision 24) and its snakemake 7.32.4/
                                    # tensorflow/stardist/cellpose stack as a
@@ -548,8 +479,7 @@ fisseq-embeddings-pipeline/
     prepare_real_starcall_test_data.py  # builds testing_data/lmna_t3{,_mini}
   src/fisseq_embeddings_pipeline/
     config/
-      app.py                      # AppConfig -- vendored, + random_seed
-      input.py                    # InputConfig, LabeledInputConfig -- vendored
+      __init__.py                 # re-exports fisseq_common.stages.config's base classes
       experiments.py              # params validation + per-experiment routing
                                    # (PLAN_EXPERIMENTS' entry point)
     cell_metadata.py              # BUILD_CELL_METADATA
@@ -559,34 +489,12 @@ fisseq-embeddings-pipeline/
                                    # rule body: one tile's WebDataset shard
     build_cell_images_table.py    # BUILD_CELL_IMAGES phase 3 (cell_table.parquet
                                    # + tiles.parquet)
-    qcfilter.py                   # QC_FILTER -- vendored, ~unchanged
     embed.py                      # EMBED_CELLS -- Cell-DINO wrapper
-    filter.py                     # FILTER_EMBEDDINGS
-    aggregate.py                  # AGGREGATE_EMBEDDINGS
-    ovwt.py                       # OVWT_BATCHWISE
-    generatesplit.py              # GENERATE_SPLIT            \
-    aggregate_half.py             # AGGREGATE_HALF /           |
-                                  #   AGGREGATE_PASSTHROUGH    | reproducibility
-    correlatefeatures.py          # CORRELATE_FEATURES         > filtering
-    blocklist.py                  # BLOCKLIST                  | (cellDINO only)
-    combineblocklists.py          # COMBINE_BLOCKLISTS         |
-    filter_aggregate.py           # FILTER_AGGREGATE          /
-    cp_features.py                     # BUILD_CP_FEATURES
-    filter_cp_features.py              # FILTER_CP_FEATURES (thin wrapper over filter.py)
-    aggregate_cp_features.py           # AGGREGATE_CP_FEATURES (thin wrapper, shared aggregators)
-    ovwt_cp_features.py                # OVWT_BATCHWISE_CP_FEATURES (thin wrapper over ovwt.py)
+    cp_features.py                # BUILD_CP_FEATURES
     vendor/dinov2/                # minimal vendored dinov2 subset
     utils/
-      constants.py                # vendored
-      variant.py                  # vendored (classify_variant)
-      batches.py                  # vendored (load_batches)
-      splits.py                   # split files, keyed on JOIN_KEYS (decision 22)
-      xgbparams.py                # vendored, one retargeted seed field
-      vectors.py                  # vendored (compute_impact_score/compute_cosine_distance)
       cell_table.py               # shared cell_table.parquet -> meta_* projection
                                    # (BUILD_CELL_METADATA + BUILD_CP_FEATURES)
-      log.py                      # vendored
-  docs/
   tests/
     unit/
     integration/                  # end-to-end `nextflow run` + output assertions
@@ -598,10 +506,10 @@ New dependency versus `fisseq-data-pipeline`'s stack: **`webdataset`**
 
 ## Shared and vendored code
 
-Code this pipeline shares with `fisseq-data-pipeline` (and, for the column schema, variant
-classification and output layout, with `fisseqborn`) lives in the `fisseq-common` package of
-the same repository and is imported from `fisseq_common`; the stage modules here are thin
-Hydra entry points around it where a stage is shared.
+Every stage this pipeline shares with `fisseq-data-pipeline` lives whole in `fisseq-common`
+(`fisseq_common.stages`, and its Nextflow modules in `packages/fisseq-common/nextflow/`); see
+[fisseq-common](../common/index.md). The column schema, variant classification, normalizer
+and output layout are fisseq-common's too.
 `dinov2` itself is vendored (not installed as a dependency) directly under
 `src/fisseq_embeddings_pipeline/vendor/dinov2/`; see that directory's
 `VENDORED_FROM.md` for the exact upstream commit, file list, and the one
@@ -849,38 +757,18 @@ and `::test_load_cell_dino_and_embed_batch_against_real_vitl16_checkpoint`
 (skipped automatically when the checkpoint file isn't present, e.g. in
 CI, since `weights/` is gitignored).
 
-### 5a. Aggregator inventory, and why the p-value ones are opt-in
+### 5a. Aggregators
 
-The aggregators live in `fisseq_common.stages.aggregate`, shared with
-`fisseq-data-pipeline`: `mean`, `median`, `MAD`, `std`, `KS`, `signedKS`,
-`QQ`, `AUROC`, plus `KSnegLogP`/`AUROCnegLogP`. This pipeline's defaults use
-`median`, `KS` and `AUROC`. The `*negLogP` pair report `-log10(p)` for the same KS D-statistic and Mann-Whitney U
-their parent classes compute -- evidence strength rather than effect size
--- reusing the parents' `_ks_stat_expr`/`_auroc_u_expr` rather than
-recomputing. Both are closed-form asymptotic approximations (the classical
-limiting Kolmogorov distribution; the tie-corrected normal approximation
-to U), so both are deterministic and need no seed, and both stay in log
-space end to end: computed naively, the most significant hits -- exactly
-the ones worth ranking -- underflow to `-inf`.
-
-They are registered but absent from `params.aggregate_methods`' default,
-because they cost ~5.6x (KS) and ~2.9x (AUROC) their base statistic, which
-matters more here than in the sibling repo: this pipeline aggregates over
-dense embedding dimensions, far more columns than named CellProfiler
-features. Two properties to keep in mind when reading the output: no
-multiple-testing correction is applied (these are raw per-(variant,
-dimension) p-values), and precision degrades near `p = 1`. `MAD`, `std`,
-`signedKS` and `QQ` remain unported.
-
-The sibling's WT-null bootstrap -- the `null_statistic_transform` /
-`null_comparison_statistic` machinery those aggregators feed -- is still
-unported, and its opt-outs on the two p-value classes were dropped rather
-than ported. That is a separate mechanism from **reproducibility
-filtering**, which this pipeline now does have: see decision 22. The two
-p-value aggregators are the intended occupants of
-`params.aggregate_methods_passthrough`, precisely because a
-median-correlation reproducibility threshold is not a meaningful test for
-a p-value.
+The aggregators are `fisseq_common.stages.aggregate`'s, shared with
+`fisseq-data-pipeline`: `mean`, `median`, `MAD`, `std`, `KS`, `signedKS`, `QQ`, `AUROC`,
+`KSnegLogP`, `AUROCnegLogP` (see [Shared stages](../common/stages.md#aggregators)). The
+defaults are the data pipeline's: `feature_select_types` is `mean`, `median`, `MAD`, `std`,
+`KS`, `QQ`, `AUROC`. The reference-based ones (`KS`, `QQ`, `AUROC`, the p-value pair) cost far
+more than the location statistics, which matters here because an embedding has many
+dimensions; `aggregate_feature_chunk_size` bounds their memory. The p-value aggregators
+(`-log10(p)`, no multiple-testing correction) are the intended occupants of
+`feature_select_passthrough_types`: a median-correlation reproducibility threshold is not a
+meaningful test for a p-value.
 
 ### 6. Configurable input channels and per-channel masking
 

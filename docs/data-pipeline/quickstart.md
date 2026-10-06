@@ -11,33 +11,30 @@ pipeline does).
 ## 1. Install
 
 ```bash
-git clone https://github.com/Lilferrit/fisseq-data-pipeline.git
-cd fisseq-data-pipeline
-uv sync --group dev
+git clone https://github.com/Lilferrit/fisseqmono.git
+cd fisseqmono
+uv sync
+cd packages/fisseq-data-pipeline
 ```
 
-Or, without cloning:
-
-```bash
-pip install git+https://github.com/Lilferrit/fisseq-data-pipeline.git
-```
-
-See [Installation](installation.md) for requirements and the pip-only path in
-more detail.
+The run commands below are run from `packages/fisseq-data-pipeline/`. The workflow includes
+the shared Nextflow modules from `packages/fisseq-common/nextflow/`, so it needs the whole
+workspace checkout. See [Installation](installation.md) for requirements and the pip-only
+path.
 
 ## 2. Get a `nextflow.config`
 
-The repo ships a `nextflow.config` at its root with default `params` and a set
+The package ships a `nextflow.config` with default `params` and a set
 of commented-out profile stubs (`venv`, `conda`, `singularity`, `sge`). You can
 either run with it as-is, or copy it and use it as a template for your own
 site.
 
-If you've already cloned the repo, you have it at `nextflow.config`. To fetch
-just the config file on its own — e.g. onto a cluster head node where you
-don't want a full clone — download it directly from GitHub:
+If you've already cloned the repo, you have it at
+`packages/fisseq-data-pipeline/nextflow.config`. To fetch just the config file on its own,
+download it directly from GitHub:
 
 ```bash
-wget https://raw.githubusercontent.com/Lilferrit/fisseq-data-pipeline/main/nextflow.config -O your.config
+wget https://raw.githubusercontent.com/Lilferrit/fisseqmono/main/packages/fisseq-data-pipeline/nextflow.config -O your.config
 ```
 
 ### Making your own profile
@@ -66,8 +63,8 @@ the same file. To add one:
 
 3. Rename the block to something specific to your site if you like (e.g.
    `my_sge`) and fill in your actual queue name, resource limits, and a
-   `beforeScript` that makes `fisseq_data_pipeline` importable on each compute
-   node — either activating a pre-built venv (recommended) or installing it
+   `beforeScript` that makes `fisseq_data_pipeline` and `fisseq_common[stages]` importable
+   on each compute node — either activating a pre-built venv (recommended) or installing it
    fresh on every run. See [Installation: Cluster / HPC](installation.md#cluster-hpc)
    for both `beforeScript` options in full.
 4. Pass your config and profile name at run time with `-c your.config -profile
@@ -75,16 +72,7 @@ the same file. To add one:
 
 ## 3. Run commands
 
-Run the full pipeline directly from GitHub, no local clone required:
-
-```bash
-nextflow run Lilferrit/fisseq-data-pipeline \
-    -c your.config \
-    -profile my_sge \
-    --pipeline_dir /path/to/experiment -params-file params.yaml
-```
-
-Or from a local clone:
+From `packages/fisseq-data-pipeline/` in your clone:
 
 ```bash
 nextflow run . -c your.config -profile my_sge --pipeline_dir /path/to/experiment -params-file params.yaml
@@ -107,17 +95,20 @@ See [Configuration: Parameters](configuration.md#parameter-reference) for every
 
 Every pipeline stage is also runnable on its own as a Python CLI, without
 Nextflow — useful for debugging or rerunning one step against different
-inputs. For example, aggregating cell-level features to one row per variant:
+inputs. Every stage after INPUT is a shared fisseq-common entry point; for example,
+one aggregation method over an experiment's normalized cells:
 
 ```bash
-uv run python -m fisseq_data_pipeline.aggregate \
+uv run python -m fisseq_common.stages.aggregate \
     output_dir=./out \
-    'input_file=data/batches/*.parquet' \
-    aggregator=KS
+    cells_file=out/qc_filter/batch1/filtered_cells.parquet \
+    filtered_keys_file=out/normalization/batch1/filtered_keys.parquet \
+    normalizer_file=out/normalization/batch1/normalizer.parquet \
+    aggregator=KS output_name=KS
 ```
 
-See the [CLI Reference](cli/aggregate.md) for every tool's config fields and
-example command.
+See [Shared stages](../common/stages.md) for every stage's config fields and an example
+command, and the [CLI Reference](cli/input.md) for this package's own entry points.
 
 ## 4. Example cluster launcher script
 
@@ -149,14 +140,15 @@ if [[ "${CLEAN:-false}" == "true" ]]; then
     RESUME_FLAG=""
 fi
 
-# Get the latest version in the python environment
-REPO_URL="https://github.com/Lilferrit/fisseq-data-pipeline.git"
-uv pip install --upgrade "git+${REPO_URL}"
+# Get the latest version of the workspace (the workflow needs fisseq-common's modules)
+REPO_DIR="${SCRIPT_DIR}/fisseqmono"
+if [[ ! -d "${REPO_DIR}" ]]; then
+    git clone https://github.com/Lilferrit/fisseqmono.git "${REPO_DIR}"
+fi
+git -C "${REPO_DIR}" pull --ff-only
+uv pip install --upgrade "${REPO_DIR}/packages/fisseq-data-pipeline"  # + fisseq-common[stages]
 
-# Get the latest workflow version
-nextflow pull Lilferrit/fisseq-data-pipeline -r main
-
-nextflow run Lilferrit/fisseq-data-pipeline \
+nextflow run "${REPO_DIR}/packages/fisseq-data-pipeline" \
     -c "${SCRIPT_DIR}/your.config" \
     -profile my_sge \
     -params-file "${SCRIPT_DIR}/params.yaml" \
@@ -180,5 +172,5 @@ instead — see
 - [Configuration](configuration.md) — every parameter and the `experiments:`
   schema.
 - [Architecture](architecture.md) — the full pipeline DAG and output layout.
-- [CLI Reference](cli/qcfilter.md) — config fields and examples for every
-  standalone Python tool.
+- [Shared stages](../common/stages.md) — config fields and examples for every
+  stage after INPUT.

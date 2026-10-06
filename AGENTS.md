@@ -20,7 +20,7 @@ Documentation for all four is one MkDocs site: `mkdocs.yml` and `docs/` at the r
 - The root is a virtual workspace (not a package). `uv sync` installs its dev group: all four
   packages plus pytest, ruff and pre-commit; `--group docs` adds MkDocs.
 - `fisseq-common`'s base install is polars, pyarrow, numpy. The heavy dependencies
-  (scikit-learn, xgboost, hydra, scipy, pycytominer) are its `stages` extra. The pipelines
+  (scikit-learn, xgboost, hydra, scipy) are its `stages` extra. The pipelines
   depend on `fisseq-common[stages]`, fisseqborn on plain `fisseq-common`; keep it that way —
   nothing in the base modules may import a `stages` dependency.
 - Every package lists `fisseq-common` by git URL pinned to the release tag, with
@@ -31,16 +31,27 @@ Documentation for all four is one MkDocs site: `mkdocs.yml` and `docs/` at the r
 
 - `schema`, `variant`, `normalizer`, `layout` (where each pipeline publishes its
   per-experiment outputs), `global_aggregation` (cross-experiment methods), `utils/`.
-- `stages/`: every stage both pipelines run. A pipeline's `python -m fisseq_<pipeline>.<stage>`
-  module is a thin Hydra entry point: its config subclasses the shared one to set the
-  pipeline's defaults (module paths, ConfigStore names and config keys never change).
-  Differences between the pipelines are explicit parameters, each set by the pipeline's
-  wrapper — see `docs/common/index.md` for the table.
-- Nextflow: the processes both pipelines run have one copy each,
-  `nextflow/modules/local/<stage>/main.nf`. A module carries only what both pipelines pass
-  alike; each pipeline's `conf/modules.config` sets `ext.entry`, `ext.args` and `publishDir`.
-  Publish paths must match `fisseq_common.layout` (each pipeline's
+- `stages/`: every stage both pipelines run, whole: the algorithm, the Hydra config and the
+  entry point `python -m fisseq_common.stages.<stage>` (`stage_main` in `stages/config.py`):
+  `qcfilter`, `filter`, `ovwt`, `aggregate`, `generatesplit`, `correlatefeatures`,
+  `blocklist`, `combineblocklists`, `finalize`. The pipelines have no wrapper modules.
+  Differences between the pipelines are config fields (`join_keys`, `feature_selector`, QC
+  column names, ...) set in each pipeline's `conf/modules.config` — see
+  `docs/common/index.md` for the table and `docs/common/stages.md` for each stage.
+- A cell is identified by the pipeline's `join_keys`; rows are sorted and split on
+  `row_keys(join_keys)` (plus `meta_variant_tag`, so a QC pseudo-variant row stays distinct
+  from its source cell). Stages take `meta_*` columns from QC_FILTER's side and features from
+  the cell table.
+- Nextflow: the processes of the shared stages have one copy each,
+  `packages/fisseq-common/nextflow/modules/local/<stage>/main.nf` (+ `functions.nf`;
+  modules only, no workflow). Each module hardcodes its entry point and carries what both
+  pipelines pass alike; each pipeline's `conf/modules.config` sets only `ext.args`, `ext.seed`
+  and `publishDir`. Publish paths must match `fisseq_common.layout` (each pipeline's
   `tests/unit/test_publish_layout.py` checks).
+- Downstream of their own cell tables the two pipelines run the same graph, process names,
+  parameters, controls (wildtype) and publish layout; only the cell table differs
+  (CellProfiler features vs. Cell-DINO embeddings, plus the embeddings pipeline's CellProfiler
+  track).
 - Cross-experiment aggregation is fisseqborn's job (`fisseqborn-global`, on
   `fisseq_common.global_aggregation`); the pipelines write per-experiment outputs only.
 
@@ -61,23 +72,23 @@ uv run pytest tests                                          # cross-package (ne
     published parquet with `tests/reference/<scenario>/`. **Output changes must be
     deliberate**: a commit that changes a pipeline's outputs regenerates the references
     (`uv run python tests/reference/capture.py <scenario>`) and adds a report to
-    `docs/diff-reports/`. The embeddings pipeline's per-experiment outputs must not change in
-    a refactor.
-  - `test_global_parity.py` checks fisseqborn's cross-experiment aggregation against the
-    outputs of the embeddings pipeline's former global stages (`tests/reference/*/global/`,
-    which `capture.py` keeps).
-  - `test_layout_load.py`: both pipelines' outputs are where `layout` says and load in
-    fisseqborn.
-  - `test_release.py`.
+    `docs/diff-reports/`. A pipeline's outputs change only in a commit that changes them
+    deliberately, with a report.
+  - `test_layout_load.py`: both pipelines' outputs are where `layout` says, load in
+    fisseqborn and go through `fisseqborn.write_global`.
+  - `test_release.py`, `test_workspace.py`.
 
 ## CI (`.github/workflows/`)
 
 - `pkg-<package>.yml` (via `_package.yml`): that package's suite, alone, when the package or
-  `fisseq-common` changes (plus `nextflow/` for the pipelines).
-- `root.yml`: lint, `uv lock --check`, Nextflow lint, root tests — every change.
-- `docker.yml`: both pipeline images, from the root context
+  `fisseq-common` (which holds the shared Nextflow modules) changes.
+- `root.yml`: lint, `uv lock --check`, Nextflow lint (`packages/fisseq-common/nextflow` and the
+  pipelines), root tests — every change.
+- `docker-<pipeline>.yml` (via `_docker.yml`): one pipeline image, from the root context
   (`docker build -f packages/<pipeline>/Dockerfile .`), pushed to `ghcr.io/<owner>/<pipeline>`
-  from `main` and `v*` tags.
+  from `main` and `v*` tags. Its `paths` filter lists exactly the files the Dockerfile copies
+  (Nextflow files, tests and docs never reach an image; keep the filter in step when a
+  Dockerfile changes). Tag pushes always build.
 - `docs.yml`: strict build on PRs, gh-pages deploy from `main`.
 
 ## Releases

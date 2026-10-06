@@ -50,7 +50,8 @@ seven `meta_*` columns `QC_FILTER` sees (`CELL_METADATA_SCHEMA`), then
 `emb_0000`..`emb_{D-1}` (`D` = the loaded
 checkpoint's actual embed dim -- e.g. 1024 for ViT-L/16, 384 for
 ViT-S/8). Column-naming convention: zero-padded `emb_%04d`, matched
-downstream by `EMBEDDING_SELECTOR = cs.matches(r"^emb_\d+$")`.
+downstream by `EMBEDDING_SELECTOR = cs.matches(r"^emb_\d+$")` (the shared stages'
+`feature_selector=embeddings`).
 
 ## Example
 

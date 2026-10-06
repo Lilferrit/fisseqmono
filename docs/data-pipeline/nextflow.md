@@ -2,6 +2,10 @@
 
 ## Running
 
+Run from `packages/fisseq-data-pipeline/` in a checkout of the workspace (`nextflow run .`), or
+pass that directory instead of `.`: the workflow includes the shared modules from
+`packages/fisseq-common/nextflow/`, so it needs the whole repository, not just this package.
+
 ```bash
 # Local, no container
 nextflow run . --pipeline_dir /path/to/experiment -params-file params.yaml -profile local
@@ -23,9 +27,9 @@ parameter. See [Configuration](configuration.md).
 | ---- | ---- |
 | `main.nf` | Entry point. Includes and calls one workflow. |
 | `workflows/fisseq.nf` | The DAG, plus `experiments:` validation and channel wiring. |
-| `modules/local/*.nf` | This pipeline's own processes (INPUT, FINALIZE_FEATURE_SELECT). |
-| `../../nextflow/modules/local/<stage>/main.nf` | The processes shared with the embeddings pipeline (see [Shared modules](#shared-modules)). |
-| `conf/modules.config` | This pipeline's entry point, args and `publishDir` for each shared process. |
+| `modules/local/input.nf` | This pipeline's own process, INPUT. |
+| `../fisseq-common/nextflow/modules/local/<stage>/main.nf` | The processes shared with the embeddings pipeline (see [Shared modules](#shared-modules)). |
+| `conf/modules.config` | This pipeline's `ext.args`, `ext.seed` and `publishDir` for each shared process. |
 | `params.yaml` | Every parameter default. |
 | `nextflow.config` | Executor, profile and container settings only. |
 | `Dockerfile` | The single image every process runs in. |
@@ -38,41 +42,53 @@ parameter. See [Configuration](configuration.md).
 | `QC_FILTER` | per experiment | always |
 | `NORMALIZE` | per experiment | always |
 | `OVWT_BATCHWISE` | per experiment | `run_ovwt` |
-| `AGGREGATE_FEATURE_TYPE` | per experiment × feature type (selected and passthrough) | `run_feature_selection` |
-| `GENERATE_SPLIT` | per experiment × bootstrap | `run_feature_selection` |
-| `AGGREGATE_HALF` | per experiment × bootstrap × half × feature type | `run_feature_selection` |
-| `CORRELATE_FEATURES` | per experiment × bootstrap × feature type | `run_feature_selection` |
-| `BLOCKLIST` | per experiment × feature type | `run_feature_selection` |
-| `COMBINE_BLOCKLISTS` | per experiment | `run_feature_selection` |
-| `FINALIZE_FEATURE_SELECT` | per experiment | `run_feature_selection` |
+| `AGGREGATE_FEATURE_TYPE_BATCHWISE` | per experiment × feature type | `run_feature_selection` |
+| `AGGREGATE_FEATURE_TYPE_PASSTHROUGH` | per experiment × passthrough type | `run_feature_selection` |
+| `GENERATE_SPLIT_BATCHWISE` | per experiment × bootstrap | `run_feature_selection` |
+| `AGGREGATE_HALF_BATCHWISE` | per experiment × bootstrap × half × feature type | `run_feature_selection` |
+| `CORRELATE_FEATURES_BATCHWISE` | per experiment × bootstrap × feature type | `run_feature_selection` |
+| `BLOCKLIST_BATCHWISE` | per experiment × feature type | `run_feature_selection` |
+| `COMBINE_BLOCKLISTS_BATCHWISE` | per experiment | `run_feature_selection` |
+| `FINALIZE_FEATURE_SELECT_BATCHWISE` | per experiment | `run_feature_selection` |
 
-`BLOCKLIST`'s `groupTuple` — gathering every bootstrap replicate for one feature
+Every process but INPUT runs a [shared stage](../common/stages.md). The three
+`AGGREGATE_*` processes are one shared module, `AGGREGATE`, included three times.
+
+`BLOCKLIST_BATCHWISE`'s `groupTuple` — gathering every bootstrap replicate for one feature
 type before computing a median-`r` threshold — is the pipeline's only
 cross-bootstrap synchronization point. Everything else in the
 split/aggregate/correlate chain is fully parallel.
 
 Every process runs per experiment; there is no cross-experiment stage. Combining
 experiments is done downstream by
-[fisseqborn](https://github.com/FowlerLab/fisseqborn) from the published
+[fisseqborn](../fisseqborn/index.md) from the published
 per-experiment outputs (see
 [Architecture](architecture.md#cross-experiment-aggregation)).
 
 ## Shared modules
 
-The processes both pipelines run have one copy, at the repository root:
-`nextflow/modules/local/<stage>/main.nf` (QC_FILTER, FILTER, OVWT_BATCHWISE,
-GENERATE_SPLIT, AGGREGATE_HALF, CORRELATE_FEATURES, BLOCKLIST, COMBINE_BLOCKLISTS), plus
-`nextflow/modules/local/functions.nf` (`threadEnv`, `hydraList`). A module carries only what
-both pipelines pass the same way; this pipeline's `conf/modules.config` sets, per process:
+Every process but INPUT is one of fisseq-common's
+[shared Nextflow modules](../common/nextflow.md),
+`packages/fisseq-common/nextflow/modules/local/<stage>/main.nf`. A module hardcodes its entry
+point (`python -m fisseq_common.stages.<stage>`) and carries everything both pipelines pass
+alike. This pipeline's `conf/modules.config` sets, per process name, only:
 
-- `ext.entry`: the `python -m` module the process runs (this pipeline's wrapper);
-- `ext.cells_key` / `ext.split_key` / `ext.args`: the config keys its inputs bind to and
-  pipeline-specific overrides (a closure, so it can use the task's inputs);
-- `publishDir`: where its outputs go under `pipeline_dir`.
+- `ext.args`: this pipeline's config fields — QC_FILTER's raw starcall column names
+  (`upBarcode`, `aaChanges`, `editDistance`), `sort_output_by=[meta_cell_index,meta_variant_tag]`
+  and `assign_cell_index=true`; NORMALIZE's `batch_name`; the aggregate processes'
+  `downsample_wt` and `normalize_to_synonymous`; BLOCKLIST's `minimum_correlation`. The
+  stages' default `join_keys` and `feature_selector` are this pipeline's.
+- `ext.seed`: `AGGREGATE_HALF_BATCHWISE`'s `random_seed + rep * 2 + half`.
+- `publishDir`: where its outputs go under `pipeline_dir`, matching
+  `fisseq_common.layout.DataPipelineLayout` (`tests/unit/test_publish_layout.py` checks).
 
-Where this pipeline runs one shared process under several names, the workflow includes it
-with an alias (`include { FILTER as NORMALIZE }`); the process names, and so every
-`withName` selector, are unchanged.
+Where this pipeline runs one shared process under another name, the workflow includes it
+with an alias:
+
+```groovy
+include { FILTER    as NORMALIZE                        } from '../../fisseq-common/nextflow/modules/local/filter/main'
+include { AGGREGATE as AGGREGATE_HALF_BATCHWISE         } from '../../fisseq-common/nextflow/modules/local/aggregate/main'
+```
 
 ## Module conventions
 
@@ -87,7 +103,8 @@ Every process declares:
 - `publishDir` under `params.pipeline_dir` (set in `conf/modules.config` for the shared modules)
 - `when: task.ext.when == null || task.ext.when` — lets a config disable a
   process without editing the workflow
-- a script block whose last argument is `random_seed=${params.random_seed}`
+- a script block whose last argument is `random_seed=${params.random_seed}` (the shared
+  modules; AGGREGATE passes `ext.seed` instead when it is set)
 - a named `emit:`
 
 Pipeline-wide scalars are read directly off `params.*` inside the process
@@ -102,20 +119,20 @@ A few conventions in `workflows/fisseq.nf` worth knowing before editing it.
 
 **Filter channels, don't `if`.** Optional fan-out is expressed as an empty
 channel rather than a conditional. `channel.fromList(params.feature_select_passthrough_types)`
-is empty under the default `[]`, so the passthrough `AGGREGATE_FEATURE_TYPE`
+is empty under the default `[]`, so `AGGREGATE_FEATURE_TYPE_PASSTHROUGH`
 simply runs zero tasks — no explicit gate needed. (The pipeline-wide run gates
 `run_ovwt` / `run_feature_selection` are the exception: they wrap whole
 subgraphs in an `if`.)
 
 **A `.join()` whose right side may be empty needs `remainder: true`.** The
 finalize stage joins the passthrough aggregates; with the default empty
-passthrough list, a plain `.join()` emits nothing and `FINALIZE_FEATURE_SELECT`
+passthrough list, a plain `.join()` emits nothing and `FINALIZE_FEATURE_SELECT_BATCHWISE`
 never runs for any experiment, silently.
 
 **`.join()` is not a broadcast operator.** For a many-to-one key relationship it
 silently keeps one match per key and drops the rest, starving every downstream
 stage. Use `.combine(other, by: 0)` to broadcast one per-experiment value across
-a fan-out (as `AGGREGATE_HALF`'s input does), and reserve `.join()` for cases
+a fan-out (as `AGGREGATE_HALF_BATCHWISE`'s input does), and reserve `.join()` for cases
 where both sides are already collapsed to exactly one item per key (as the
 finalize-stage joins are).
 
@@ -134,11 +151,12 @@ variable binding.)
 ## Linting
 
 ```bash
-nextflow lint .
+nextflow lint . ../fisseq-common/nextflow
 ```
 
-Not run in CI or pre-commit. Run it after any change to `workflows/*.nf`,
-`modules/local/*.nf`, `../../nextflow/modules/local`, `conf/modules.config` or `nextflow.config`.
+CI runs it (`root.yml`) over both pipelines' `workflows/`, `modules/` and `conf/` and
+`packages/fisseq-common/nextflow`. Run it after any change to `workflows/*.nf`,
+`modules/local/*.nf`, the shared modules, `conf/modules.config` or `nextflow.config`.
 
 Note that DSL2 forbids bare statements at script scope: a top-level helper must
 be a `def someFunction() { ... }`, not a `def x = { ... }` closure binding.

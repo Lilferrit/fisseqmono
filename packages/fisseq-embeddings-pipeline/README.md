@@ -3,9 +3,10 @@
 A Nextflow + Python workflow for scoring genetic variants against learned
 **Cell-DINO** embeddings from FISSEQ (Fluorescence In-Situ Sequencing)
 experiments -- the embedding-space sibling of
-[`fisseq-data-pipeline`](https://github.com/Lilferrit/fisseq-data-pipeline),
+[`fisseq-data-pipeline`](../fisseq-data-pipeline),
 which does the same analysis on hand-engineered CellProfiler features
-instead.
+instead. Downstream of the embeddings, both pipelines run the same stages, from
+`fisseq-common`.
 
 ## Overview
 
@@ -15,11 +16,10 @@ variant's cell population differs from wildtype (WT) controls in that
 learned embedding space, per experiment:
 
 ```text
-Cell Info Table + Cell Images (starcall-workflow)
-    -> Cell Dataset (WebDataset) -> Cell Embeddings (Cell-DINO)
-    -> Filter Embeddings (QC-passed + synonymous-corrected)
-    -> Aggregation (+ reproducibility filtering) -> Experiment Aggregates
-    -> OVWT Distinguish-ability Scores -> Experiment Scores
+starcall-workflow -> Cell Images (per-tile WebDataset shards) -> Cell Embeddings (Cell-DINO)
+    -> QC_FILTER -> NORMALIZE (z-scored against wildtype)
+    -> OVWT_BATCHWISE                  -> per-variant distinguishability scores
+    -> bootstrap feature selection     -> per-method aggregates, blocklist, output.parquet
 ```
 
 Pooling across experiments (Global Variant Embeddings, global distinguish-ability scores) is
@@ -34,9 +34,9 @@ usage, Nextflow orchestration, running on a cluster, output layout).
 Install the environment ([uv](https://docs.astral.sh/uv/)-managed):
 
 ```bash
-git clone https://github.com/Lilferrit/fisseq-embeddings-pipeline.git
-cd fisseq-embeddings-pipeline
-uv sync --group dev
+git clone https://github.com/Lilferrit/fisseqmono.git
+cd fisseqmono
+uv sync
 ```
 
 Run the full pipeline end to end with
@@ -44,6 +44,7 @@ Run the full pipeline end to end with
 `uv sync`):
 
 ```bash
+cd packages/fisseq-embeddings-pipeline
 nextflow run . -params-file params.yaml \
     --pipeline_dir /path/to/experiment \
     --cell_dino_checkpoint /path/to/checkpoint.pth
@@ -61,8 +62,8 @@ and [Quickstart](https://lilferrit.github.io/fisseqmono/embeddings-pipeline/quic
 for the full walkthrough, including how to lay out an experiment's inputs
 and where to get a Cell-DINO checkpoint.
 
-A `.devcontainer/` definition (matching `fisseq-data-pipeline`'s) is
-included for developing with Claude Code in an isolated sandbox.
+The workspace's `.devcontainer/` definition is for developing with Claude Code in an
+isolated sandbox.
 
 ## Documentation
 

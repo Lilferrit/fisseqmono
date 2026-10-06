@@ -24,21 +24,34 @@ params.yaml (experiments: [...])
       │            k-fold CV one-vs-wildtype scoring
       │
       └──► Feature selection, batchwise (gated by run_feature_selection):
-             AGGREGATE_FEATURE_TYPE      (per feature type;           ─┐
-                                          synonymous z-score)         │
-             GENERATE_SPLIT              (per bootstrap replicate)    │
-               └─► AGGREGATE_HALF        (per bootstrap × type × half)│
-                     └─► CORRELATE_FEATURES  (per bootstrap × type)   │
-                           └─► BLOCKLIST     (gathers all bootstraps — │
-                                              the one sync point)      │
-                                 └─► COMBINE_BLOCKLISTS (all types) ──┘
-                                       └─► FINALIZE_FEATURE_SELECT
+             AGGREGATE_FEATURE_TYPE_BATCHWISE   (per feature type;     ─┐
+                                                 synonymous z-score)    │
+             AGGREGATE_FEATURE_TYPE_PASSTHROUGH (per passthrough type; │
+                                                 raw)                   │
+             GENERATE_SPLIT_BATCHWISE           (per bootstrap)         │
+               └─► AGGREGATE_HALF_BATCHWISE     (per bootstrap × type × │
+                                                 half)                  │
+                     └─► CORRELATE_FEATURES_BATCHWISE (per bootstrap ×  │
+                                                       type)            │
+                           └─► BLOCKLIST_BATCHWISE (gathers all         │
+                                                    bootstraps — the    │
+                                                    one sync point)     │
+                                 └─► COMBINE_BLOCKLISTS_BATCHWISE ─────┘
+                                       └─► FINALIZE_FEATURE_SELECT_BATCHWISE
 ```
 
 There is a single pipeline mode. `main.nf` includes one workflow,
 `workflows/fisseq.nf`, and runs it. Every stage runs per experiment; nothing in
 the pipeline combines experiments (see
 [Cross-experiment aggregation](#cross-experiment-aggregation)).
+
+Only INPUT is this pipeline's own. Every stage after it is a
+[shared stage](../common/stages.md), `python -m fisseq_common.stages.<stage>`, run from the
+[shared Nextflow modules](../common/nextflow.md) in
+`packages/fisseq-common/nextflow/modules/local/`. The embeddings pipeline runs the same
+stages, with the same process names, parameters and publish layout, downstream of its own
+cell tables. What this pipeline sets for them (`conf/modules.config`) is listed under each
+stage's "What each pipeline sets".
 
 ## Experiments
 
@@ -55,7 +68,7 @@ The pipeline stops at per-experiment outputs. Combining experiments — merging
 blocklists across experiments, z-scoring each experiment's per-variant profiles
 and taking the per-variant median across experiments, and re-centering OvWT
 AUROCs against synonymous variants before a cross-experiment median — is the job
-of the downstream [fisseqborn](https://github.com/FowlerLab/fisseqborn) package.
+of the downstream [fisseqborn](../fisseqborn/index.md) package (`fisseqborn-global`).
 It reads each experiment's published
 `feature_select_batchwise/<batch_stem>/{aggregates,passthrough_aggregates,blocklists}/<feature_type>.parquet`
 and `ovwt_batchwise/<batch_stem>/results.parquet`.
@@ -68,15 +81,17 @@ and their wildtype subsampling, OvWT's fold shuffle / inner calibration split /
 XGBoost `seed`.
 
 Stages that must differ from one another derive a fixed offset rather than
-owning a seed — `GENERATE_SPLIT` uses `random_seed + bootstrap_idx`, and
-`AGGREGATE_HALF` uses `random_seed + bootstrap_idx * 2 + half_num`, so bootstrap
+owning a seed — `GENERATE_SPLIT_BATCHWISE` uses `random_seed + bootstrap_idx`, and
+`AGGREGATE_HALF_BATCHWISE` uses `random_seed + bootstrap_idx * 2 + half_num`, so bootstrap
 replicates still draw independent subsamples. `tests/unit/test_config.py` sweeps
 every config class to keep a second seed from reappearing.
 
 Reproducibility also depends on **row order** being stable, which is easy to
 lose: polars inner joins are not order-preserving under multithreaded execution.
 `QC_FILTER` therefore assigns `meta_cell_index` over the raw input order and
-sorts on it before publishing. Without that, the same input yields the same rows
+sorts on `(meta_cell_index, meta_variant_tag)` before publishing; every later stage sorts its
+rebuilt cell table the same way (see
+[Cell identity](../common/stages.md#cell-identity-and-the-normalized-cell-table)). Without that, the same input yields the same rows
 in a different order on every run, and every seeded step downstream silently
 diverges despite a fixed seed.
 
@@ -87,33 +102,33 @@ These are easy to confuse:
 | Stage | Control population |
 | ----- | ------------------ |
 | `NORMALIZE` (cell level) | **Wildtype** cells (`meta_aa_changes = 'WT'`) |
-| `AGGREGATE_FEATURE_TYPE` (aggregate level, `normalize_to_synonymous`) | **Synonymous** variants |
-| `FINALIZE_FEATURE_SELECT` (aggregate level) | **Synonymous** variants |
+| `AGGREGATE_FEATURE_TYPE_BATCHWISE` (aggregate level, `normalize_to_synonymous`) | **Synonymous** variants |
+| `FINALIZE_FEATURE_SELECT_BATCHWISE` (aggregate level) | **Synonymous** variants |
 
-`aggregate.variant_classification` flags synonymous, untagged labels as
-`meta_is_control = True`; `normalize.py` uses the WT SQL query instead. Both
-synonymous-baseline normalizations fit a `ddof=1` std, so each experiment needs
+`fisseq_common.stages.filter.variant_classification` flags synonymous, untagged labels as
+`meta_is_control = True`; NORMALIZE uses the WT SQL predicate (its `control` field) instead.
+Both synonymous-baseline normalizations fit a `ddof=1` std, so each experiment needs
 at least two synonymous variants — with one, every feature comes out null.
 
-Note that `OVWT_BATCHWISE` consumes `NORMALIZE`'s wildtype-normalized output.
-The sibling `fisseq-embeddings-pipeline`, from which the OvWT implementation was
-ported, z-scores its features against synonymous variants before training
-instead. The difference is deliberate: the synonymous re-centering happens at
-the score level, on the AUROCs, downstream in fisseqborn.
+`OVWT_BATCHWISE` consumes the wildtype-normalized cells. The synonymous re-centering happens
+at the score level, on the AUROCs, downstream in fisseqborn. The embeddings pipeline uses the
+same controls.
 
 ## Variant tags
 
 `aaChanges` values may carry a `:<tag>` suffix (e.g. `V123A:downsampled-half`).
-The tag is stripped exactly once, in `qcfilter.py:filter_columns`:
+The tag is stripped exactly once, in `fisseq_common.stages.qcfilter.filter_columns`:
 `meta_aa_changes` is always the tag-stripped base label and `meta_variant_tag`
 holds the tag (`null` when absent). Every stage after `QC_FILTER` therefore sees
 clean, pooled variant labels. Do not re-strip or re-parse tags downstream — use
 `meta_variant_tag` directly.
 
 Two independent things can put a tag there: upstream raw data may arrive
-pre-tagged, or `qcfilter.py`'s optional pseudo-variant downsampling
+pre-tagged, or QC_FILTER's optional pseudo-variant downsampling
 (`qc_downsample_amounts`) may generate one (`downsample-{amount}`) for the rows
-it creates.
+it creates. A pseudo-variant row is a copy of its source cell with the same
+`meta_cell_index` but its own `meta_variant_tag`, so a cell is identified by
+`(meta_cell_index, meta_variant_tag)`: that is what every stage joins, sorts and splits on.
 
 ## Output layout
 
@@ -138,12 +153,15 @@ it creates.
     aggregates/<feature_type>.parquet              # z-scored to synonymous variants
     passthrough_aggregates/<feature_type>.parquet  # raw scale (passthrough types)
     splits/bootstrap_<n>/half{1,2}.parquet
-    half_aggregates/bootstrap_<n>/<feature_type>/half{1,2}.parquet
+    half_aggregates/bootstrap_<n>/<feature_type>/half{1,2}_agg.parquet
     correlations/<feature_type>/bootstrap_<n>.parquet
     blocklists/<feature_type>.parquet
     blocklist.parquet
     output.parquet
 ```
+
+The layout is `fisseq_common.layout.DataPipelineLayout`; `tests/unit/test_publish_layout.py`
+checks `conf/modules.config`'s `publishDir` settings against it.
 
 ## Column naming
 
@@ -158,11 +176,15 @@ The `meta_` prefix is load-bearing: `FEATURE_SELECTOR` is defined as
 
 ## Components
 
-- `src/fisseq_data_pipeline/` — Python package, one module per pipeline step,
-  each a Hydra entry point run as `python -m fisseq_data_pipeline.<module>`
-- `modules/local/*.nf` and the repository root's `nextflow/modules/local/` (shared with the
-  embeddings pipeline, configured by `conf/modules.config`) — Nextflow process wrappers
-  around those CLIs
+- `src/fisseq_data_pipeline/` — Python package: `input` (INPUT), the standalone
+  `aggregate` entry point and `config`. The other stages are
+  `fisseq_common.stages.<stage>` (fisseq-common's `stages` extra).
+- `modules/local/input.nf` — this pipeline's own process (INPUT)
+- `packages/fisseq-common/nextflow/modules/local/<stage>/main.nf` — the shared processes,
+  included by `workflows/fisseq.nf` by relative path
+  (`../../fisseq-common/nextflow/modules/local/<stage>/main`)
+- `conf/modules.config` — this pipeline's `ext.args`, `ext.seed` and `publishDir` for each
+  shared process
 - `workflows/fisseq.nf` — the DAG
 - `main.nf` — entry point
 - `params.yaml` — every parameter default

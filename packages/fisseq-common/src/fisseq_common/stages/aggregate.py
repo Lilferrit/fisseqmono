@@ -24,23 +24,32 @@ with per-variant metadata), and :func:`aggregate_cells` is the per-method stage 
 run for a full experiment or one pseudo-replicate half: optional split selection, optional
 control downsampling (:func:`downsample_control`), aggregation, and an optional z-score of the
 result against the synonymous variants (:func:`zscore_to_synonymous`).
+
+Entry point: ``python -m fisseq_common.stages.aggregate`` (:class:`AggregateConfig`), the
+Nextflow processes ``AGGREGATE_FEATURE_TYPE`` (every cell, z-scored against the synonymous
+variants), ``AGGREGATE_HALF`` (one bootstrap half, raw) and ``AGGREGATE_PASSTHROUGH`` (every
+cell, raw).
 """
 
 import abc
+import dataclasses
 import logging
 import math
+import pathlib
 from collections import Counter
 from typing import ClassVar, Optional, Sequence, Union
 
 import numpy as np
 import polars as pl
+from omegaconf import MISSING
 
 from fisseq_common.normalizer import Normalizer
 from fisseq_common.schema import CONTROL_COLUMN, CONTROL_COLUMN_NAME, FEATURE_SELECTOR
 from fisseq_common.utils.metadata import get_aggregate_meta_data
 from fisseq_common.utils.splits import filter_by_split_file
 
-from .filter import variant_classification
+from .config import AppConfig, CellsInput, feature_selector, row_keys, stage_main
+from .filter import load_cells, variant_classification
 
 #: Number of feature columns aggregated per Polars query when no explicit
 #: ``feature_chunk_size`` is given. Aggregating every feature in one query is
@@ -1181,7 +1190,6 @@ def aggregate_methods(
     feature_selector: pl.Expr = FEATURE_SELECTOR,
     feature_chunk_size: Optional[int] = DEFAULT_FEATURE_CHUNK_SIZE,
     include_metadata: bool = True,
-    bare_median: bool = True,
 ) -> pl.DataFrame:
     """
     Aggregate normalized cells per variant via one or more methods.
@@ -1224,23 +1232,12 @@ def aggregate_methods(
         those feed a per-column correlation or a join and would otherwise
         each carry a redundant (and, for the halves, *wrong*) copy of the
         per-variant cell counts.
-    bare_median : bool
-        Whether the exact selection ``("median",)`` strips its ``_median``
-        suffix, leaving bare feature columns. ``True`` (the
-        default) is AGGREGATE_EMBEDDINGS' long-standing behaviour. Pass the
-        run's own setting through from AGGREGATE_HALF/AGGREGATE_PASSTHROUGH
-        so a single-method job's column names match whatever the run's full
-        ``aggregate_methods`` produced -- the blocklist keys features by
-        column name, so the two must agree exactly.
 
     Returns
     -------
     pl.DataFrame
-        One row per non-control variant group, sorted by ``label_column``.
-        If ``aggregators`` is
-        exactly ``("median",)``, embedding columns are bare
-        feature columns; otherwise each is suffixed by its
-        aggregator's ``_stat_suffix`` (e.g. ``f_mean``, ``f_KS``).
+        One row per non-control variant group, sorted by ``label_column``. Each feature
+        column is suffixed by its aggregator's ``_stat_suffix`` (e.g. ``f_mean``, ``f_KS``).
 
     Raises
     ------
@@ -1276,12 +1273,6 @@ def aggregate_methods(
             if result_lf is None
             else result_lf.join(agg_lf, on=label_column, how="inner")
         )
-
-    if bare_median and aggregators == ("median",):
-        suffix = MedianAggregator._stat_suffix
-        schema_names = result_lf.collect_schema().names()
-        rename_map = {c: c[: -len(suffix)] for c in schema_names if c.endswith(suffix)}
-        result_lf = result_lf.rename(rename_map)
 
     # Sorted, not merely collected. Each aggregator's own output is already
     # sorted (BaseAggregator.aggregate), but a join is not order-preserving
@@ -1326,7 +1317,6 @@ def aggregate_cells(
     downsample_controls: Optional[Union[float, int]] = None,
     seed: int = 0,
     normalize_to_synonymous: bool = False,
-    bare_median: bool = False,
 ) -> pl.DataFrame:
     """
     Aggregate one method over an experiment's cells, or over one pseudo-replicate half.
@@ -1340,7 +1330,7 @@ def aggregate_cells(
     aggregator : str
         A key of :data:`_AGGREGATORS`.
     join_keys : sequence of str
-        The pipeline's cell identity, used to apply ``split_file``.
+        The columns a split file names a row by (:func:`~.config.row_keys`).
     split_file : str, optional
         A GENERATE_SPLIT half; ``None`` aggregates every cell.
     feature_selector : pl.Expr
@@ -1354,8 +1344,6 @@ def aggregate_cells(
         Seed for ``downsample_controls``.
     normalize_to_synonymous : bool
         Z-score the result against the synonymous variants (:func:`zscore_to_synonymous`).
-    bare_median : bool
-        Whether a ``median`` job writes bare feature names instead of ``<f>_median``.
 
     Returns
     -------
@@ -1386,9 +1374,73 @@ def aggregate_cells(
         feature_selector=feature_selector,
         feature_chunk_size=feature_chunk_size,
         include_metadata=False,
-        bare_median=bare_median,
     )
     if normalize_to_synonymous:
         logging.info("Z-scoring aggregates against synonymous variants")
         agg_df = zscore_to_synonymous(agg_df.lazy(), label_column).collect()
     return agg_df
+
+
+@dataclasses.dataclass
+class AggregateConfig(CellsInput, AppConfig):
+    """
+    The aggregation stage's configuration: one method over the normalized cells
+    (:class:`~.config.CellsInput`), or over one GENERATE_SPLIT half.
+
+    Attributes
+    ----------
+    label_column : str
+        Variant label column. Defaults to ``"meta_aa_changes"``.
+    aggregator : str
+        A key of :data:`_AGGREGATORS`. Required.
+    split_file : str, optional
+        A GENERATE_SPLIT half; ``None`` aggregates every cell. Defaults to ``None``.
+    downsample_wt : float or int, optional
+        Downsample the control (wildtype) rows first (:func:`downsample_control`), seeded with
+        ``random_seed``. AGGREGATE_HALF passes ``random_seed + bootstrap_idx * 2 + half_num``,
+        so every half of every replicate draws its own subsample. ``None`` keeps them all.
+    feature_chunk_size : int or None
+        See :data:`DEFAULT_FEATURE_CHUNK_SIZE`.
+    normalize_to_synonymous : bool
+        Z-score the result against the synonymous variants (:func:`zscore_to_synonymous`); needs
+        at least two synonymous variants. Defaults to ``False``.
+    output_name : str
+        The output is ``{output_name}.parquet`` (``{output_root}.``-prefixed when that is set).
+        Defaults to ``"aggregate"``.
+    """
+
+    label_column: str = "meta_aa_changes"
+    aggregator: str = MISSING
+    split_file: Optional[str] = None
+    downsample_wt: Optional[Union[float, int]] = None
+    feature_chunk_size: Optional[int] = DEFAULT_FEATURE_CHUNK_SIZE
+    normalize_to_synonymous: bool = False
+    output_name: str = "aggregate"
+
+
+def run_aggregate(cfg: AggregateConfig) -> None:
+    """Aggregate the cells ``cfg`` names with :func:`aggregate_cells` and write the lean
+    ``[label_column] + <stat columns>`` table."""
+    agg_df = aggregate_cells(
+        load_cells(cfg),
+        cfg.label_column,
+        cfg.aggregator,
+        join_keys=row_keys(cfg.join_keys),
+        split_file=cfg.split_file,
+        feature_selector=feature_selector(cfg.feature_selector),
+        feature_chunk_size=cfg.feature_chunk_size,
+        downsample_controls=cfg.downsample_wt,
+        seed=cfg.random_seed,
+        normalize_to_synonymous=cfg.normalize_to_synonymous,
+    )
+    prefix = f"{cfg.output_root}." if cfg.output_root is not None else ""
+    out_path = pathlib.Path(cfg.output_dir) / f"{prefix}{cfg.output_name}.parquet"
+    logging.info("Writing %s (%d row(s))", out_path, agg_df.height)
+    agg_df.write_parquet(out_path)
+    logging.info("Done")
+
+
+main = stage_main("aggregate_main", AggregateConfig, run_aggregate)
+
+if __name__ == "__main__":
+    main()

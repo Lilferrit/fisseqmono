@@ -21,20 +21,20 @@ nextflow.enable.dsl = 2
 // pipeline-wide defaults when omitted. Every other parameter -- including
 // every run gate and the single params.random_seed -- is pipeline-wide.
 
-// Shared modules (one copy for both pipelines) live in the repo's nextflow/ directory; this
-// pipeline's per-process settings for them are in conf/modules.config.
+// Shared modules (one copy for both pipelines) live in fisseq-common's nextflow/ directory;
+// this pipeline's per-process settings for them are in conf/modules.config.
 include { INPUT                  } from '../modules/local/input'
-include { QC_FILTER              } from '../../../nextflow/modules/local/qc_filter/main'
-include { FILTER as NORMALIZE    } from '../../../nextflow/modules/local/filter/main'
-include { OVWT_BATCHWISE         } from '../../../nextflow/modules/local/ovwt_batchwise/main'
-include { AGGREGATE_HALF          as AGGREGATE_FEATURE_TYPE_BATCHWISE  } from '../../../nextflow/modules/local/aggregate_half/main'
-include { AGGREGATE_HALF          as AGGREGATE_FEATURE_TYPE_PASSTHROUGH } from '../../../nextflow/modules/local/aggregate_half/main'
-include { GENERATE_SPLIT          as GENERATE_SPLIT_BATCHWISE          } from '../../../nextflow/modules/local/generate_split/main'
-include { AGGREGATE_HALF          as AGGREGATE_HALF_BATCHWISE          } from '../../../nextflow/modules/local/aggregate_half/main'
-include { CORRELATE_FEATURES      as CORRELATE_FEATURES_BATCHWISE      } from '../../../nextflow/modules/local/correlate_features/main'
-include { BLOCKLIST               as BLOCKLIST_BATCHWISE               } from '../../../nextflow/modules/local/blocklist/main'
-include { COMBINE_BLOCKLISTS      as COMBINE_BLOCKLISTS_BATCHWISE      } from '../../../nextflow/modules/local/combine_blocklists/main'
-include { FINALIZE_FEATURE_SELECT as FINALIZE_FEATURE_SELECT_BATCHWISE } from '../modules/local/finalize_feature_select'
+include { QC_FILTER              } from '../../fisseq-common/nextflow/modules/local/qc_filter/main'
+include { FILTER as NORMALIZE    } from '../../fisseq-common/nextflow/modules/local/filter/main'
+include { OVWT_BATCHWISE         } from '../../fisseq-common/nextflow/modules/local/ovwt_batchwise/main'
+include { AGGREGATE               as AGGREGATE_FEATURE_TYPE_BATCHWISE  } from '../../fisseq-common/nextflow/modules/local/aggregate/main'
+include { AGGREGATE               as AGGREGATE_FEATURE_TYPE_PASSTHROUGH } from '../../fisseq-common/nextflow/modules/local/aggregate/main'
+include { GENERATE_SPLIT          as GENERATE_SPLIT_BATCHWISE          } from '../../fisseq-common/nextflow/modules/local/generate_split/main'
+include { AGGREGATE               as AGGREGATE_HALF_BATCHWISE          } from '../../fisseq-common/nextflow/modules/local/aggregate/main'
+include { CORRELATE_FEATURES      as CORRELATE_FEATURES_BATCHWISE      } from '../../fisseq-common/nextflow/modules/local/correlate_features/main'
+include { BLOCKLIST               as BLOCKLIST_BATCHWISE               } from '../../fisseq-common/nextflow/modules/local/blocklist/main'
+include { COMBINE_BLOCKLISTS      as COMBINE_BLOCKLISTS_BATCHWISE      } from '../../fisseq-common/nextflow/modules/local/combine_blocklists/main'
+include { FINALIZE_FEATURE_SELECT as FINALIZE_FEATURE_SELECT_BATCHWISE } from '../../fisseq-common/nextflow/modules/local/finalize_feature_select/main'
 
 // The only keys an `experiments:` entry may carry. Anything else is a typo
 // or an attempt to set a pipeline-wide param per experiment -- both are
@@ -242,7 +242,7 @@ workflow FisseqPipeline {
     // Step 2: normalization (per experiment) -- z-score fit on wildtype cells.
     // NORMALIZE publishes only the QC-passed keys and the fitted normalizer; every
     // consumer gets QC_FILTER's cells plus those two files and rebuilds the
-    // normalized table itself (fisseq_data_pipeline.cells).
+    // normalized table itself (fisseq_common.stages.filter.load_cells).
     // qc_ch carries: (batch_stem, filtered_cells, barcode_counts, variants_per_barcode)
     norm_input_ch = qc_ch.map { batch_stem, fc, _bc, _vpb -> tuple(batch_stem, fc) }
     // The shared FILTER module reads the cells and the QC-passed table separately; here
@@ -276,7 +276,7 @@ workflow FisseqPipeline {
         // Stage 1: full per-feature-type aggregation, one task per
         // (experiment, feature_type). The published aggregates are z-scored
         // against the experiment's synonymous variants (conf/modules.config).
-        // AGGREGATE_HALF's input: (batch_stem, cells, keys, normalizer, rep, half, split,
+        // AGGREGATE's input: (batch_stem, cells, keys, normalizer, rep, half, split,
         // method); rep = half = 0 and no split file aggregate every cell.
         agg_input_ch = norm_ch
             .combine(feature_types_ch)
@@ -365,7 +365,7 @@ workflow FisseqPipeline {
         combined_bl_ch = COMBINE_BLOCKLISTS_BATCHWISE.out.blocklist  // (batch_stem, combined_blocklist_file)
 
         // Stage 4: group stage-1 output by batch_stem (all feature types'
-        // full aggregates), join norm_ch (the cells, for metadata), join
+        // full aggregates), join NORMALIZE's keys (for the per-variant metadata) and
         // stage-3's combined blocklist.
         // groupTuple() on an empty channel emits nothing, so with an empty
         // params.feature_select_passthrough_types this side of the join has no
@@ -378,12 +378,11 @@ workflow FisseqPipeline {
         finalize_input_ch = agg_ch
             .map { batch_stem, _feature_type, agg_file -> tuple(batch_stem, agg_file) }
             .groupTuple(by: 0)
-            .join(norm_ch)
+            .join(norm_ch.map { batch_stem, _cells, keys, _normalizer -> tuple(batch_stem, keys) })
             .join(combined_bl_ch)
             .join(pt_files_ch, remainder: true)
-            .map { batch_stem, agg_files, cells, keys, normalizer, combined_bl_file, pt_files ->
-                tuple(batch_stem, agg_files, pt_files ?: [], cells, keys, normalizer,
-                      combined_bl_file, "feature_select_batchwise/${batch_stem}")
+            .map { batch_stem, agg_files, keys, combined_bl_file, pt_files ->
+                tuple(batch_stem, agg_files, pt_files ?: [], keys, combined_bl_file)
             }
         FINALIZE_FEATURE_SELECT_BATCHWISE(finalize_input_ch)
     }

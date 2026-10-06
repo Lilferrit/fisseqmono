@@ -1,4 +1,4 @@
-// EmbeddingsPipeline -- the whole DAG. See docs/architecture.md for the
+// EmbeddingsPipeline -- the whole DAG. See docs/embeddings-pipeline/architecture.md for the
 // picture.
 //
 //   PLAN_EXPERIMENTS -> BUILD_CELL_IMAGES -> BUILD_CELL_METADATA -> QC_FILTER
@@ -9,37 +9,48 @@
 // cellDINO track's per-tile shards are cut inside BUILD_CELL_IMAGES' own
 // nested snakemake (make_cell_shard), not by a stage here.
 //
-//   cellDINO:  EMBED_CELLS -> FILTER_EMBEDDINGS ->
-//              {AGGREGATE_EMBEDDINGS, OVWT_BATCHWISE, reproducibility chain}
-//   CP track:  BUILD_CP_FEATURES -> FILTER_CP_FEATURES ->
-//              {AGGREGATE_CP_FEATURES, OVWT_BATCHWISE_CP_FEATURES}
+//   cellDINO:  EMBED_CELLS -> NORMALIZE ->
+//              {OVWT_BATCHWISE, feature selection}
+//   CP track:  BUILD_CP_FEATURES -> NORMALIZE_CP_FEATURES ->
+//              {AGGREGATE_FEATURE_TYPE_CP_FEATURES, OVWT_BATCHWISE_CP_FEATURES}
+//
+// Everything downstream of EMBED_CELLS is fisseq-data-pipeline's: the same shared modules
+// (QC_FILTER, NORMALIZE on the wildtype cells, OVWT_BATCHWISE, the bootstrap feature
+// selection ending in FINALIZE_FEATURE_SELECT), the same parameters and the same publish
+// layout. Only the cell table differs: embedding dimensions instead of CellProfiler features.
 //
 // Every output is per experiment: aggregating across experiments is the
 // fisseqborn package's job (`fisseqborn-global`). Every task carries
 // errorStrategy 'ignore', so independent branches keep running when one
 // fails -- check the run report for failures.
 
-// Shared modules (one copy for both pipelines) live in the repo's nextflow/ directory; this
-// pipeline's per-process settings for them are in conf/modules.config.
+// Shared modules (one copy for both pipelines) live in fisseq-common's nextflow/ directory;
+// this pipeline's per-process settings for them are in conf/modules.config.
 include { PLAN_EXPERIMENTS } from '../modules/local/plan_experiments/main.nf'
 include { BUILD_CELL_IMAGES } from '../modules/local/build_cell_images/main.nf'
 include { BUILD_CELL_METADATA } from '../modules/local/build_cell_metadata/main.nf'
-include { QC_FILTER } from '../../../nextflow/modules/local/qc_filter/main.nf'
 include { EMBED_CELLS } from '../modules/local/embed_cells/main.nf'
-include { FILTER as FILTER_EMBEDDINGS } from '../../../nextflow/modules/local/filter/main.nf'
-include { AGGREGATE_EMBEDDINGS } from '../modules/local/aggregate_embeddings/main.nf'
-include { OVWT_BATCHWISE } from '../../../nextflow/modules/local/ovwt_batchwise/main.nf'
-include { GENERATE_SPLIT } from '../../../nextflow/modules/local/generate_split/main.nf'
-include { AGGREGATE_HALF } from '../../../nextflow/modules/local/aggregate_half/main.nf'
-include { AGGREGATE_HALF as AGGREGATE_PASSTHROUGH } from '../../../nextflow/modules/local/aggregate_half/main.nf'
-include { CORRELATE_FEATURES } from '../../../nextflow/modules/local/correlate_features/main.nf'
-include { BLOCKLIST } from '../../../nextflow/modules/local/blocklist/main.nf'
-include { COMBINE_BLOCKLISTS } from '../../../nextflow/modules/local/combine_blocklists/main.nf'
-include { FILTER_AGGREGATE } from '../modules/local/filter_aggregate/main.nf'
 include { BUILD_CP_FEATURES } from '../modules/local/build_cp_features/main.nf'
-include { FILTER as FILTER_CP_FEATURES } from '../../../nextflow/modules/local/filter/main.nf'
-include { AGGREGATE_CP_FEATURES } from '../modules/local/aggregate_cp_features/main.nf'
-include { OVWT_BATCHWISE as OVWT_BATCHWISE_CP_FEATURES } from '../../../nextflow/modules/local/ovwt_batchwise/main.nf'
+include { QC_FILTER } from '../../fisseq-common/nextflow/modules/local/qc_filter/main.nf'
+include { FILTER as NORMALIZE } from '../../fisseq-common/nextflow/modules/local/filter/main.nf'
+include { FILTER as NORMALIZE_CP_FEATURES } from '../../fisseq-common/nextflow/modules/local/filter/main.nf'
+include { OVWT_BATCHWISE } from '../../fisseq-common/nextflow/modules/local/ovwt_batchwise/main.nf'
+include { OVWT_BATCHWISE as OVWT_BATCHWISE_CP_FEATURES } from '../../fisseq-common/nextflow/modules/local/ovwt_batchwise/main.nf'
+include { AGGREGATE as AGGREGATE_FEATURE_TYPE_BATCHWISE } from '../../fisseq-common/nextflow/modules/local/aggregate/main.nf'
+include { AGGREGATE as AGGREGATE_FEATURE_TYPE_PASSTHROUGH } from '../../fisseq-common/nextflow/modules/local/aggregate/main.nf'
+include { AGGREGATE as AGGREGATE_HALF_BATCHWISE } from '../../fisseq-common/nextflow/modules/local/aggregate/main.nf'
+include { AGGREGATE as AGGREGATE_FEATURE_TYPE_CP_FEATURES } from '../../fisseq-common/nextflow/modules/local/aggregate/main.nf'
+include { GENERATE_SPLIT as GENERATE_SPLIT_BATCHWISE } from '../../fisseq-common/nextflow/modules/local/generate_split/main.nf'
+include { CORRELATE_FEATURES as CORRELATE_FEATURES_BATCHWISE } from '../../fisseq-common/nextflow/modules/local/correlate_features/main.nf'
+include { BLOCKLIST as BLOCKLIST_BATCHWISE } from '../../fisseq-common/nextflow/modules/local/blocklist/main.nf'
+include { COMBINE_BLOCKLISTS as COMBINE_BLOCKLISTS_BATCHWISE } from '../../fisseq-common/nextflow/modules/local/combine_blocklists/main.nf'
+include { FINALIZE_FEATURE_SELECT as FINALIZE_FEATURE_SELECT_BATCHWISE } from '../../fisseq-common/nextflow/modules/local/finalize_feature_select/main.nf'
+
+// Nextflow CLI overrides (--run_ovwt false) arrive as the Groovy-truthy String "false", so
+// every gate is coerced before use.
+def asBool(v) {
+    v == null ? false : v.toString().toBoolean()
+}
 
 workflow EmbeddingsPipeline {
     main:
@@ -71,71 +82,165 @@ workflow EmbeddingsPipeline {
     // embeddings_only stops the cellDINO track here and skips the CP track:
     // for when all you want is the embeddings (and what the containerized
     // real-starcall integration test uses).
-    // (.toString().toBoolean(): `--embeddings_only false` can arrive as the
-    // string "false", which Groovy treats as true.)
-    if (!params.embeddings_only.toString().toBoolean()) {
-        filtered = FILTER_EMBEDDINGS(embeddings.join(qc_passed))  // (stem, filtered_keys, normalizer)
-        // Consumers reconstruct the QC-passed, synonymous-corrected table
-        // themselves from these three; none reads a pre-normalized copy.
-        embed_and_filtered = embeddings.join(filtered)            // (stem, embeddings, filtered_keys, normalizer)
-        aggregates = AGGREGATE_EMBEDDINGS(embed_and_filtered)
-        OVWT_BATCHWISE(embed_and_filtered)
+    if (!asBool(params.embeddings_only)) {
+        // The shared FILTER module: the cells are EMBED_CELLS' embeddings, the QC-passed
+        // table QC_FILTER's; the normalizer is fit on the wildtype cells.
+        normalized = NORMALIZE(embeddings.join(qc_passed))  // (stem, filtered_keys, normalizer)
+        // tuple(batch_stem, embeddings, filtered_keys, normalizer)
+        norm_ch = embeddings.join(normalized)
 
-        // ── Reproducibility filtering ───────────────────────────────────
-        // One split per bootstrap replicate, two halves per split, one
-        // AGGREGATE_HALF task per (replicate, half, method). Bare emb_*
-        // column names only when aggregate_methods is exactly ["median"],
-        // mirroring AGGREGATE_EMBEDDINGS (conf/modules.config's bare_columns).
-        def reps = params.reproducibility_bootstrap_reps as int
-        def methods = params.aggregate_methods as List
-        def passthrough_methods = (params.aggregate_methods_passthrough ?: []) as List
-
-        splits = GENERATE_SPLIT(
-            filtered.map { stem, keys, _normalizer -> tuple(stem, keys) }.combine(channel.of(1..reps))
-        )
-        halves = splits.flatMap { stem, rep, half1, half2 ->
-            [tuple(stem, rep, 1, half1), tuple(stem, rep, 2, half2)]
+        if (asBool(params.run_ovwt)) {
+            OVWT_BATCHWISE(norm_ch)
         }
-        // (stem, embeddings, keys, normalizer, rep, half, split, method)
-        half_aggregates = AGGREGATE_HALF(
-            embed_and_filtered.combine(halves, by: 0).combine(channel.fromList(methods))
-        )
-        // size: stops a group from waiting on a half whose task failed; that
-        // replicate (and so that method's blocklist) is then simply missing.
-        half_pairs = half_aggregates
-            .groupTuple(by: [0, 1, 2], size: 2)
-            .map { stem, rep, method, half_ids, files ->
-                def by_half = [half_ids, files].transpose().sort { h -> h[0] }
-                tuple(stem, rep, method, by_half[0][1], by_half[1][1])
+
+        // Feature selection, exactly as fisseq-data-pipeline runs it -- decomposed
+        // bootstrap + per-feature-type pipeline.
+        //   Stage 1:    per-feature-type full aggregation.
+        //   Stage 2a-d: per-bootstrap split -> per-half aggregation -> correlation
+        //               -> per-feature-type blocklist (gathered over bootstraps).
+        //   Stage 3:    combine per-feature-type blocklists.
+        //   Stage 4:    join stage-1 aggregates, apply combined blocklist,
+        //               z-score to the synonymous variants.
+        if (asBool(params.run_feature_selection)) {
+            feature_types_ch = channel.fromList(params.feature_select_types)
+            // Explicit cast: CLI overrides (--feature_select_bootstrap_reps 3)
+            // arrive as Strings and silently produce a bogus range if left
+            // uncoerced in a Groovy IntRange.
+            bootstrap_ch = channel.of(1..(params.feature_select_bootstrap_reps as int))
+
+            // Stage 1: full per-feature-type aggregation, one task per
+            // (experiment, feature_type). The published aggregates are z-scored
+            // against the experiment's synonymous variants (conf/modules.config).
+            // AGGREGATE's input: (batch_stem, cells, keys, normalizer, rep, half, split,
+            // method); rep = half = 0 and no split file aggregate every cell.
+            agg_input_ch = norm_ch
+                .combine(feature_types_ch)
+                .map { batch_stem, cells, keys, normalizer, feature_type ->
+                    tuple(batch_stem, cells, keys, normalizer, 0, 0, [], feature_type)
+                }
+            AGGREGATE_FEATURE_TYPE_BATCHWISE(agg_input_ch)
+            agg_ch = AGGREGATE_FEATURE_TYPE_BATCHWISE.out.aggregate
+                .map { batch_stem, _rep, feature_type, _half, agg_file -> tuple(batch_stem, feature_type, agg_file) }
+
+            // Stage 1b: passthrough aggregation. Same process, and deliberately
+            // nothing downstream of it but the stage-4 join -- passthrough types
+            // never reach the bootstrap halves, the correlation, or the
+            // blocklist, which is the whole point of the second list. They are
+            // not z-scored (p-values must keep their own scale) and publish to
+            // their own directory, so no aggregates/ glob ever mixes the two.
+            passthrough_types_ch = channel.fromList(params.feature_select_passthrough_types)
+            pt_agg_input_ch = norm_ch
+                .combine(passthrough_types_ch)
+                .map { batch_stem, cells, keys, normalizer, feature_type ->
+                    tuple(batch_stem, cells, keys, normalizer, 0, 0, [], feature_type)
+                }
+            AGGREGATE_FEATURE_TYPE_PASSTHROUGH(pt_agg_input_ch)
+            pt_agg_ch = AGGREGATE_FEATURE_TYPE_PASSTHROUGH.out.aggregate
+                .map { batch_stem, _rep, feature_type, _half, agg_file -> tuple(batch_stem, feature_type, agg_file) }
+
+            // Stage 2a: one 50/50 split per (experiment, bootstrap replicate).
+            split_input_ch = norm_ch
+                .combine(bootstrap_ch)
+                .map { batch_stem, _cells, keys, _normalizer, bootstrap_idx ->
+                    tuple(batch_stem, keys, bootstrap_idx)
+                }
+            GENERATE_SPLIT_BATCHWISE(split_input_ch)
+            split_ch = GENERATE_SPLIT_BATCHWISE.out.split  // (batch_stem, bootstrap_idx, half1, half2)
+
+            // Stage 2b: expand each split into two per-half tuples, cross with
+            // feature types, and re-attach the experiment's cells, keys and normalizer
+            // via .combine(norm_ch, by: 0) (keyed on batch_stem -- norm_ch has exactly
+            // one entry per experiment, so this is a per-experiment broadcast,
+            // not a fan-out).
+            // NOTE: .join() is NOT a broadcast operator -- for a many-to-one key
+            // relationship like this one it silently keeps only one match per key
+            // and drops the rest, starving every downstream stage. Only use
+            // .join() where both sides are already collapsed to exactly one item
+            // per key (see the finalize-stage joins below).
+            half_ch = split_ch.flatMap { batch_stem, bootstrap_idx, half1, half2 ->
+                [
+                    tuple(batch_stem, bootstrap_idx, 1, half1),
+                    tuple(batch_stem, bootstrap_idx, 2, half2),
+                ]
             }
-        correlations = CORRELATE_FEATURES(half_pairs)
-        method_blocklists = BLOCKLIST(correlations.groupTuple(by: [0, 1], size: reps))
-        blocklists = COMBINE_BLOCKLISTS(method_blocklists.groupTuple(size: methods.size()))
+            agg_half_input_ch = half_ch
+                .combine(feature_types_ch)
+                // (batch_stem, bootstrap_idx, half_num, index_file, feature_type)
+                .combine(norm_ch, by: 0)
+                // (batch_stem, bootstrap_idx, half_num, index_file, feature_type, cells, keys, normalizer)
+                .map { batch_stem, bootstrap_idx, half_num, index_file, feature_type, cells, keys, normalizer ->
+                    tuple(batch_stem, cells, keys, normalizer, bootstrap_idx, half_num, index_file, feature_type)
+                }
+            AGGREGATE_HALF_BATCHWISE(agg_half_input_ch)
+            half_agg_ch = AGGREGATE_HALF_BATCHWISE.out.aggregate
+            // (batch_stem, bootstrap_idx, feature_type, half_num, half_agg_file)
 
-        passthrough = passthrough_methods
-            // rep = half = 0 and no split file: every QC-passed cell.
-            ? AGGREGATE_PASSTHROUGH(
-                embed_and_filtered
-                    .combine(channel.fromList(passthrough_methods))
-                    .map { stem, emb, keys, norm, method -> tuple(stem, emb, keys, norm, 0, 0, [], method) }
-            )
-                .map { stem, _rep, _method, _half, file -> tuple(stem, file) }
-                .groupTuple(size: passthrough_methods.size())
-            : aggregates.map { stem, _agg -> tuple(stem, []) }
-        FILTER_AGGREGATE(aggregates.join(blocklists).join(passthrough))
+            // Stage 2c: group by (batch_stem, bootstrap_idx, feature_type) --
+            // exactly 2 per group -- pair by half_num (not arrival order) before
+            // correlating.
+            corr_input_ch = half_agg_ch
+                .groupTuple(by: [0, 1, 2])
+                .map { batch_stem, bootstrap_idx, feature_type, half_nums, half_files ->
+                    def pairs = [half_nums, half_files].transpose().sort { pair -> pair[0] }
+                    tuple(batch_stem, bootstrap_idx, feature_type, pairs[0][1], pairs[1][1])
+                }
+            CORRELATE_FEATURES_BATCHWISE(corr_input_ch)
+            corr_ch = CORRELATE_FEATURES_BATCHWISE.out.correlations  // (batch_stem, feature_type, corr_file)
 
-        // ── CellProfiler-feature track (experiments with cp_features: true) ─
-        // Reuses the SAME QC_FILTER output -- no second QC pass -- and gets
-        // no reproducibility filtering: its columns are hand-engineered and
-        // meant to stay comparable to the published CellProfiler analysis.
+            // Stage 2d: group by (batch_stem, feature_type) -- gathers all
+            // bootstrap replicates. THE one intentional synchronization point,
+            // scoped to this stage only.
+            blocklist_input_ch = corr_ch.groupTuple(by: [0, 1])
+            BLOCKLIST_BATCHWISE(blocklist_input_ch)
+            bl_ch = BLOCKLIST_BATCHWISE.out.blocklist  // (batch_stem, blocklist_file)
+
+            // Stage 3: group by batch_stem -- gathers all feature types.
+            combine_bl_input_ch = bl_ch.groupTuple(by: 0)
+            COMBINE_BLOCKLISTS_BATCHWISE(combine_bl_input_ch)
+            combined_bl_ch = COMBINE_BLOCKLISTS_BATCHWISE.out.blocklist  // (batch_stem, combined_blocklist_file)
+
+            // Stage 4: group stage-1 output by batch_stem (all feature types'
+            // full aggregates), join NORMALIZE's keys (for the per-variant metadata) and
+            // stage-3's combined blocklist.
+            // groupTuple() on an empty channel emits nothing, so with an empty
+            // params.feature_select_passthrough_types this side of the join has no
+            // entry for any batch. `remainder: true` is what keeps that from
+            // starving FINALIZE_FEATURE_SELECT entirely (the stage would silently
+            // never run); the null it yields instead becomes an empty file list.
+            pt_files_ch = pt_agg_ch
+                .map { batch_stem, _feature_type, agg_file -> tuple(batch_stem, agg_file) }
+                .groupTuple(by: 0)
+            finalize_input_ch = agg_ch
+                .map { batch_stem, _feature_type, agg_file -> tuple(batch_stem, agg_file) }
+                .groupTuple(by: 0)
+                .join(norm_ch.map { batch_stem, _cells, keys, _normalizer -> tuple(batch_stem, keys) })
+                .join(combined_bl_ch)
+                .join(pt_files_ch, remainder: true)
+                .map { batch_stem, agg_files, keys, combined_bl_file, pt_files ->
+                    tuple(batch_stem, agg_files, pt_files ?: [], keys, combined_bl_file)
+                }
+            FINALIZE_FEATURE_SELECT_BATCHWISE(finalize_input_ch)
+        }
+
+        // The CellProfiler-feature track: the same normalization, aggregation and OvWT on
+        // the CellProfiler features of the experiments that set cp_features, without the
+        // bootstrap feature selection.
         cp_features = BUILD_CP_FEATURES(
             plans.filter { p -> p.cp_features }
                 .map { p -> tuple(p.batch_stem, p.cell_table_args) }
                 .join(cell_tables)
         )
-        cp_filtered = FILTER_CP_FEATURES(cp_features.join(qc_passed))
-        cp_and_filtered = cp_features.join(cp_filtered)
-        AGGREGATE_CP_FEATURES(cp_and_filtered)
-        OVWT_BATCHWISE_CP_FEATURES(cp_and_filtered)
+        cp_normalized = NORMALIZE_CP_FEATURES(cp_features.join(qc_passed))
+        cp_norm_ch = cp_features.join(cp_normalized)
+        AGGREGATE_FEATURE_TYPE_CP_FEATURES(
+            cp_norm_ch
+                .combine(channel.fromList(params.feature_select_types_cp_features))
+                .map { batch_stem, cells, keys, normalizer, feature_type ->
+                    tuple(batch_stem, cells, keys, normalizer, 0, 0, [], feature_type)
+                }
+        )
+        if (asBool(params.run_ovwt)) {
+            OVWT_BATCHWISE_CP_FEATURES(cp_norm_ch)
+        }
     }
 }

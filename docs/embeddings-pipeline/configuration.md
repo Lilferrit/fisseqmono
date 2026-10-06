@@ -99,11 +99,16 @@ global default. All three route to `BUILD_CELL_IMAGES` only.
 | `starcall_container_bin` | `"apptainer"` | `BUILD_CELL_IMAGES`, cluster mode: the runtime a child job re-enters the image with (`singularity` on some nodes) |
 | `snakemake_cache_dir` | `null` (-> `<pipeline_dir>/.snakemake_cache`) | `BUILD_CELL_IMAGES` (where its nested `snakemake` points `$XDG_CACHE_HOME`/`$HOME` -- see [read-only `$HOME`](#the-nested-snakemake-and-a-read-only-home) below) |
 | `starcall_gpu` | `true` | `BUILD_CELL_IMAGES` (`--nv`/`--gpus all` on its container, and `--nv` on every child job in cluster mode, for starcall's stardist/cellpose segmentation; set `false` on a GPU-less **Docker** host, where `--gpus` fails outright) |
-| `embeddings_only` | `false` | the workflow: `true` stops after `EMBED_CELLS` -- no QC-dependent cellDINO stages, no reproducibility filtering, no CellProfiler track |
+| `embeddings_only` | `false` | the workflow: `true` stops after `EMBED_CELLS` -- no QC-dependent cellDINO stages, no feature selection, no CellProfiler track |
 | `random_seed` | `0` | every stochastic stage |
 | `barcode_count_threshold` | `10` | `QC_FILTER` |
 | `variant_barcode_count_threshold` | `4` | `QC_FILTER` |
 | `edit_distance_threshold` | `1` | `QC_FILTER` |
+| `qc_n_variants` | `null` | `QC_FILTER` (cap on the distinct variants of `qc_variant_downsample_classes`; `null` = off) |
+| `qc_variant_downsample_classes` | `["Single Missense"]` | `QC_FILTER` |
+| `qc_variant_downsample_mode` | `"top"` | `QC_FILTER` (`"top"` or `"random"`) |
+| `qc_downsample_amounts` | `null` | `QC_FILTER` (pseudo-variant amounts; `null` = off) |
+| `qc_downsample_classes` | `["Synonymous", "Single Missense"]` | `QC_FILTER` |
 | `cell_dino_arch` | `"vit_large"` | `EMBED_CELLS` |
 | `cell_dino_patch_size` | `16` | `EMBED_CELLS` |
 | `cell_dino_crop_size` | `224` | `EMBED_CELLS` (must match the per-experiment `window` the shards were cut at) |
@@ -113,19 +118,36 @@ global default. All three route to `BUILD_CELL_IMAGES` only.
 | `cell_dino_device` | `"cuda"` | `EMBED_CELLS` |
 | `cell_dino_batch_size` | `256` | `EMBED_CELLS` |
 | `cell_dino_num_workers` | `4` | `EMBED_CELLS` |
-| `filter_label_column` | `"meta_aa_changes"` | `QC_FILTER`, `FILTER_EMBEDDINGS`, `AGGREGATE_EMBEDDINGS`, `OVWT_BATCHWISE`, the reproducibility chain, and their CellProfiler-track counterparts |
-| `aggregate_methods` | `["median", "KS", "AUROC"]` | `AGGREGATE_EMBEDDINGS` |
-| `aggregate_methods_cp_features` | `["median"]` | `AGGREGATE_CP_FEATURES` |
-| `aggregate_feature_chunk_size` | `32` | `AGGREGATE_EMBEDDINGS`, `AGGREGATE_CP_FEATURES`, `AGGREGATE_HALF`, `AGGREGATE_PASSTHROUGH` |
-| `aggregate_methods_passthrough` | `[]` | `AGGREGATE_PASSTHROUGH`, `FILTER_AGGREGATE` |
-| `reproducibility_bootstrap_reps` | `10` | `GENERATE_SPLIT`, and the fan-out of every stage downstream of it |
-| `reproducibility_min_correlation` | `0.5` | `BLOCKLIST` |
+| `filter_label_column` | `"meta_aa_changes"` | `QC_FILTER`, `NORMALIZE`, `OVWT_BATCHWISE`, the feature-selection chain, and their CellProfiler-track counterparts |
+| `run_ovwt` | `true` | `OVWT_BATCHWISE`, `OVWT_BATCHWISE_CP_FEATURES` |
+| `run_feature_selection` | `true` | the cellDINO track's feature-selection chain |
+| `feature_select_types` | `["mean", "median", "MAD", "std", "KS", "QQ", "AUROC"]` | `AGGREGATE_FEATURE_TYPE_BATCHWISE`, `AGGREGATE_HALF_BATCHWISE` |
+| `feature_select_passthrough_types` | `[]` | `AGGREGATE_FEATURE_TYPE_PASSTHROUGH`, `FINALIZE_FEATURE_SELECT_BATCHWISE` |
+| `feature_select_bootstrap_reps` | `10` | `GENERATE_SPLIT_BATCHWISE`, and the fan-out of every stage downstream of it |
+| `feature_select_downsample_wt` | `null` | `AGGREGATE_FEATURE_TYPE_*`, `AGGREGATE_HALF_BATCHWISE` (wildtype downsampling; float fraction or int count) |
+| `feature_select_min_correlation` | `0.5` | `BLOCKLIST_BATCHWISE` |
+| `aggregate_feature_chunk_size` | `32` | every `AGGREGATE_*` process |
+| `feature_select_types_cp_features` | `["median"]` | `AGGREGATE_FEATURE_TYPE_CP_FEATURES` |
 | `ovwt_wt_label` | `"WT"` | `OVWT_BATCHWISE`, `OVWT_BATCHWISE_CP_FEATURES` |
 | `ovwt_cv_mode` | `"kfold"` | `OVWT_BATCHWISE`, `OVWT_BATCHWISE_CP_FEATURES` |
 | `ovwt_n_folds` | `5` | `OVWT_BATCHWISE`, `OVWT_BATCHWISE_CP_FEATURES` |
 | `ovwt_calibrate` | `true` | `OVWT_BATCHWISE`, `OVWT_BATCHWISE_CP_FEATURES` |
 | `ovwt_min_cells` | `250` | `OVWT_BATCHWISE`, `OVWT_BATCHWISE_CP_FEATURES` |
 | `ovwt_downsample_wt` | `true` | `OVWT_BATCHWISE`, `OVWT_BATCHWISE_CP_FEATURES` |
+
+Every parameter from `random_seed` down to the `ovwt_*` set, except the `cell_dino_*` ones and
+`feature_select_types_cp_features`, has the same name, default and meaning as in
+fisseq-data-pipeline: downstream of `EMBED_CELLS` this pipeline runs that pipeline's stages
+(see [Shared stages](../common/stages.md)).
+
+The parameters this pipeline used to have under its own names were renamed to the data
+pipeline's: `aggregate_methods` → `feature_select_types`, `aggregate_methods_passthrough` →
+`feature_select_passthrough_types`, `aggregate_methods_cp_features` →
+`feature_select_types_cp_features`, `reproducibility_bootstrap_reps` →
+`feature_select_bootstrap_reps`, `reproducibility_min_correlation` →
+`feature_select_min_correlation` (`RENAMED_PARAMS` in `config/experiments.py`). An old
+`params.yaml` that still sets an old name runs, with a warning that it is ignored: set the new
+name instead.
 
 The cross-experiment (global) stages and their params
 (`reproducibility_global_min_batches_ok`,
@@ -137,52 +159,45 @@ warning that they are ignored.
 
 `filter_label_column` is shared pipeline-wide so overriding it changes the
 variant label column everywhere at once, rather than each stage needing
-its own override. `aggregate_methods` defaults to `["median", "KS",
-"AUROC"]` -- since that's not the literal single-element `["median"]`,
-`AGGREGATE_EMBEDDINGS`' default output columns are suffixed by method
-(`emb_0000_median`, `emb_0000_KS`, `emb_0000_AUROC`, ...); the
-CellProfiler-feature track's own `aggregate_methods_cp_features` stays
-`["median"]`, so `AGGREGATE_CP_FEATURES`' default output columns remain
-bare.
+its own override. Every aggregate column is suffixed with its method
+(`emb_0000_median`, `emb_0000_KS`, ...), in both tracks.
 
-### Reproducibility filtering and passthrough aggregates
+### Feature selection and passthrough aggregates
 
-The four `reproducibility_*` / `aggregate_methods_passthrough` params drive
-the cellDINO track's reproducibility-filtering chain (`GENERATE_SPLIT`
-through `FILTER_AGGREGATE`) -- see
-[Architecture](architecture.md) decision 21. The CellProfiler track is
-deliberately not filtered, so it has no `_cp_features` counterparts for any
-of them.
+The `feature_select_*` params drive the cellDINO track's bootstrap feature selection
+(`GENERATE_SPLIT_BATCHWISE` through `FINALIZE_FEATURE_SELECT_BATCHWISE`); see
+[Shared stages](../common/stages.md#the-two-method-lists). The CellProfiler track has no
+feature selection, so its only counterpart is `feature_select_types_cp_features`.
 
-`reproducibility_bootstrap_reps` must be at least 2 (`BLOCKLIST` medians
+`feature_select_bootstrap_reps` must be at least 2 (`BLOCKLIST_BATCHWISE` medians
 across replicates, so one replicate is a single coin flip, not a test) and
 sets the fan-out directly: per experiment, it produces `reps`
-`GENERATE_SPLIT` tasks, `reps x 2 x len(aggregate_methods)` `AGGREGATE_HALF`
-tasks, and `reps x len(aggregate_methods)` `CORRELATE_FEATURES` tasks.
+`GENERATE_SPLIT_BATCHWISE` tasks, `reps x 2 x len(feature_select_types)`
+`AGGREGATE_HALF_BATCHWISE` tasks, and `reps x len(feature_select_types)`
+`CORRELATE_FEATURES_BATCHWISE` tasks.
 
-`aggregate_methods_passthrough` must not overlap `aggregate_methods` --
+`feature_select_passthrough_types` must not overlap `feature_select_types` --
 `validate_config` rejects that in `PLAN_EXPERIMENTS`, before any other task
 is scheduled, because both lists are interpolated into task scripts and
 publish paths. Its intended occupants are `KSnegLogP`/`AUROCnegLogP`:
 statistics wanted in the output that must not influence which dimensions
-are kept. Passthrough columns reach only
-`feature_select_batchwise/<batch>/aggregate_with_passthrough.parquet`, never
-`filtered_aggregate.parquet` or the PCA -- see
-[FILTER_AGGREGATE](cli/filter_aggregate.md).
+are kept. Passthrough columns are joined onto `output.parquet` raw and last
+([finalize](../common/stages.md#finalize)).
 
-`aggregate_feature_chunk_size` is the one knob here shared with the
+Every per-type aggregate (`aggregates/<method>.parquet`, both tracks) is z-scored against the
+experiment's synonymous variants, so every experiment needs at least two synonymous variants;
+with fewer, those columns come out null.
+
+`aggregate_feature_chunk_size` is shared with the
 CellProfiler track, because it is sized to the memory one task is granted
 rather than to the feature space. It is a pure memory dial -- identical
 output at every value -- and `params.yaml`'s own comment carries the
 measured per-aggregator sizing rule.
 
-The two `*_cumulative_variance_explained` params each have their own
-CellProfiler-track counterpart above; `ovwt_*`, by contrast, is genuinely
-shared between both tracks' OVWT stages (scoring methodology, not tied to
+`ovwt_*` is shared between both tracks' OVWT stages (scoring methodology, not tied to
 feature type) -- see [Nextflow Workflow](nextflow.md#cellprofiler-feature-track).
-See each [Stage Reference](cli/tile_shard.md) page for the full field list a
-given stage's Hydra config accepts beyond what `params.yaml` exposes (e.g.
-`QC_FILTER`'s optional `n_variants` downsampling cap, off by default).
+See [Shared stages](../common/stages.md) and each [Stage Reference](cli/tile_shard.md) page
+for the full field list a stage's Hydra config accepts beyond what `params.yaml` exposes.
 
 ## The nested snakemake and a read-only `$HOME`
 
@@ -218,23 +233,26 @@ child job in cluster mode.
 
 ## Docker image versioning & publishing
 
-- **Registry:** GitHub Container Registry, `ghcr.io/<owner>/<repo>`
-  (derived from the repo's own `${{ github.repository }}` at build time).
+`.github/workflows/docker-fisseq-embeddings-pipeline.yml` (through the reusable `_docker.yml`)
+builds the image from the workspace root.
+
+- **Registry:** GitHub Container Registry, `ghcr.io/<owner>/fisseq-embeddings-pipeline`.
 - **Tags, on every push to `main`:** `:latest` (moving -- convenience/dev
   use) and `:<short-sha>` (exact, 7-character commit SHA -- what
   `params.yaml`'s `container_image` should point at for anything that
   needs to pin a specific build instead of floating on `:latest`, e.g. a
   reproducibility-sensitive run).
-- **Tags, on a pushed `v*` git tag** (a real release): additionally
-  `:<version>` (the tag with its `v` prefix stripped, e.g. `v0.1.0` ->
-  `0.1.0`) -- not tied to `pyproject.toml`'s own `version` field
-  automatically; bump that field and push a matching `vX.Y.Z` tag together
-  when cutting a release.
+- **Tags, on a pushed `v*` git tag** (a workspace release): additionally
+  `:<version>` (the tag with its `v` prefix stripped, e.g. `v2.0.0` ->
+  `2.0.0`). Every tag push builds.
 - **Every PR:** build-only, no push, no registry credentials needed -- a
   smoke test against Dockerfile regressions.
+- **Path filter:** a push or PR builds only when a file the `Dockerfile` copies changes
+  (this package's `src/`, `snakemake/`, `README.md`, fisseq-common's `src/`, the
+  `pyproject.toml` files, `uv.lock`, ...). Nextflow files, tests and docs never reach the image.
 
 One CUDA-capable base image serves every stage, including the CPU-only
-ones (`QC_FILTER`, `FILTER_EMBEDDINGS`, etc.) -- simpler to build/publish/
+ones (`QC_FILTER`, `NORMALIZE`, etc.) -- simpler to build/publish/
 version as a single artifact than a GPU image plus a slimmer CPU image, at
 the cost of a larger pull for CPU-only processes. Worth splitting into two
 images later if that pull cost matters in practice; not required for v1.

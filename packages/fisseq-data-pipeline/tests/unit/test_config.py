@@ -1,4 +1,5 @@
-"""Guards the single-shared-seed invariant across every stage config.
+"""Guards the single-shared-seed invariant across this package's stage configs (the shared
+stages' configs are checked by fisseq-common's ``test_config.py``).
 
 ``AppConfig.random_seed`` is the one seed in this pipeline. A stage that needs
 to differ from its siblings derives a fixed offset from it (e.g. GENERATE_SPLIT
@@ -41,7 +42,7 @@ def _stage_config_classes() -> list[type]:
 def test_discovery_finds_the_stage_configs():
     """Guards the guard: an import failure must not silently empty the sweep."""
     names = {c.__name__ for c in _stage_config_classes()}
-    assert {"OvwtConfig", "QcFilterConfig", "FeatureTypeAggregateConfig"} <= names
+    assert {"InputStageConfig", "AggregateConfig"} <= names
 
 
 @pytest.mark.parametrize(

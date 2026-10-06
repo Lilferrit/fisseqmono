@@ -1,10 +1,15 @@
 """GENERATE_SPLIT: stratified 50/50 splits of the filtered keys, written as cell keys."""
 
+from unittest.mock import patch
+
 import polars as pl
 import pytest
+from omegaconf import OmegaConf
 
+from fisseq_common.stages.config import EMBEDDINGS_JOIN_KEYS
 from fisseq_common.stages.generatesplit import (
     GenerateSplitParams,
+    main,
     run_generate_split,
     split_keys,
 )
@@ -67,7 +72,7 @@ def test_run_writes_halves_that_select_cells_by_key(tmp_path):
     cfg = GenerateSplitParams(
         output_dir=str(tmp_path), filtered_keys_file=str(keys_path), bootstrap_idx=2
     )
-    run_generate_split(cfg, KEYS)
+    run_generate_split(cfg)
     half1 = pl.read_parquet(tmp_path / "half1.parquet")
     assert half1.columns == KEYS
     # the semi-join matches untagged cells (null tag) too
@@ -89,8 +94,52 @@ def test_seed_is_random_seed_plus_bootstrap_idx(tmp_path):
                 filtered_keys_file=str(keys_path),
                 random_seed=seed,
                 bootstrap_idx=idx,
-            ),
-            KEYS,
+            )
         )
         outs.append(pl.read_parquet(out / "half1.parquet"))
     assert outs[0].equals(outs[1])
+
+
+def test_main_writes_disjoint_halves_covering_every_row(tmp_path):
+    """The entry point (python -m fisseq_common.stages.generatesplit) creates output_dir;
+    the pseudo-variant row and its source cell are two rows of the split."""
+    keys_path = tmp_path / "filtered_keys.parquet"
+    _keys().write_parquet(keys_path)
+    cfg = GenerateSplitParams(
+        output_dir=str(tmp_path / "out"), filtered_keys_file=str(keys_path)
+    )
+    with patch("fisseq_common.stages.config.setup_logging"):
+        main.__wrapped__(OmegaConf.structured(cfg))
+    half1 = pl.read_parquet(tmp_path / "out" / "half1.parquet")
+    half2 = pl.read_parquet(tmp_path / "out" / "half2.parquet")
+    both = pl.concat([half1, half2]).sort(KEYS, nulls_last=False)
+    assert both.equals(_keys().select(KEYS).sort(KEYS, nulls_last=False))
+
+
+def test_embeddings_join_keys_name_cells_by_their_tile_keys(tmp_path):
+    n = 6
+    keys = pl.DataFrame(
+        {
+            "meta_batch": ["b"] * 2 * n,
+            "meta_well": ["w"] * 2 * n,
+            "meta_tile": ["t0", "t1"] * n,
+            # a per-tile index: unique only together with the tile
+            "meta_cell_index": [i // 2 for i in range(2 * n)],
+            "meta_variant_tag": pl.Series([None] * 2 * n, dtype=pl.String),
+            "meta_aa_changes": ["WT", "WT", "M1K", "M1K"] * (n // 2),
+        }
+    )
+    keys_path = tmp_path / "filtered_keys.parquet"
+    keys.write_parquet(keys_path)
+    run_generate_split(
+        GenerateSplitParams(
+            output_dir=str(tmp_path),
+            filtered_keys_file=str(keys_path),
+            join_keys=list(EMBEDDINGS_JOIN_KEYS),
+        )
+    )
+    half1 = pl.read_parquet(tmp_path / "half1.parquet")
+    half2 = pl.read_parquet(tmp_path / "half2.parquet")
+    assert half1.columns == list(EMBEDDINGS_JOIN_KEYS) + ["meta_variant_tag"]
+    assert half1.height + half2.height == keys.height
+    assert half1.join(half2, on=half1.columns, nulls_equal=True).height == 0

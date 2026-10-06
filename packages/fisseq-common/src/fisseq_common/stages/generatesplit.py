@@ -7,12 +7,15 @@ with a semi-join on those keys.
 
 The split is seeded with ``random_seed + bootstrap_idx``, so every replicate draws a distinct,
 reproducible split from the one shared seed.
+
+Entry point: ``python -m fisseq_common.stages.generatesplit``. A half names its cells by
+:func:`~.config.row_keys` of the pipeline's ``join_keys``.
 """
 
 import dataclasses
 import logging
 import pathlib
-from typing import Sequence
+from typing import List, Sequence
 
 import polars as pl
 import sklearn.model_selection
@@ -20,7 +23,7 @@ from omegaconf import MISSING
 
 from fisseq_common.utils.splits import write_split
 
-from .config import AppConfig
+from .config import DATA_JOIN_KEYS, AppConfig, row_keys, stage_main
 
 
 @dataclasses.dataclass
@@ -37,11 +40,17 @@ class GenerateSplitParams(AppConfig):
     bootstrap_idx : int
         Bootstrap replicate number; the split is seeded with ``random_seed + bootstrap_idx``.
         Defaults to ``1``.
+    join_keys : list of str
+        The pipeline's cell identity (see :class:`~.config.CellsInput`). Defaults to
+        :data:`~.config.DATA_JOIN_KEYS`.
     """
 
     filtered_keys_file: str = MISSING
     label_column: str = "meta_aa_changes"
     bootstrap_idx: int = 1
+    join_keys: List[str] = dataclasses.field(
+        default_factory=lambda: list(DATA_JOIN_KEYS)
+    )
 
 
 def split_keys(
@@ -81,11 +90,12 @@ def split_keys(
     return key_only[sorted(half1_idx)], key_only[sorted(half2_idx)]
 
 
-def run_generate_split(cfg: GenerateSplitParams, join_keys: Sequence[str]) -> None:
+def run_generate_split(cfg: GenerateSplitParams) -> None:
     """
     Run the stage with ``cfg`` (``output_dir`` must exist): write ``{prefix}half1.parquet``
     and ``{prefix}half2.parquet``, with ``prefix`` = ``{output_root}.`` when set.
     """
+    join_keys = row_keys(cfg.join_keys)
     output_dir = pathlib.Path(cfg.output_dir)
     prefix = f"{cfg.output_root}." if cfg.output_root is not None else ""
     seed = cfg.random_seed + cfg.bootstrap_idx
@@ -108,3 +118,9 @@ def run_generate_split(cfg: GenerateSplitParams, join_keys: Sequence[str]) -> No
         write_split(half, out_path)
 
     logging.info("Done")
+
+
+main = stage_main("generate_split_main", GenerateSplitParams, run_generate_split)
+
+if __name__ == "__main__":
+    main()

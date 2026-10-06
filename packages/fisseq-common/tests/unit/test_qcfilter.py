@@ -339,6 +339,20 @@ class TestAddDownsampledPseudoVariants:
         # rows their own distinct group rather than pooling with "A1A".
         assert (result["meta_aa_changes"] == f"A1A:{DOWNSAMPLE_TAG}-1.0").all()
 
+    def test_pseudo_rows_get_their_tag_as_variant_tag(self, cfg):
+        """A pseudo-variant row keeps its source cell's identity columns; its
+        ``meta_variant_tag`` is what tells the two rows apart downstream."""
+        df = _make_downsample_df(["A1A"] * 4, cfg)
+        assert df["meta_variant_tag"].is_null().all()
+        result = add_downsampled_pseudo_variants(
+            df.lazy(),
+            cfg,
+            downsample_classes=("Synonymous",),
+            downsample_amount=2,
+            seed=0,
+        ).collect()
+        assert result["meta_variant_tag"].to_list() == [f"{DOWNSAMPLE_TAG}-2"] * 2
+
     def test_zero_fraction_raises(self, cfg):
         df = _make_downsample_df(["A1A"] * 10, cfg)
         with pytest.raises(ValueError):

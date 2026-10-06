@@ -1,5 +1,5 @@
 """fisseq_common.stages.aggregate over embedding-shaped columns (``emb_0000``...): the
-aggregators, :func:`aggregate_methods` (method combination, lean output, ``bare_median``) and
+aggregators, :func:`aggregate_methods` (method combination, lean output) and
 ``feature_selector``. Moved from the embeddings pipeline; ``aggregate_embeddings`` below is its
 wrapper's selector default."""
 
@@ -567,12 +567,15 @@ def agg_embeddings_lf() -> pl.LazyFrame:
     ).lazy()
 
 
-def test_aggregate_embeddings_default_median_is_unsuffixed(
+def test_aggregate_embeddings_default_median_is_suffixed(
     agg_embeddings_lf: pl.LazyFrame,
 ) -> None:
+    """Median columns are always ``_median``-suffixed, like every other method's: the
+    blocklist keys features by column name, so a single-method job (AGGREGATE_HALF) must
+    name its columns as the full run does."""
     result = aggregate_embeddings(agg_embeddings_lf, "meta_aa_changes")
-    assert {"emb_0000", "emb_0001"}.issubset(set(result.columns))
-    assert "emb_0000_median" not in result.columns
+    assert {"emb_0000_median", "emb_0001_median"}.issubset(set(result.columns))
+    assert "emb_0000" not in result.columns
 
 
 def test_aggregate_embeddings_default_excludes_control_row(
@@ -588,7 +591,7 @@ def test_aggregate_embeddings_default_median_values_correct(
 ) -> None:
     result = aggregate_embeddings(agg_embeddings_lf, "meta_aa_changes")
     row = _get_row(result, "M1K")
-    assert row["emb_0000"] == pytest.approx(np.median([10.0, 11.0, 12.0]))
+    assert row["emb_0000_median"] == pytest.approx(np.median([10.0, 11.0, 12.0]))
 
 
 def test_aggregate_embeddings_default_includes_metadata_columns(
@@ -713,9 +716,11 @@ def test_aggregate_embeddings_with_feature_selector_matches_cp_style_columns(
     result = aggregate_embeddings(
         cp_style_df.lazy(), "meta_aa_changes", feature_selector=FEATURE_SELECTOR
     )
-    assert "Cells_AreaShape_Area" in result.columns
+    assert "Cells_AreaShape_Area_median" in result.columns
     row_a = _get_row(result, "A")
-    assert row_a["Cells_AreaShape_Area"] == pytest.approx(np.median([1.0, 2.0, 3.0]))
+    assert row_a["Cells_AreaShape_Area_median"] == pytest.approx(
+        np.median([1.0, 2.0, 3.0])
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -776,8 +781,7 @@ def test_default_feature_chunk_size_is_32() -> None:
 
 
 # ---------------------------------------------------------------------------
-# aggregate_embeddings -- lean mode and the bare-median switch, both used by
-# AGGREGATE_HALF / AGGREGATE_PASSTHROUGH
+# aggregate_embeddings -- lean mode, used by AGGREGATE_HALF / AGGREGATE_PASSTHROUGH
 # ---------------------------------------------------------------------------
 
 
@@ -798,22 +802,6 @@ def test_include_metadata_false_does_not_change_the_statistics(
         agg_embeddings_lf, "meta_aa_changes", ["median"], include_metadata=False
     )
     assert_frame_equal(full.select(lean.columns), lean)
-
-
-def test_bare_median_false_keeps_the_suffix(agg_embeddings_lf: pl.LazyFrame) -> None:
-    """AGGREGATE_HALF needs its column names to match an aggregate.parquet
-    built from a multi-method aggregate_methods, where median columns are
-    suffixed."""
-    suffixed = aggregate_embeddings(
-        agg_embeddings_lf, "meta_aa_changes", ["median"], bare_median=False
-    )
-    assert "emb_0000_median" in suffixed.columns
-    assert "emb_0000" not in suffixed.columns
-
-
-def test_bare_median_default_is_unchanged(agg_embeddings_lf: pl.LazyFrame) -> None:
-    bare = aggregate_embeddings(agg_embeddings_lf, "meta_aa_changes", ["median"])
-    assert "emb_0000" in bare.columns
 
 
 def test_aggregators_pool_all_cells_directly_not_per_barcode(

@@ -1,9 +1,12 @@
 """CORRELATE_FEATURES -- per-dimension Pearson r between two split halves."""
 
+from unittest.mock import patch
+
 import numpy as np
 import polars as pl
 import pytest
 import scipy.stats
+from omegaconf import OmegaConf
 
 import fisseq_common.stages.correlatefeatures as m
 
@@ -107,3 +110,24 @@ def test_no_feature_columns_returns_empty_table() -> None:
     result = m.compute_feature_correlations(df, df, LABEL)
     assert result.height == 0
     assert result.columns == ["feature", "r", "r_squared"]
+
+
+def test_main_writes_the_correlations_of_two_half_files(tmp_path) -> None:
+    """The entry point, python -m fisseq_common.stages.correlatefeatures."""
+    labels = ["A", "B", "C"]
+    df1 = _half({"f1_mean": [1.0, 2.0, 4.0]}, labels)
+    df2 = _half({"f1_mean": [2.0, 5.0, 1.0]}, labels)
+    p1, p2 = tmp_path / "half1.parquet", tmp_path / "half2.parquet"
+    df1.write_parquet(p1)
+    df2.write_parquet(p2)
+    cfg = m.CorrelateFeaturesParams(
+        output_dir=str(tmp_path / "out"),
+        half1_file=str(p1),
+        half2_file=str(p2),
+        output_name="mean",
+    )
+    with patch("fisseq_common.stages.config.setup_logging"):
+        m.main.__wrapped__(OmegaConf.structured(cfg))
+
+    result = pl.read_parquet(tmp_path / "out" / "mean.parquet")
+    assert result.equals(m.compute_feature_correlations(df1, df2, LABEL))
