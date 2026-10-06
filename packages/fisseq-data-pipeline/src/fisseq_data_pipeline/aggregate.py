@@ -94,15 +94,14 @@ def aggregate(
 ) -> pl.LazyFrame:
     """
     :func:`fisseq_common.stages.aggregate.aggregate` over the CellProfiler features, skipping
-    block-listed statistics.
+    block-listed statistics. See :func:`fisseq_common.stages.aggregate.aggregate` for the
+    parameters other than ``block_list``.
 
     Parameters
     ----------
     block_list : set[str] or None
         Aggregated output column names to skip (e.g. ``"f1_KS"``). A blocked statistic is
         not computed and does not appear in the output; names matching no output are ignored.
-
-    See :func:`fisseq_common.stages.aggregate.aggregate` for the other parameters.
     """
     if aggregator_name not in _AGGREGATORS:
         raise ValueError(

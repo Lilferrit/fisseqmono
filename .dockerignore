@@ -1,0 +1,30 @@
+# Both pipelines' images build from the workspace root (docker build -f packages/<pipeline>/Dockerfile .).
+# Keep the build context small: an image needs only the workspace definition (pyproject.toml,
+# uv.lock, .python-version, packages/*/pyproject.toml), fisseq-common's and its pipeline's
+# src/ and README.md, and the embeddings pipeline's snakemake/. testing_data/ alone is many GB
+# (the real-starcall fixture's download cache).
+.git
+**/.github
+**/.devcontainer
+**/.devcontainer-tmp
+.venv
+.venvs
+**/__pycache__
+**/*.pyc
+**/.ruff_cache
+**/.pytest_cache
+**/.nextflow
+**/.nextflow.log*
+**/work/
+**/.snakemake/
+**/site/
+docs/
+**/docs/
+tests/
+**/tests/
+**/starcall-workflow/
+**/testing_data/
+**/scratch/
+**/outputs/
+**/weights/
+**/*.pth

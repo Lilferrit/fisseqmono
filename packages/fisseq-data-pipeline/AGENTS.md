@@ -1,8 +1,8 @@
 # AGENTS.md — fisseq-data-pipeline
 
-> `docs/` was rewritten alongside the 1.0.0 release refactor and is current.
+> `docs/data-pipeline/` was rewritten alongside the 1.0.0 release refactor and is current.
 > This file plus the source and `pyproject.toml` remain the authoritative
-> references; `docs/` is the user-facing version of the same material.
+> references; `docs/data-pipeline/` is the user-facing version of the same material.
 
 ---
 
@@ -67,16 +67,20 @@ and `ovwt_batchwise/<batch>/results.parquet`.
 
 ## Setup & environment
 
-- **Python 3.13** (pinned in `.python-version`; `requires-python` is
+- **Python 3.13** (pinned in the workspace's `.python-version`; `requires-python` is
   `>=3.13,<3.14` — Hydra 1.3.x crashes on 3.14's argparse)
 - **uv** for dependency and environment management
 - **Nextflow ≥ 26.04** to run the pipeline (not needed for Python-only work)
 - **Docker** only to build the image
 
 ```bash
-uv sync --group dev
+uv sync                      # from the workspace root: every package + the dev tools
 uv run pre-commit install
 ```
+
+This package lives in the fisseqmono uv workspace (`packages/fisseq-data-pipeline/`); its
+shared stages are in `packages/fisseq-common/` and its shared Nextflow modules in the root
+`nextflow/` directory.
 
 ---
 
@@ -110,11 +114,11 @@ uv run ruff format .
 nextflow lint .
 
 # Docs
-uv run mkdocs build --strict
-uv run mkdocs serve
+uv run --group docs mkdocs build --strict
+uv run --group docs mkdocs serve
 
 # Container
-docker build -t fisseq-data-pipeline:dev .
+docker build -f packages/fisseq-data-pipeline/Dockerfile -t fisseq-data-pipeline:dev .   # from the workspace root
 ```
 
 ---
@@ -418,29 +422,32 @@ Claude pushes the branch but does **not** open the PR — the user does that.
 
 Before merging: `uv run pytest tests/unit`, `uv run ruff check .`,
 `uv run ruff format --check .`, `nextflow lint .`, and
-`uv run mkdocs build --strict`.
+`uv run --group docs mkdocs build --strict`.
 
-CI (`.github/workflows/`):
-- `pr-checks.yml` — `unit-tests`, `integration-tests`, `lint` on every PR to
-  `main` (skipped for drafts)
-- `docker.yml` — builds the image on every PR; pushes `:latest` + `:<short-sha>`
+CI (the workspace's `.github/workflows/`; see the root `AGENTS.md`):
+- `pkg-<package>.yml` — that package's unit (and, for the pipelines, integration)
+  tests, alone in its own venv, when it or `fisseq-common` changes
+- `root.yml` — lint, `uv lock --check`, Nextflow lint and the cross-package tests
+  (`tests/`), on every change
+- `docker.yml` — builds both pipelines' images on PRs; pushes `:latest` + `:<short-sha>`
   on push to `main`, and `:<version>` on a `v*` tag
-- `docs.yml` — deploys MkDocs to GitHub Pages on push to `main`
+- `docs.yml` — builds the one MkDocs site on PRs, deploys it on push to `main`
 
-Tag `v<version>` to publish a versioned image.
+Release with `scripts/release.py X.Y.Z` (one version for the whole workspace), then tag
+`vX.Y.Z`.
 
 ---
 
 ## Documentation maintenance
 
 - Any change to CLI flags / Hydra config fields / Nextflow processes / module
-  responsibilities **must** update the relevant `docs/` page in the same change.
-  Start from `docs/architecture.md`, `docs/nextflow.md`,
-  `docs/configuration.md`, and the relevant `docs/cli/<module>.md` +
-  `docs/api/<module>.md` pair.
+  responsibilities **must** update the relevant `docs/data-pipeline/` page in the same change.
+  Start from `docs/data-pipeline/architecture.md`, `docs/data-pipeline/nextflow.md`,
+  `docs/data-pipeline/configuration.md`, and the relevant `docs/data-pipeline/cli/<module>.md` +
+  `docs/data-pipeline/api/<module>.md` pair.
 - Any new source file needs a file-level docstring (Python) or top `//` comment
   block (`.nf`), except `__init__.py`.
-- Adding or removing a module means updating `mkdocs.yml`'s nav — `docs.yml`
+- Adding or removing a module means updating the repository root's `mkdocs.yml` nav — `docs.yml`
   runs `mkdocs build --strict`, so a dangling reference fails the build.
 - `README.md` stays a thin pointer (overview + quick start + docs link).
 

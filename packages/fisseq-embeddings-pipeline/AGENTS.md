@@ -1,11 +1,11 @@
 # AGENTS.md — fisseq-embeddings-pipeline
 
-> **This repo is implemented.** `docs/` (built with mkdocs, published to
+> **This repo is implemented.** `docs/embeddings-pipeline/` (built with mkdocs, published to
 > GitHub Pages on every push to `main` — see **CI** below) is the
 > authoritative reference: architecture decisions, data contracts,
 > per-stage config/usage, Nextflow wiring, and output layout. Read it
 > before `SPEC.md`/`IMPLEMENTATION_CHECKLIST.md`, which no longer exist —
-> their content was folded into `docs/` once implementation caught up to
+> their content was folded into `docs/embeddings-pipeline/` once implementation caught up to
 > the design.
 
 ---
@@ -19,32 +19,26 @@ one-vs-wildtype → aggregate structure; pooling across experiments is
 fisseqborn's `fisseqborn-global`), but scores genetic
 variants against a pretrained **Cell-DINO** vision transformer's learned
 embeddings instead of hand-engineered CellProfiler features. See
-[`docs/architecture.md`](docs/architecture.md) for the full picture and
+[`docs/embeddings-pipeline/architecture.md`](../../docs/embeddings-pipeline/architecture.md) for the full picture and
 its ASCII DAG.
 
-**Sibling repos** (the source of every piece of vendored code in this
-pipeline):
-- `fisseq-data-pipeline` — the CellProfiler-feature version of this same
-  analysis. Most of this pipeline's Python is either vendored unchanged
-  from it or adapted from it — each module under
-  `src/fisseq_embeddings_pipeline/` says what it vendors/adapts and from
-  which file in its own docstring; `docs/architecture.md` has the full
-  terminology map.
+**Related code:**
+- `fisseq-data-pipeline` (`packages/fisseq-data-pipeline/` in this workspace) — the
+  CellProfiler-feature version of this same analysis. The stages both pipelines run live
+  once in `fisseq-common` (`packages/fisseq-common/`, `fisseq_common.stages`); this
+  package's modules are Hydra entry points over them. `docs/embeddings-pipeline/architecture.md`
+  has the terminology map.
 - `starcall-workflow` — the Snakemake pipeline whose `origin/devel` branch
-  produces this pipeline's two inputs (Cell Info Table, Cell Images). The
-  root `Dockerfile` clones it at **one pinned commit**
+  produces this pipeline's two inputs (Cell Info Table, Cell Images). This
+  package's `Dockerfile` clones it at **one pinned commit**
   (`ARG STARCALL_WORKFLOW_COMMIT`): the code `BUILD_CELL_IMAGES`' nested
   snakemake actually runs, through `snakemake/Snakefile`, and what the
-  image's `ops` env is built from. See `docs/architecture.md`'s Data
+  image's `ops` env is built from. See `docs/embeddings-pipeline/architecture.md`'s Data
   contracts section and decision 24.
 
-`.devcontainer/devcontainer.json` bind-mounts both sibling repos read-only
-into this sandbox at `/workspaces/fisseq-data-pipeline` and
-`/workspaces/starcall-workflow` — use them directly from there when
-tracing vendored code back to its source. They're mounted read-only on
-purpose — don't write into them; if a vendored file needs a fix upstream,
-note that in your commit message instead of editing the sibling repo in
-place.
+The workspace's `.devcontainer/devcontainer.json` bind-mounts starcall-workflow read-only
+into the sandbox at `/workspaces/starcall-workflow`. It's mounted read-only on purpose —
+don't write into it; if starcall needs a fix upstream, note that in your commit message.
 
 **`starcall-workflow` gotcha:** this pipeline tracks `starcall-workflow`'s
 `origin/devel` branch, not `master`. The authoritative version is the
@@ -60,7 +54,7 @@ anything this pipeline adds to starcall's DAG goes in
 `snakemake/Snakefile` instead. Upstream's own
 `make_cell_images` is broken against its cell table, which is why the
 per-tile `make_cell_shard` rule there does the cropping itself
-(`tile_shard.py`; `docs/architecture.md` decision 17). Bumping the pin:
+(`tile_shard.py`; `docs/embeddings-pipeline/architecture.md` decision 17). Bumping the pin:
 change `STARCALL_WORKFLOW_COMMIT`'s default to the new devel commit,
 rebuild the image, and run `tests/integration --container`.
 
@@ -84,12 +78,12 @@ rebuild the image, and run `tests/integration --container`.
 - **`meta_*` column convention**: metadata columns are prefixed `meta_*`;
   `FEATURE_SELECTOR` (`cs.exclude("^meta_.*$")`) and `EMBEDDING_SELECTOR`
   (`cs.matches(r"^emb_\d+$")`) key off this — see
-  [`docs/api/utils.md`](docs/api/utils.md) before adding any new
+  [`docs/embeddings-pipeline/api/utils.md`](../../docs/embeddings-pipeline/api/utils.md) before adding any new
   non-`meta_*` column.
 - **No stage copies another stage's data wholesale.** If you're about to
   write a full copy of another stage's table to disk (rather than a join
   key + something new), stop and check whether that violates the no-copy
-  principle — see `docs/architecture.md`'s architecture decisions.
+  principle — see `docs/embeddings-pipeline/architecture.md`'s architecture decisions.
 - **Nextflow processes**: one per stage, in
   `modules/local/<name>/main.nf` (or, if shared with fisseq-data-pipeline,
   the repo root's `nextflow/modules/local/<name>/main.nf`, configured by
@@ -106,14 +100,14 @@ rebuild the image, and run `tests/integration --container`.
   fisseq_embeddings_pipeline.tile_shard` once per tile). `PLAN_EXPERIMENTS` runs first
   and owns validation/routing (`config/experiments.py`) — add new
   per-experiment routing there, in Python, not in Groovy. See
-  [`docs/nextflow.md`](docs/nextflow.md#modules).
+  [`docs/embeddings-pipeline/nextflow.md`](../../docs/embeddings-pipeline/nextflow.md#modules).
 - **No scheduler-specific code.** Cluster settings are the user's: a
   `-c site.config` for Nextflow and a snakemake 7 `starcall_profile` for
   the nested starcall run. Only the generic image re-entry jobscript
   (`render_starcall_jobscript`) lives here.
 - **Config**: defaults belong in `params.yaml` (repo root), never in
   `nextflow.config` or a profile — see
-  [`docs/configuration.md`](docs/configuration.md).
+  [`docs/embeddings-pipeline/configuration.md`](../../docs/embeddings-pipeline/configuration.md).
 
 ## Git workflow
 
@@ -140,9 +134,9 @@ see **CI** below for what runs where.
 - **Never rewrite history already merged into `main`** (no
   `push --force`/rebase of a merged branch) — even solo, this keeps
   `git log` a trustworthy record of what happened and when.
-- If `docs/` diverges from what actually ended up on disk, fix the docs in
+- If `docs/embeddings-pipeline/` diverges from what actually ended up on disk, fix the docs in
   the same commit as the code change that caused the divergence —
-  `docs/` should always reflect what's actually implemented, never what's
+  `docs/embeddings-pipeline/` should always reflect what's actually implemented, never what's
   planned or in progress.
 
 ## Testing
@@ -191,18 +185,27 @@ repo's temp directories (see the test module's container-section comment).
 
 ## CI
 
-Three workflows under `.github/workflows/` — `pr-checks.yml`,
-`docker.yml`, `docs.yml`; read them for their exact triggers. The image
-tagging convention is in
-[`docs/configuration.md`](docs/configuration.md#docker-image-versioning-publishing).
+CI (the workspace's `.github/workflows/`; see the root `AGENTS.md`):
+- `pkg-<package>.yml` — that package's unit (and, for the pipelines, integration)
+  tests, alone in its own venv, when it or `fisseq-common` changes
+- `root.yml` — lint, `uv lock --check`, Nextflow lint and the cross-package tests
+  (`tests/`), on every change
+- `docker.yml` — builds both pipelines' images on PRs; pushes `:latest` + `:<short-sha>`
+  on push to `main`, and `:<version>` on a `v*` tag
+- `docs.yml` — builds the one MkDocs site on PRs, deploys it on push to `main`
+
+Release with `scripts/release.py X.Y.Z` (one version for the whole workspace), then tag
+`vX.Y.Z`.
+The image tagging convention is in
+[`docs/embeddings-pipeline/configuration.md`](../../docs/embeddings-pipeline/configuration.md#docker-image-versioning-publishing).
 
 ## Docker / devcontainer
 
-`Dockerfile` (repo root) is the single image every task runs
-in — build it locally with `docker build -t
-fisseq-embeddings-pipeline:latest .` and point `params.yaml`'s
+`Dockerfile` (this package's) is the single image every task runs
+in — build it locally from the workspace root with `docker build -f
+packages/fisseq-embeddings-pipeline/Dockerfile -t fisseq-embeddings-pipeline:latest .`
+and point `params.yaml`'s
 `container_image` at wherever you publish it (see
-[`docs/configuration.md`](docs/configuration.md)). `.devcontainer/` is a
-Claude-Code-in-a-sandbox dev environment (mirrors `fisseq-data-pipeline`'s
-own `.devcontainer/`) — not the pipeline's runtime container, just where
-you edit code.
+[`docs/embeddings-pipeline/configuration.md`](../../docs/embeddings-pipeline/configuration.md)). The workspace's
+`.devcontainer/` is a Claude-Code-in-a-sandbox dev environment — not the
+pipeline's runtime container, just where you edit code.

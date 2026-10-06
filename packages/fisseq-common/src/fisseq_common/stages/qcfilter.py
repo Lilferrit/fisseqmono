@@ -632,6 +632,8 @@ def run_qc_filter(
         different downsample amounts and so carry different tags. ``None`` keeps the
         join order.
 
+    Notes
+    -----
     Output files, with ``prefix`` = ``{output_root}.`` when ``output_root`` is set:
 
     - ``{prefix}filtered_cells.parquet``

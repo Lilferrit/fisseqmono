@@ -1,0 +1,62 @@
+# The pipelines' images, built from the workspace root (each needs fisseq-common and uv.lock).
+#
+#   - Registry: ghcr.io/<owner>/<pipeline>, the names params.yaml's container_image uses.
+#     The packages must grant this repository write access (package settings → Manage
+#     Actions access) if they were first published from the pipelines' old repositories.
+#   - Tags, on every push to main: `:latest` and `:<short-sha>`. On a pushed `v*` tag: also
+#     `:<version>` (`v2.0.0` -> `2.0.0`).
+#   - Pull requests: build only, no push.
+name: docker
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths: &paths
+      - packages/fisseq-common/**
+      - packages/fisseq-data-pipeline/**
+      - packages/fisseq-embeddings-pipeline/**
+      - pyproject.toml
+      - uv.lock
+      - .python-version
+      - .dockerignore
+      - .github/workflows/docker.yml
+  pull_request:
+    paths: *paths
+
+jobs:
+  build:
+    name: ${{ matrix.pipeline }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        pipeline: [fisseq-data-pipeline, fisseq-embeddings-pipeline]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to ghcr.io
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compute tags
+        id: tags
+        run: |
+          image="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/${{ matrix.pipeline }}"
+          tags="${image}:latest,${image}:${GITHUB_SHA::7}"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            tags="${tags},${image}:${GITHUB_REF#refs/tags/v}"
+          fi
+          echo "tags=${tags}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/${{ matrix.pipeline }}/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.tags.outputs.tags }}

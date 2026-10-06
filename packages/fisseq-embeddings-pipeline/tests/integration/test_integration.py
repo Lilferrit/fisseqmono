@@ -1170,7 +1170,16 @@ def real_starcall_image():
     if prebuilt:
         return prebuilt
     subprocess.run(
-        ["docker", "build", "-t", _IMAGE_TAG, str(_PROJECT_ROOT)],
+        # Built from the workspace root (fisseq-common and uv.lock live there).
+        [
+            "docker",
+            "build",
+            "-f",
+            str(_PROJECT_ROOT / "Dockerfile"),
+            "-t",
+            _IMAGE_TAG,
+            str(_PROJECT_ROOT.parents[1]),
+        ],
         check=True,
         timeout=3600,
     )

@@ -1,0 +1,59 @@
+# One package's test suite, in a virtual environment holding only that package and its
+# dependencies (fisseq-common for the others): the package must not depend on any other
+# workspace package. Called by pkg-<package>.yml.
+name: package tests
+
+on:
+  workflow_call:
+    inputs:
+      package:
+        description: workspace package name (packages/<package>)
+        required: true
+        type: string
+      integration:
+        description: also run tests/integration (needs Java and Nextflow)
+        required: false
+        type: boolean
+        default: false
+
+env:
+  UV_PROJECT_ENVIRONMENT: .venvs/${{ inputs.package }}
+
+jobs:
+  unit:
+    name: ${{ inputs.package }} unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install the package alone
+        run: uv sync --frozen --exact --package ${{ inputs.package }} --group dev
+      - name: Unit tests
+        run: uv run --frozen --exact --package ${{ inputs.package }} --group dev pytest packages/${{ inputs.package }}/tests/unit
+
+  integration:
+    name: ${{ inputs.package }} integration tests
+    if: inputs.integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: nf-core/setup-nextflow@v2
+        with:
+          version: "latest-stable"
+      - name: Install the package alone
+        run: uv sync --frozen --exact --package ${{ inputs.package }} --group dev
+      # -profile local: no image needed. The embeddings pipeline's containerized
+      # real-starcall tests only run with --container, which this doesn't pass.
+      - name: Integration tests
+        run: uv run --frozen --exact --package ${{ inputs.package }} --group dev pytest packages/${{ inputs.package }}/tests/integration

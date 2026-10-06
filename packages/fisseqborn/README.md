@@ -63,7 +63,7 @@ copies only the files that call reads, over scp.
 Neither pipeline aggregates across experiments. `fisseqborn-global <pipeline_dir> --out <dir>` does it
 from the per-batch outputs: per track, the blocklist vote, `median_aggregate.parquet`, a full-rank
 PCA (`pca_*.parquet`) and the distinguishability `global_scores.parquet` (see
-[Aggregate across experiments](docs/data.md#aggregate-across-experiments)).
+[Aggregate across experiments](../../docs/fisseqborn/data.md#aggregate-across-experiments)).
 
 | Class | For |
 |---|---|
@@ -143,11 +143,11 @@ uv run pytest
 
 ## Documentation
 
-The docs are built with MkDocs (Material theme, API reference via mkdocstrings) from `docs/`:
+The docs are built with MkDocs (Material theme, API reference via mkdocstrings) from `docs/fisseqborn/`:
 
 ```sh
 uv sync --group docs
-uv run mkdocs serve      # live preview at http://127.0.0.1:8000
+uv run --group docs mkdocs serve      # live preview at http://127.0.0.1:8000
 ```
 
 Every push to `main` rebuilds the site and pushes it to the `gh-pages` branch

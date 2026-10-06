@@ -1,5 +1,10 @@
 # Dockerfile -- the single image every Nextflow task runs in (Docker by
-# default, or Apptainer via `-profile apptainer`), including
+# default, or Apptainer via `-profile apptainer`). Built from the fisseqmono workspace root,
+# which holds the shared fisseq-common package and the one uv.lock:
+#
+#   docker build -f packages/fisseq-embeddings-pipeline/Dockerfile -t fisseq-embeddings-pipeline .
+#
+# The image runs including
 # BUILD_CELL_IMAGES' nested starcall snakemake and, in cluster mode, every
 # starcall child job it submits (params.starcall_job_image). One CUDA-capable
 # base serves CPU-only stages too (simpler to build/publish as one
@@ -55,7 +60,10 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 # `-u $(id -u):$(id -g)`.
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python
 
-WORKDIR /opt/fisseq-embeddings-pipeline
+# The Python environment lives in the workspace at /opt/fisseqmono (its .venv); the nested
+# starcall run's files (snakemake/Snakefile, the starcall-workflow clone) stay at
+# /opt/fisseq-embeddings-pipeline, where nextflow.config's ext.fisseq_snakefile points.
+WORKDIR /opt/fisseqmono
 
 # .python-version (pins 3.13, not just pyproject.toml's open-ended
 # `>=3.13`) has to be copied in before the first `uv sync` -- caught by a
@@ -69,16 +77,18 @@ WORKDIR /opt/fisseq-embeddings-pipeline
 # invocation outright, not just `--help`. Confirmed fixed by copying
 # .python-version in before either `uv sync` call below, restoring 3.13.
 #
-# Dependencies-only layer, cached independently of source changes. `uv sync`
-# always also builds/installs the local project itself by default, which
-# fails here (no src/ or README.md yet -- hatchling's own metadata
-# validation needs both present, confirmed empirically) -- so restrict this
-# pass to third-party deps only. --no-dev excludes the mkdocs/pytest/ruff/
-# pre-commit dev-group tooling (AGENTS.md's `uv sync --group dev`) from the
-# runtime image; every process below runs `python -m
-# fisseq_embeddings_pipeline.<module>` directly, never `pytest`/`ruff`.
+# Dependencies-only layer, cached independently of source changes: the workspace definition
+# (root pyproject.toml, uv.lock and every member's pyproject.toml) and nothing else.
+# --package installs this pipeline's dependencies only; --no-install-workspace leaves out the
+# workspace members themselves (hatchling needs their src/ and README.md, not copied yet);
+# --no-dev excludes the root dev group (tests, docs, linters) -- every process runs
+# `python -m fisseq_embeddings_pipeline.<module>` directly, never `pytest`/`ruff`.
 COPY pyproject.toml uv.lock .python-version ./
-RUN uv sync --frozen --no-install-project --no-dev
+COPY packages/fisseq-common/pyproject.toml packages/fisseq-common/
+COPY packages/fisseq-data-pipeline/pyproject.toml packages/fisseq-data-pipeline/
+COPY packages/fisseq-embeddings-pipeline/pyproject.toml packages/fisseq-embeddings-pipeline/
+COPY packages/fisseqborn/pyproject.toml packages/fisseqborn/
+RUN uv sync --frozen --no-dev --package fisseq-embeddings-pipeline --no-install-workspace
 
 # ── starcall-workflow's `ops` conda env ─────────────────────────────────────
 # Placed here -- after the uv deps layer, before the project-source layer
@@ -160,6 +170,7 @@ RUN pip install --no-cache-dir "snakemake==7.32.4"
 # and packages/constitch.
 ARG STARCALL_WORKFLOW_GIT_URL=https://github.com/FowlerLab/starcall-workflow.git
 ARG STARCALL_WORKFLOW_COMMIT=6e2dc8bf8a96095e640e110550209bba50c23d07
+WORKDIR /opt/fisseq-embeddings-pipeline
 RUN git clone --recursive "${STARCALL_WORKFLOW_GIT_URL}" starcall-workflow \
     && git -C starcall-workflow checkout "${STARCALL_WORKFLOW_COMMIT}" \
     && git -C starcall-workflow submodule update --init --recursive
@@ -203,20 +214,23 @@ RUN find starcall-workflow -mindepth 1 -maxdepth 1 ! -name workflow -exec rm -rf
 # not run inside the `ops` conda env.
 SHELL ["/bin/bash", "-c"]
 
-# Now install the project itself -- the deps layer above stays cached across
+# What BUILD_CELL_IMAGES' nested snakemake runs (process.ext.fisseq_snakefile
+# in nextflow.config): snakemake/Snakefile, which includes the pinned
+# starcall-workflow clone's own (above) by relative path.
+COPY packages/fisseq-embeddings-pipeline/snakemake/ snakemake/
+
+# Now fisseq-common and the pipeline itself -- the deps layer above stays cached across
 # source-only changes. dinov2 needs no separate vendoring/installation step
 # here: it's vendored as pure-torch source directly under
 # src/fisseq_embeddings_pipeline/vendor/dinov2/ (see that directory's
 # VENDORED_FROM.md for why and what), so it's part of this package and
 # installs with it -- no xformers/cuml/git-dependency wrangling needed.
-COPY README.md ./
-COPY src/ src/
-RUN uv sync --frozen --no-dev
-
-# What BUILD_CELL_IMAGES' nested snakemake runs (process.ext.fisseq_snakefile
-# in nextflow.config): snakemake/Snakefile, which includes the pinned
-# starcall-workflow clone's own (above) by relative path.
-COPY snakemake/ snakemake/
+WORKDIR /opt/fisseqmono
+COPY packages/fisseq-common/README.md packages/fisseq-common/
+COPY packages/fisseq-common/src/ packages/fisseq-common/src/
+COPY packages/fisseq-embeddings-pipeline/README.md packages/fisseq-embeddings-pipeline/
+COPY packages/fisseq-embeddings-pipeline/src/ packages/fisseq-embeddings-pipeline/src/
+RUN uv sync --frozen --no-dev --package fisseq-embeddings-pipeline --no-editable
 
 # `uv sync` installs into a project-local .venv/, not any system Python --
 # put it on PATH so the bare `python -m fisseq_embeddings_pipeline.<module>`
@@ -229,6 +243,6 @@ COPY snakemake/ snakemake/
 # `ops` conda env above is deliberately never added here, for the same
 # "no ambiguous bare python" reason in reverse -- see that block's own
 # comment.
-ENV PATH="/opt/fisseq-embeddings-pipeline/.venv/bin:${PATH}"
+ENV PATH="/opt/fisseqmono/.venv/bin:${PATH}"
 
 ENTRYPOINT []

@@ -25,7 +25,7 @@ Cell Info Table + Cell Images (starcall-workflow)
 Pooling across experiments (Global Variant Embeddings, global distinguish-ability scores) is
 done by `fisseqborn-global` in the fisseqborn package, from these per-experiment outputs.
 
-See **[the documentation site](https://lilferrit.github.io/fisseq-embeddings-pipeline/)**
+See **[the documentation site](https://lilferrit.github.io/fisseqmono/embeddings-pipeline/)**
 for the full design (architecture decisions, data contracts, per-stage
 usage, Nextflow orchestration, running on a cluster, output layout).
 
@@ -56,8 +56,8 @@ this repo's own venv. On a cluster, pass your own executor settings with
 starcall-workflow run with `--starcall_profile` -- nothing
 scheduler-specific ships in this repo.
 
-See [Installation](https://lilferrit.github.io/fisseq-embeddings-pipeline/installation/)
-and [Quickstart](https://lilferrit.github.io/fisseq-embeddings-pipeline/quickstart/)
+See [Installation](https://lilferrit.github.io/fisseqmono/embeddings-pipeline/installation/)
+and [Quickstart](https://lilferrit.github.io/fisseqmono/embeddings-pipeline/quickstart/)
 for the full walkthrough, including how to lay out an experiment's inputs
 and where to get a Cell-DINO checkpoint.
 
@@ -67,12 +67,12 @@ included for developing with Claude Code in an isolated sandbox.
 ## Documentation
 
 Full documentation is published at
-[lilferrit.github.io/fisseq-embeddings-pipeline](https://lilferrit.github.io/fisseq-embeddings-pipeline/),
-built from `docs/` via [mkdocs](https://www.mkdocs.org/). To build it
+[lilferrit.github.io/fisseqmono/embeddings-pipeline](https://lilferrit.github.io/fisseqmono/embeddings-pipeline/),
+built from `docs/embeddings-pipeline/` via [mkdocs](https://www.mkdocs.org/). To build it
 locally:
 
 ```bash
-uv run mkdocs serve
+uv run --group docs mkdocs serve
 ```
 
 ## License

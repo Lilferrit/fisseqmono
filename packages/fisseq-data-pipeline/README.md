@@ -44,13 +44,13 @@ local uv environment instead.
 
 ## Documentation
 
-See the **[Quickstart Guide](https://lilferrit.github.io/fisseq-data-pipeline/quickstart/)**
+See the **[Quickstart Guide](https://lilferrit.github.io/fisseqmono/data-pipeline/quickstart/)**
 for a full walkthrough of getting your first run going, including cluster/SGE
 setup.
 
 Full documentation — architecture, Nextflow workflow reference, CLI/config
 options, and an end-to-end walkthrough — is at
-**[lilferrit.github.io/fisseq-data-pipeline](https://lilferrit.github.io/fisseq-data-pipeline)**.
+**[lilferrit.github.io/fisseqmono/data-pipeline](https://lilferrit.github.io/fisseqmono/data-pipeline/)**.
 
 ## License
 

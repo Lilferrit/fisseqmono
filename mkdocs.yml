@@ -1,0 +1,163 @@
+# One documentation site for the fisseqmono workspace: uv run --group docs mkdocs build --strict
+site_name: FISSEQ
+site_description: fisseq-common, fisseq-data-pipeline, fisseq-embeddings-pipeline and fisseqborn
+repo_url: https://github.com/Lilferrit/fisseqmono
+repo_name: Lilferrit/fisseqmono
+nav:
+- Home: index.md
+- fisseq-common:
+  - Overview: common/index.md
+  - API Reference: common/api.md
+- Data pipeline:
+  - Home: data-pipeline/index.md
+  - Quickstart: data-pipeline/quickstart.md
+  - Architecture: data-pipeline/architecture.md
+  - Installation: data-pipeline/installation.md
+  - Nextflow Workflow: data-pipeline/nextflow.md
+  - Configuration: data-pipeline/configuration.md
+  - CLI Reference:
+    - Input: data-pipeline/cli/input.md
+    - QC Filter: data-pipeline/cli/qcfilter.md
+    - Normalize: data-pipeline/cli/normalize.md
+    - Aggregate: data-pipeline/cli/aggregate.md
+    - Feature Selection: data-pipeline/cli/features.md
+    - One-vs-WT: data-pipeline/cli/ovwt.md
+  - API Reference:
+    - input: data-pipeline/api/input.md
+    - qcfilter: data-pipeline/api/qcfilter.md
+    - normalize: data-pipeline/api/normalize.md
+    - aggregate: data-pipeline/api/aggregate.md
+    - features: data-pipeline/api/features.md
+    - ovwt: data-pipeline/api/ovwt.md
+    - config: data-pipeline/api/config.md
+    - utils: data-pipeline/api/utils.md
+  - Walkthrough: data-pipeline/walkthrough.md
+- Embeddings pipeline:
+  - Home: embeddings-pipeline/index.md
+  - Installation: embeddings-pipeline/installation.md
+  - Quickstart: embeddings-pipeline/quickstart.md
+  - Architecture: embeddings-pipeline/architecture.md
+  - Nextflow Workflow: embeddings-pipeline/nextflow.md
+  - Configuration: embeddings-pipeline/configuration.md
+  - Stage Reference:
+    - 'Cell Images, Phase 1: Enumerate (BUILD_CELL_IMAGES)': embeddings-pipeline/cli/build_cell_images_enumerate.md
+    - 'Cell Images, Phase 2: Cell Shards (make_cell_shard, inside BUILD_CELL_IMAGES)': embeddings-pipeline/cli/tile_shard.md
+    - 'Cell Images, Phase 3: Build Table (BUILD_CELL_IMAGES)': embeddings-pipeline/cli/build_cell_images_table.md
+    - Cell Metadata (BUILD_CELL_METADATA): embeddings-pipeline/cli/cell_metadata.md
+    - QC Filtering (QC_FILTER): embeddings-pipeline/cli/qcfilter.md
+    - Cell Embeddings (EMBED_CELLS): embeddings-pipeline/cli/embed.md
+    - Filter Embeddings (FILTER_EMBEDDINGS): embeddings-pipeline/cli/filter.md
+    - Aggregation (AGGREGATE_EMBEDDINGS): embeddings-pipeline/cli/aggregate.md
+    - OVWT Distinguish-ability (OVWT_BATCHWISE): embeddings-pipeline/cli/ovwt.md
+    - Pseudo-Replicate Split (GENERATE_SPLIT): embeddings-pipeline/cli/generatesplit.md
+    - Half / Passthrough Aggregation (AGGREGATE_HALF): embeddings-pipeline/cli/aggregate_half.md
+    - Half Correlation (CORRELATE_FEATURES): embeddings-pipeline/cli/correlatefeatures.md
+    - Reproducibility Blocklist (BLOCKLIST): embeddings-pipeline/cli/blocklist.md
+    - Combine Blocklists (COMBINE_BLOCKLISTS): embeddings-pipeline/cli/combineblocklists.md
+    - Filtered Aggregates (FILTER_AGGREGATE): embeddings-pipeline/cli/filter_aggregate.md
+    - CellProfiler Feature Dataset (BUILD_CP_FEATURES): embeddings-pipeline/cli/cp_features.md
+    - Filter CP Features (FILTER_CP_FEATURES): embeddings-pipeline/cli/filter_cp_features.md
+    - Aggregation, CP Track (AGGREGATE_CP_FEATURES): embeddings-pipeline/cli/aggregate_cp_features.md
+    - OVWT Distinguish-ability, CP Track (OVWT_BATCHWISE_CP_FEATURES): embeddings-pipeline/cli/ovwt_cp_features.md
+  - API Reference:
+    - build_cell_images_enumerate: embeddings-pipeline/api/build_cell_images_enumerate.md
+    - tile_shard: embeddings-pipeline/api/tile_shard.md
+    - build_cell_images_table: embeddings-pipeline/api/build_cell_images_table.md
+    - cell_metadata: embeddings-pipeline/api/cell_metadata.md
+    - qcfilter: embeddings-pipeline/api/qcfilter.md
+    - embed: embeddings-pipeline/api/embed.md
+    - filter: embeddings-pipeline/api/filter.md
+    - aggregate: embeddings-pipeline/api/aggregate.md
+    - ovwt: embeddings-pipeline/api/ovwt.md
+    - generatesplit: embeddings-pipeline/api/generatesplit.md
+    - aggregate_half: embeddings-pipeline/api/aggregate_half.md
+    - correlatefeatures: embeddings-pipeline/api/correlatefeatures.md
+    - blocklist: embeddings-pipeline/api/blocklist.md
+    - combineblocklists: embeddings-pipeline/api/combineblocklists.md
+    - filter_aggregate: embeddings-pipeline/api/filter_aggregate.md
+    - cp_features: embeddings-pipeline/api/cp_features.md
+    - filter_cp_features: embeddings-pipeline/api/filter_cp_features.md
+    - aggregate_cp_features: embeddings-pipeline/api/aggregate_cp_features.md
+    - ovwt_cp_features: embeddings-pipeline/api/ovwt_cp_features.md
+    - config: embeddings-pipeline/api/config.md
+    - utils: embeddings-pipeline/api/utils.md
+- fisseqborn:
+  - Home: fisseqborn/index.md
+  - User guide:
+    - Concepts: fisseqborn/concepts.md
+    - The fisseq theme: fisseqborn/theme.md
+    - Loading pipeline outputs: fisseqborn/data.md
+  - Plots:
+    - Boxplots: fisseqborn/plots/box.md
+    - Embeddings (UMAP / PCA): fisseqborn/plots/embedding.md
+    - Correlation scatter: fisseqborn/plots/correlation.md
+    - ROC curves: fisseqborn/plots/roc.md
+    - Heatmaps: fisseqborn/plots/heatmap.md
+    - Clustermaps: fisseqborn/plots/clustermap.md
+    - Explained variance: fisseqborn/plots/explained-variance.md
+    - Pair plots: fisseqborn/plots/pairplot.md
+    - Volcano plots: fisseqborn/plots/volcano.md
+  - API reference: fisseqborn/api.md
+- Diff reports:
+  - About: diff-reports/README.md
+  - 01 Metadata counts: diff-reports/01-metadata-counts.md
+  - 02 Normalize: diff-reports/02-normalize.md
+  - 03 Feature selection: diff-reports/03-feature-selection.md
+  - 04 fisseqborn global: diff-reports/04-fisseqborn-global.md
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - toc.follow
+    - content.code.copy
+extra_css:
+  - data-pipeline/stylesheets/extra.css
+markdown_extensions:
+  - toc:
+      permalink: true
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths:
+            - packages/fisseq-common/src
+            - packages/fisseq-data-pipeline/src
+            - packages/fisseq-embeddings-pipeline/src
+            - packages/fisseqborn/src
+          options:
+            docstring_style: numpy
+            docstring_section_style: table
+            show_root_heading: true
+            show_signature: true
+            separate_signature: true
+            show_signature_annotations: true
+            show_source: true
+            heading_level: 3

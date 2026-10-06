@@ -1,0 +1,38 @@
+# The one documentation site (mkdocs.yml at the root): built strictly on every pull request,
+# deployed to gh-pages on every push to main.
+name: docs
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      # mkdocstrings imports nothing, but the docs group plus every package keeps
+      # cross-references resolvable.
+      - run: uv sync --frozen --group docs
+      - name: Build
+        if: github.event_name == 'pull_request'
+        run: uv run --group docs mkdocs build --strict
+      - name: Deploy to gh-pages
+        if: github.event_name != 'pull_request'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          uv run --group docs mkdocs gh-deploy --force --strict
