@@ -99,7 +99,7 @@ global default. All three route to `BUILD_CELL_IMAGES` only.
 | `starcall_container_bin` | `"apptainer"` | `BUILD_CELL_IMAGES`, cluster mode: the runtime a child job re-enters the image with (`singularity` on some nodes) |
 | `snakemake_cache_dir` | `null` (-> `<pipeline_dir>/.snakemake_cache`) | `BUILD_CELL_IMAGES` (where its nested `snakemake` points `$XDG_CACHE_HOME`/`$HOME` -- see [read-only `$HOME`](#the-nested-snakemake-and-a-read-only-home) below) |
 | `starcall_gpu` | `true` | `BUILD_CELL_IMAGES` (`--nv`/`--gpus all` on its container, and `--nv` on every child job in cluster mode, for starcall's stardist/cellpose segmentation; set `false` on a GPU-less **Docker** host, where `--gpus` fails outright) |
-| `embeddings_only` | `false` | the workflow: `true` stops after `EMBED_CELLS` -- no QC-dependent cellDINO stages, no reproducibility filtering, no CellProfiler track, no global stages |
+| `embeddings_only` | `false` | the workflow: `true` stops after `EMBED_CELLS` -- no QC-dependent cellDINO stages, no reproducibility filtering, no CellProfiler track |
 | `random_seed` | `0` | every stochastic stage |
 | `barcode_count_threshold` | `10` | `QC_FILTER` |
 | `variant_barcode_count_threshold` | `4` | `QC_FILTER` |
@@ -113,22 +113,27 @@ global default. All three route to `BUILD_CELL_IMAGES` only.
 | `cell_dino_device` | `"cuda"` | `EMBED_CELLS` |
 | `cell_dino_batch_size` | `256` | `EMBED_CELLS` |
 | `cell_dino_num_workers` | `4` | `EMBED_CELLS` |
-| `filter_label_column` | `"meta_aa_changes"` | `QC_FILTER`, `FILTER_EMBEDDINGS`, `AGGREGATE_EMBEDDINGS`, `OVWT_BATCHWISE`, both global stages, and their CellProfiler-track counterparts |
+| `filter_label_column` | `"meta_aa_changes"` | `QC_FILTER`, `FILTER_EMBEDDINGS`, `AGGREGATE_EMBEDDINGS`, `OVWT_BATCHWISE`, the reproducibility chain, and their CellProfiler-track counterparts |
 | `aggregate_methods` | `["median", "KS", "AUROC"]` | `AGGREGATE_EMBEDDINGS` |
 | `aggregate_methods_cp_features` | `["median"]` | `AGGREGATE_CP_FEATURES` |
 | `aggregate_feature_chunk_size` | `32` | `AGGREGATE_EMBEDDINGS`, `AGGREGATE_CP_FEATURES`, `AGGREGATE_HALF`, `AGGREGATE_PASSTHROUGH` |
 | `aggregate_methods_passthrough` | `[]` | `AGGREGATE_PASSTHROUGH`, `FILTER_AGGREGATE` |
 | `reproducibility_bootstrap_reps` | `10` | `GENERATE_SPLIT`, and the fan-out of every stage downstream of it |
 | `reproducibility_min_correlation` | `0.5` | `BLOCKLIST` |
-| `reproducibility_global_min_batches_ok` | `null` | `GLOBAL_BLOCKLIST` |
 | `ovwt_wt_label` | `"WT"` | `OVWT_BATCHWISE`, `OVWT_BATCHWISE_CP_FEATURES` |
 | `ovwt_cv_mode` | `"kfold"` | `OVWT_BATCHWISE`, `OVWT_BATCHWISE_CP_FEATURES` |
 | `ovwt_n_folds` | `5` | `OVWT_BATCHWISE`, `OVWT_BATCHWISE_CP_FEATURES` |
 | `ovwt_calibrate` | `true` | `OVWT_BATCHWISE`, `OVWT_BATCHWISE_CP_FEATURES` |
 | `ovwt_min_cells` | `250` | `OVWT_BATCHWISE`, `OVWT_BATCHWISE_CP_FEATURES` |
 | `ovwt_downsample_wt` | `true` | `OVWT_BATCHWISE`, `OVWT_BATCHWISE_CP_FEATURES` |
-| `global_variant_embeddings_cumulative_variance_explained` | `0.9` | `GLOBAL_VARIANT_EMBEDDINGS` |
-| `global_variant_cp_features_cumulative_variance_explained` | `0.9` | `GLOBAL_VARIANT_CP_FEATURES` |
+
+The cross-experiment (global) stages and their params
+(`reproducibility_global_min_batches_ok`,
+`global_variant_{embeddings,cp_features}_cumulative_variance_explained`) were removed: every
+output is per experiment, and `fisseqborn-global <pipeline_dir> --out <dir>` (the fisseqborn
+package) aggregates across experiments, with `--min-batches` and
+`--cumulative-variance-explained`. An old `params.yaml` that still sets them runs, with a
+warning that they are ignored.
 
 `filter_label_column` is shared pipeline-wide so overriding it changes the
 variant label column everywhere at once, rather than each stage needing
@@ -144,7 +149,7 @@ bare.
 
 The four `reproducibility_*` / `aggregate_methods_passthrough` params drive
 the cellDINO track's reproducibility-filtering chain (`GENERATE_SPLIT`
-through `FILTER_AGGREGATE`, plus `GLOBAL_BLOCKLIST`) -- see
+through `FILTER_AGGREGATE`) -- see
 [Architecture](architecture.md) decision 21. The CellProfiler track is
 deliberately not filtered, so it has no `_cp_features` counterparts for any
 of them.

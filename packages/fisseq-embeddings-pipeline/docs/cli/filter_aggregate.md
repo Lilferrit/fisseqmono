@@ -19,13 +19,12 @@ It does two things, in this order:
   columns. **Terminal**: nothing in this pipeline reads it.
 
 `fisseq-data-pipeline` keeps passthrough columns out of selection and PCA by
-joining them after those steps, within one process. That is not enough here,
-because [GLOBAL_VARIANT_EMBEDDINGS](global_embeddings.md) is a *separate*
-stage that re-reads its input from disk and picks feature columns with
-`FEATURE_SELECTOR` (exclude `meta_*`) -- which happily matches a stat-suffixed
-`emb_0000_KSnegLogP`. Hence two files: a passthrough column that never enters
-`filtered_aggregate.parquet` cannot leak into the PCA no matter what a future
-consumer does with the selector.
+joining them after those steps, within one process. Here a consumer reads the
+files from disk and may pick feature columns with `FEATURE_SELECTOR` (exclude
+`meta_*`), which matches a stat-suffixed `emb_0000_KSnegLogP`. Hence two files:
+a passthrough column that never enters `filtered_aggregate.parquet` cannot leak
+into a downstream PCA. (Cross-experiment pooling, in fisseqborn, reads
+`aggregate.parquet` and applies its own cross-experiment vote.)
 
 !!! warning
     Do not assume `FEATURE_SELECTOR` over `aggregate_with_passthrough.parquet`

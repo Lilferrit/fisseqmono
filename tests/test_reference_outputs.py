@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from _compare import compare_trees
-from _fixtures import REFERENCE_DIR, SCENARIOS, published_parquets
+from _fixtures import GLOBAL_REFERENCE, REFERENCE_DIR, SCENARIOS, published_parquets
 
 
 @pytest.fixture(scope="module", params=SCENARIOS)
@@ -29,6 +29,9 @@ def scenario_run(request, scenario_runs) -> tuple[str, Path, Path]:
 def test_outputs_match_reference(scenario_run) -> None:
     scenario, run_root, pipeline_dir = scenario_run
     problems = compare_trees(
-        published_parquets(pipeline_dir, scenario), REFERENCE_DIR / scenario, run_root
+        published_parquets(pipeline_dir, scenario),
+        REFERENCE_DIR / scenario,
+        run_root,
+        skip=(GLOBAL_REFERENCE,),
     )
     assert not problems, "\n".join(problems)

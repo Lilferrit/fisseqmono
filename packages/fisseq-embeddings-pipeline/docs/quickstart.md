@@ -76,8 +76,7 @@ already-computed starcall outputs are reused either way.
 
 Every stage's output lands under `<pipeline_dir>/`, one subdirectory per
 stage (`cell_images/`, `dataset/`, `qc_filter/`, `embeddings/`,
-`filter_embeddings/`, `feature_select_batchwise/`, `ovwt_batchwise/`,
-`global/`). See
+`filter_embeddings/`, `feature_select_batchwise/`, `ovwt_batchwise/`). See
 [Nextflow Workflow](nextflow.md#output-directory-layout) for the full tree
 and [Architecture](architecture.md#data-contracts) for what each Parquet
 file's columns mean.
@@ -85,7 +84,8 @@ file's columns mean.
 ## Running multiple experiments together
 
 Add another map to `params.yaml`'s `experiments:` list (with its own
-unique `batch_stem`) -- every per-experiment stage runs once per entry,
-and the two global stages (`GLOBAL_VARIANT_EMBEDDINGS`,
-`GLOBAL_VARIANT_DISTINGUISHABILITY`) automatically pool across however
-many experiments are present.
+unique `batch_stem`) -- every stage runs once per entry. To pool the
+experiments, run `fisseqborn-global <pipeline_dir> --out <dir>` (the
+fisseqborn package) on the finished run: it votes the blocklists across
+experiments, takes each variant's median and runs the PCA, for both tracks,
+and pools the OvWT scores.

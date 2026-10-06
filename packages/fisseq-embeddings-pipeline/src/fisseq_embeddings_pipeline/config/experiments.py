@@ -28,6 +28,7 @@ The routing contract:
 
 import argparse
 import json
+import logging
 import sys
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
@@ -132,6 +133,7 @@ def validate_config(config: Mapping[str, Any]) -> List[Dict[str, Any]]:
 
     _validate_aggregate_methods(config)
     _validate_reproducibility(config)
+    _warn_removed_global_params(config)
     _validate_ovwt(config)
     _validate_starcall_profile(config)
 
@@ -219,16 +221,27 @@ def _validate_reproducibility(config: Mapping[str, Any]) -> None:
             f"{min_corr!r}."
         )
 
-    min_batches = config.get("reproducibility_global_min_batches_ok")
-    if min_batches is not None and (
-        not isinstance(min_batches, int)
-        or isinstance(min_batches, bool)
-        or min_batches < 1
-    ):
-        raise ValueError(
-            "reproducibility_global_min_batches_ok must be null or an integer "
-            f">= 1, got {min_batches!r}."
-        )
+
+#: Parameters of the removed cross-experiment (global) stages, and the ``fisseqborn-global``
+#: option that replaces each. Still accepted, with a warning.
+REMOVED_GLOBAL_PARAMS = {
+    "reproducibility_global_min_batches_ok": "--min-batches",
+    "global_variant_embeddings_cumulative_variance_explained": "--cumulative-variance-explained",
+    "global_variant_cp_features_cumulative_variance_explained": "--cumulative-variance-explained",
+}
+
+
+def _warn_removed_global_params(config: Mapping[str, Any]) -> None:
+    """Warn about each set parameter of the removed global stages: the pipeline no longer
+    aggregates across experiments; ``fisseqborn-global`` does."""
+    for key, option in REMOVED_GLOBAL_PARAMS.items():
+        if config.get(key) is not None:
+            logging.warning(
+                "%s is ignored: the pipeline no longer aggregates across experiments. Run "
+                "`fisseqborn-global <pipeline_dir> --out <dir> %s ...` instead.",
+                key,
+                option,
+            )
 
 
 def _validate_ovwt(config: Mapping[str, Any]) -> None:

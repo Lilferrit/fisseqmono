@@ -669,7 +669,6 @@ def test_cp_track_survives_embedding_failure(tmp_path_factory):
     assert (
         exp_dir / "ovwt_batchwise_cp_features" / "batch1" / "results.parquet"
     ).exists()
-    assert (exp_dir / "global" / "cp_features" / "median_aggregate.parquet").exists()
 
 
 def test_embeddings_produced_with_joined_metadata(pipeline_outputs):
@@ -749,7 +748,12 @@ def test_reproducibility_chain_outputs_exist(pipeline_outputs):
     assert (base / "blocklist.parquet").exists()
     assert (base / "filtered_aggregate.parquet").exists()
     assert (base / "aggregate_with_passthrough.parquet").exists()
-    assert (exp_dir / "global" / "embeddings" / "blocklist.parquet").exists()
+
+
+def test_no_global_dir(pipeline_outputs):
+    """Every output is per experiment: fisseqborn aggregates across experiments."""
+    exp_dir, _ = pipeline_outputs
+    assert not (exp_dir / "global").exists()
 
 
 def test_halves_partition_the_qc_passed_cells(pipeline_outputs):
@@ -797,20 +801,16 @@ def test_filtered_aggregate_is_a_column_subset_of_aggregate(pipeline_outputs):
 def test_passthrough_columns_reach_only_the_terminal_file(pipeline_outputs):
     """aggregate_methods_passthrough is ["KSnegLogP"] in this fixture. Those
     columns belong in the per-experiment deliverable and nowhere else --
-    above all not in the PCA, which is what the filtered/with-passthrough
-    file split exists to guarantee across a process boundary."""
+    not in filtered_aggregate.parquet, which is what the filtered/with-
+    passthrough file split exists to guarantee across a process boundary."""
     exp_dir, _ = pipeline_outputs
     base = exp_dir / "feature_select_batchwise" / "batch1"
 
     with_pt = pl.read_parquet(base / "aggregate_with_passthrough.parquet")
     filtered = pl.read_parquet(base / "filtered_aggregate.parquet")
-    components = pl.read_parquet(
-        exp_dir / "global" / "embeddings" / "pca_components.parquet"
-    )
 
     assert any(c.endswith("_KSnegLogP") for c in with_pt.columns)
     assert not any(c.endswith("_KSnegLogP") for c in filtered.columns)
-    assert not any(c.endswith("_KSnegLogP") for c in components.columns)
 
 
 def test_passthrough_methods_are_not_blocklisted(pipeline_outputs):
@@ -823,39 +823,6 @@ def test_passthrough_methods_are_not_blocklisted(pipeline_outputs):
     blocklist = pl.read_parquet(base / "blocklist.parquet")
     assert not any(f.endswith("_KSnegLogP") for f in blocklist["feature"].to_list())
     assert not (base / "blocklists" / "KSnegLogP.parquet").exists()
-
-
-def test_global_blocklist_is_the_cross_experiment_vote(pipeline_outputs):
-    """One experiment here, so the vote is trivial -- but the schema and the
-    unanimity arithmetic are what GLOBAL_VARIANT_EMBEDDINGS consumes."""
-    exp_dir, _ = pipeline_outputs
-
-    batch_bl = pl.read_parquet(
-        exp_dir / "feature_select_batchwise" / "batch1" / "blocklist.parquet"
-    )
-    global_bl = pl.read_parquet(exp_dir / "global" / "embeddings" / "blocklist.parquet")
-
-    assert set(global_bl.columns) == {"feature", "n_batches", "n_ok", "feature_ok"}
-    assert set(global_bl["feature"].to_list()) == set(batch_bl["feature"].to_list())
-    assert global_bl["n_batches"].to_list() == [1] * global_bl.height
-    assert global_bl["feature_ok"].to_list() == (
-        batch_bl.sort("feature")["feature_ok"].to_list()
-    )
-
-
-def test_pca_sees_only_globally_reproducible_dimensions(pipeline_outputs):
-    """GLOBAL_VARIANT_EMBEDDINGS reads the unfiltered aggregates and applies
-    the global verdict itself -- so no blocked dimension may appear as a
-    principal component loading."""
-    exp_dir, _ = pipeline_outputs
-
-    global_bl = pl.read_parquet(exp_dir / "global" / "embeddings" / "blocklist.parquet")
-    components = pl.read_parquet(
-        exp_dir / "global" / "embeddings" / "pca_components.parquet"
-    )
-
-    blocked = set(global_bl.filter(~pl.col("feature_ok"))["feature"].to_list())
-    assert blocked.isdisjoint(set(components.columns))
 
 
 def test_pipeline_auto_detects_grid_size_when_omitted(tmp_path_factory):
@@ -993,23 +960,6 @@ def test_fails_fast_when_experiments_is_empty(tmp_path):
     assert "experiments must be a non-empty list" in result.stderr + result.stdout
 
 
-def test_global_stage_outputs_exist(pipeline_outputs):
-    exp_dir, _ = pipeline_outputs
-    global_embeddings_dir = exp_dir / "global" / "embeddings"
-    for name in (
-        "median_aggregate.parquet",
-        "pca_scores.parquet",
-        "pca_components.parquet",
-        "pca_variance_explained.parquet",
-        "pca_reduced.parquet",
-    ):
-        assert (global_embeddings_dir / name).exists(), name
-    global_scores = pl.read_parquet(
-        exp_dir / "global" / "distinguishability" / "global_scores.parquet"
-    )
-    assert "meta_median_auroc_median_fold" in global_scores.columns
-
-
 # ---------------------------------------------------------------------------
 # CellProfiler-feature track (BUILD_CP_FEATURES onward)
 # ---------------------------------------------------------------------------
@@ -1059,26 +1009,6 @@ def test_aggregate_and_ovwt_cp_features_outputs_exist(pipeline_outputs):
         "auroc_folds",
         "auroc_median_fold",
     }.issubset(results.columns)
-
-
-def test_global_cp_features_stage_outputs_exist(pipeline_outputs):
-    exp_dir, _ = pipeline_outputs
-    global_cp_features_dir = exp_dir / "global" / "cp_features"
-    for name in (
-        "median_aggregate.parquet",
-        "pca_scores.parquet",
-        "pca_components.parquet",
-        "pca_variance_explained.parquet",
-        "pca_reduced.parquet",
-    ):
-        assert (global_cp_features_dir / name).exists(), name
-    median_aggregate = pl.read_parquet(
-        global_cp_features_dir / "median_aggregate.parquet"
-    )
-    assert "Cells_AreaShape_Area" in median_aggregate.columns
-    assert (
-        exp_dir / "global" / "distinguishability_cp_features" / "global_scores.parquet"
-    ).exists()
 
 
 @pytest.fixture(scope="session")

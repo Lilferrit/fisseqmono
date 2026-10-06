@@ -68,10 +68,10 @@ def test_main_writes_both_outputs(tmp_path: Path) -> None:
 
 
 def test_passthrough_columns_reach_only_the_terminal_file(tmp_path: Path) -> None:
-    """The load-bearing assertion: GLOBAL_VARIANT_EMBEDDINGS reads
-    filtered_aggregate.parquet and picks features with FEATURE_SELECTOR,
-    which would match emb_0000_KSnegLogP. The two-file split is what keeps
-    passthrough statistics out of the PCA across a process boundary."""
+    """The load-bearing assertion: a consumer of filtered_aggregate.parquet
+    that picks features with FEATURE_SELECTOR would match emb_0000_KSnegLogP.
+    The two-file split is what keeps passthrough statistics out of a
+    downstream PCA across a process boundary."""
     d = tmp_path / "pt"
     d.mkdir()
     pl.DataFrame(

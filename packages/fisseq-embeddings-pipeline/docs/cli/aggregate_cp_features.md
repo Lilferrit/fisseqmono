@@ -64,8 +64,7 @@ See [API Reference: aggregate_cp_features](../api/aggregate_cp_features.md) for 
 
 The reproducibility-filtering chain (`GENERATE_SPLIT` through
 `FILTER_AGGREGATE`) and the passthrough aggregate list are **cellDINO-track
-only**. This stage's `aggregate.parquet` is consumed directly by
-[GLOBAL_VARIANT_CP_FEATURES](global_variant_cp_features.md), with no blocklist
-in between. CellProfiler columns are hand-engineered and already curated, and
+only**. Across experiments, `fisseqborn-global` pools this stage's
+`aggregate.parquet` directly, with no blocklist. CellProfiler columns are hand-engineered and already curated, and
 the two tracks' aggregates are meant to stay directly comparable to the
 published CellProfiler analysis. See [Architecture](../architecture.md).

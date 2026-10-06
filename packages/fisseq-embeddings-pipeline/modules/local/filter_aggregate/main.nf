@@ -1,10 +1,9 @@
 // FILTER_AGGREGATE. Aggregates -> filtered aggregates, plus the terminal
 // passthrough view. Two outputs on purpose: filtered_aggregate.parquet
 // carries only reproducible columns; aggregate_with_passthrough.parquet
-// adds the passthrough methods and is terminal -- nothing in-pipeline reads
-// it. The file split is what keeps passthrough columns out of the PCA:
-// GLOBAL_VARIANT_EMBEDDINGS picks features with FEATURE_SELECTOR, which
-// would happily match emb_0000_KSnegLogP.
+// adds the passthrough methods. The split keeps passthrough columns out of
+// anything that picks features with FEATURE_SELECTOR (which would match
+// emb_0000_KSnegLogP) from filtered_aggregate.parquet.
 
 include { threadEnv } from '../../../../../nextflow/modules/local/functions'
 

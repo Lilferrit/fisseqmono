@@ -13,7 +13,7 @@ a run whose `aggregate_methods` is exactly `["median"]`, where columns are
 bare -- has only one method to combine.
 
 The result is what [FILTER_AGGREGATE](filter_aggregate.md) applies to
-`aggregate.parquet`, and what [GLOBAL_BLOCKLIST](global_blocklist.md) votes
+`aggregate.parquet`, and what `fisseqborn-global` (the fisseqborn package) votes
 over across experiments.
 
 ## Config fields

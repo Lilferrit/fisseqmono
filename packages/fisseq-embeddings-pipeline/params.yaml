@@ -163,7 +163,7 @@ starcall_gpu: true
 
 # ── Stopping early ───────────────────────────────────────────────────────────
 # true = stop after EMBED_CELLS: no QC-dependent cellDINO stages, no
-# reproducibility filtering, no CellProfiler track, no global stages.
+# reproducibility filtering, no CellProfiler track.
 embeddings_only: false
 
 # ── Reproducibility ──────────────────────────────────────────────────────────
@@ -212,9 +212,8 @@ cell_dino_num_workers: 4
 
 # ── Label column, shared pipeline-wide ──────────────────────────────────────
 # Read by QC_FILTER, FILTER_EMBEDDINGS, AGGREGATE_EMBEDDINGS, OVWT_BATCHWISE,
-# both global stages, and their CellProfiler-feature-track counterparts
-# (FILTER_CP_FEATURES, AGGREGATE_CP_FEATURES, OVWT_BATCHWISE_CP_FEATURES,
-# GLOBAL_VARIANT_CP_FEATURES, GLOBAL_VARIANT_DISTINGUISHABILITY_CP_FEATURES)
+# the reproducibility chain, and their CellProfiler-feature-track counterparts
+# (FILTER_CP_FEATURES, AGGREGATE_CP_FEATURES, OVWT_BATCHWISE_CP_FEATURES)
 # -- one override changes the variant label column everywhere at once,
 # rather than each stage needing its own.
 filter_label_column: "meta_aa_changes"
@@ -278,18 +277,17 @@ aggregate_feature_chunk_size: 32
 #
 # Passthrough columns land ONLY in
 # feature_select_batchwise/<batch>/aggregate_with_passthrough.parquet, never in
-# filtered_aggregate.parquet. That file split is what keeps them out of PCA --
-# GLOBAL_VARIANT_EMBEDDINGS re-reads its input from disk and picks feature
-# columns with FEATURE_SELECTOR (exclude meta_*), which would happily match a
-# stat-suffixed emb_0000_KSnegLogP. aggregate_with_passthrough.parquet is
-# terminal: nothing in-pipeline reads it, and any future stage that does must not
-# assume FEATURE_SELECTOR over IT yields reproducibility-filtered features.
+# filtered_aggregate.parquet. A consumer that picks feature columns with
+# FEATURE_SELECTOR (exclude meta_*) would match a stat-suffixed
+# emb_0000_KSnegLogP, so it must not assume that FEATURE_SELECTOR over
+# aggregate_with_passthrough.parquet yields reproducibility-filtered features.
+# Nothing in the pipeline reads it.
 aggregate_methods_passthrough: []
 
 # ── Reproducibility filtering (cellDINO track only) ──────────────────────────
 # GENERATE_SPLIT -> AGGREGATE_HALF -> CORRELATE_FEATURES -> BLOCKLIST ->
-# COMBINE_BLOCKLISTS -> FILTER_AGGREGATE, sitting between AGGREGATE_EMBEDDINGS'
-# aggregate.parquet and GLOBAL_VARIANT_EMBEDDINGS. A dimension is reproducible
+# COMBINE_BLOCKLISTS -> FILTER_AGGREGATE, downstream of AGGREGATE_EMBEDDINGS'
+# aggregate.parquet. A dimension is reproducible
 # if the variant-to-variant pattern it reports from one random half of an
 # experiment's cells is the pattern it reports from the other half.
 #
@@ -305,12 +303,6 @@ aggregate_methods_passthrough: []
 reproducibility_bootstrap_reps: 10
 # Minimum median Pearson r (across replicates) for a dimension to be kept.
 reproducibility_min_correlation: 0.5
-# GLOBAL_BLOCKLIST's cross-experiment vote: the minimum number of experiments
-# that must mark a dimension reproducible in their own blocklist for it to be
-# globally reproducible. null = it must be ok in every experiment that reported
-# on it. Lower it to tolerate one bad experiment without losing a dimension
-# everywhere.
-reproducibility_global_min_batches_ok: null
 
 # ── Aggregation (AGGREGATE_CP_FEATURES) ──────────────────────────────────────
 # Same choices as aggregate_methods above, applied to the CellProfiler-
@@ -347,16 +339,10 @@ ovwt_calibrate: true
 ovwt_min_cells: 250
 ovwt_downsample_wt: true
 
-# ── Global Variant Embeddings (GLOBAL_VARIANT_EMBEDDINGS) ────────────────────
-# No n_components entry -- every retained principal component is always
-# computed and written (median_aggregate.parquet, pca_scores.parquet,
-# pca_components.parquet, pca_variance_explained.parquet).
-# cumulative_variance_explained instead controls only the additional
-# pca_reduced.parquet output (PC-truncated scores + propagated meta_is_control
-# + meta_impact_score computed on that reduced matrix).
-global_variant_embeddings_cumulative_variance_explained: 0.9
-
-# ── Global Variant CellProfiler Features (GLOBAL_VARIANT_CP_FEATURES) ───────
-# Same meaning as global_variant_embeddings_cumulative_variance_explained
-# above, applied to the CellProfiler-feature track's own pca_reduced.parquet.
-global_variant_cp_features_cumulative_variance_explained: 0.9
+# ── Cross-experiment aggregation ────────────────────────────────────────────
+# Not done here: every output is per experiment. `fisseqborn-global
+# <pipeline_dir> --out <dir>` (the fisseqborn package) votes the blocklists
+# across experiments (--min-batches), pools each variant's median and runs the
+# PCA (--cumulative-variance-explained), for both tracks. The former
+# reproducibility_global_min_batches_ok and global_variant_*_cumulative_variance_explained
+# params are ignored, with a warning.

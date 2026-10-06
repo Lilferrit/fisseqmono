@@ -15,15 +15,16 @@ variant is in every experiment, one embedding column is missing from one experim
 missing from the blocklists, and the blocklist votes disagree between experiments. Unlike the
 pipeline's own aggregates, these keep the synonymous rows, so the impact score has controls.
 
-:func:`run_old_global_stages` ran the embeddings pipeline's GLOBAL_* stages on them (the stages
-fisseqborn replaces), the way ``workflows/embeddings.nf`` invoked them. Their outputs are saved
-under ``tests/reference/embeddings_global/global/``.
+Before they were deleted, the embeddings pipeline's GLOBAL_* stages (the stages fisseqborn
+replaces) ran on these inputs the way ``workflows/embeddings.nf`` invoked them, in batch order,
+with ``label_column=meta_aa_changes``, ``random_seed=0`` and ``cumulative_variance_explained=0.9``,
+once per :data:`MIN_BATCHES_OK` value (GLOBAL_BLOCKLIST + GLOBAL_VARIANT_EMBEDDINGS) and once for
+the other three stages. Their outputs are saved under
+``tests/reference/embeddings_global/global/`` (commit efb32e9).
 """
 
 from __future__ import annotations
 
-import subprocess
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -65,7 +66,8 @@ MISSENSE = tuple(
 OTHER = ("WT", "A1A:downsampled-half", "M40fs", "R41*")
 VARIANTS = SYNONYMOUS + MISSENSE + OTHER
 
-# min_batches_ok values the old GLOBAL_BLOCKLIST + GLOBAL_VARIANT_EMBEDDINGS ran with.
+# min_batches_ok values the old GLOBAL_BLOCKLIST + GLOBAL_VARIANT_EMBEDDINGS ran with, and the
+# reference subdirectory of each.
 MIN_BATCHES_OK = {"embeddings": None, "embeddings_min2": 2}
 LABEL = "meta_aa_changes"
 
@@ -151,85 +153,3 @@ def write_inputs(pipeline_dir: Path) -> None:
                     "meta_n_cells": rng.integers(20, 200, m),
                 }
             ).write_parquet(out / "results.parquet")
-
-
-def _hydra_list(key: str, values: list) -> str:
-    return f"{key}=[{','.join(str(v) for v in values)}]"
-
-
-def _run(module: str, output_dir: Path, *args: str) -> None:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            f"fisseq_embeddings_pipeline.{module}",
-            f"output_dir={output_dir}",
-            *args,
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"{module} failed\n{result.stdout[-3000:]}\n{result.stderr[-3000:]}"
-        )
-
-
-def run_old_global_stages(pipeline_dir: Path) -> None:
-    """Run the embeddings pipeline's GLOBAL_* stages on :func:`write_inputs`' outputs."""
-    out = pipeline_dir / "global"
-    batches = list(BATCHES)  # workflows/embeddings.nf's sortedPairs order
-    common = [f"label_column={LABEL}", "random_seed=0"]
-
-    def files(track: str, name: str) -> list[str]:
-        return [str(pipeline_dir / track / b / name) for b in batches]
-
-    for name, min_ok in MIN_BATCHES_OK.items():
-        _run(
-            "global_blocklist",
-            out / name,
-            _hydra_list(
-                "input_files", files("feature_select_batchwise", "blocklist.parquet")
-            ),
-            f"min_batches_ok={'null' if min_ok is None else min_ok}",
-            "random_seed=0",
-        )
-        _run(
-            "global_embeddings",
-            out / name,
-            _hydra_list(
-                "input_files", files("feature_select_batchwise", "aggregate.parquet")
-            ),
-            _hydra_list("batch_stems", batches),
-            f"blocklist_file={out / name / 'blocklist.parquet'}",
-            "cumulative_variance_explained=0.9",
-            *common,
-        )
-    _run(
-        "global_distinguishability",
-        out / "distinguishability",
-        _hydra_list("input_files", files("ovwt_batchwise", "results.parquet")),
-        _hydra_list("batch_stems", batches),
-        *common,
-    )
-    _run(
-        "global_variant_cp_features",
-        out / "cp_features",
-        _hydra_list(
-            "input_files",
-            files("feature_select_batchwise_cp_features", "aggregate.parquet"),
-        ),
-        _hydra_list("batch_stems", batches),
-        "cumulative_variance_explained=0.9",
-        *common,
-    )
-    _run(
-        "global_variant_distinguishability_cp_features",
-        out / "distinguishability_cp_features",
-        _hydra_list(
-            "input_files", files("ovwt_batchwise_cp_features", "results.parquet")
-        ),
-        _hydra_list("batch_stems", batches),
-        *common,
-    )

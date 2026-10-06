@@ -36,16 +36,11 @@ Reproducibility Filtering                    (per experiment; cellDINO track onl
   Passthrough Aggregation (methods kept out of filtering) ──────────────────────┤
                                                                                  ▼
                                              Experiment N Filtered Aggregates + Passthrough View
-
-Global Variant Embeddings                    (once, across all experiments)
-  Experiment {1..N} Blocklists ─► Cross-experiment vote ─► Global Blocklist ─┐
-                                                                              ▼
-  Experiment {1..N} Aggregates ─► Variant-wise median pooling ─► PCA ─► Global Variant Embeddings
-
-Global Variant Distinguish-ability Scores    (once, across all experiments)
-  Experiment {1..N} Distinguish-ability Scores ─► Variant-wise median pooling ─► Global Variant
-                                                                                  Distinguish-ability Scores
 ```
+
+Every output is per experiment. The cross-experiment steps (the blocklist vote, variant-wise
+median pooling, PCA, and pooled distinguish-ability scores) are done by `fisseqborn-global`
+in the fisseqborn package, from these published outputs; see decision 8.
 
 "Cell Images" here is `BUILD_CELL_IMAGES`
 -- the only stage that reads `starcall-workflow`'s tree or runs its snakemake;
@@ -84,13 +79,6 @@ Batch Aggregates And Variant Scores (CellProfiler)  (per experiment, runs indepe
                                                              ▼                            ▼
                                                  Experiment N CP Aggregates    Experiment N CP Distinguish-
                                                                                 ability Scores
-
-Global Variant CP Features                   (once, across all experiments)
-  Experiment {1..N} CP Aggregates ─► Variant-wise median pooling ─► PCA ─► Global Variant CP Features
-
-Global Variant CP Distinguish-ability Scores (once, across all experiments)
-  Experiment {1..N} CP Distinguish-ability Scores ─► Variant-wise median pooling ─► Global Variant CP
-                                                                                      Distinguish-ability Scores
 ```
 
 ## Terminology map
@@ -110,16 +98,10 @@ Global Variant CP Distinguish-ability Scores (once, across all experiments)
 | Blocklist | `BLOCKLIST` (vendored, ~unchanged) | `blocklist.py` |
 | Combine Blocklists | `COMBINE_BLOCKLISTS` (vendored, ~unchanged) | `combineblocklists.py` |
 | Filtered Aggregates | `FILTER_AGGREGATE` (adapted) | the blocklist-drop and passthrough-join halves of `featureselect.py`; its pycytominer variance/correlation filtering is deliberately not ported -- see decision 22 |
-| Cross-experiment blocklist vote | `GLOBAL_BLOCKLIST` (adapted) | `globalfeatureselect.py`'s `combine_batch_blocklists` |
-| Variant-wise median pooling (embeddings branch) | `GLOBAL_VARIANT_EMBEDDINGS` -- median step | `globalfeatureselect.py`'s `median_across_batches` |
-| PCA | `GLOBAL_VARIANT_EMBEDDINGS` -- PCA step | `fisseq_common.stages.dimreduction.compute_pca` |
-| Variant-wise median pooling (scores branch) | `GLOBAL_VARIANT_DISTINGUISHABILITY` | per-experiment synonymous z-score then a `median_across_batches`-style pool, adapted for two scalar (AUROC) columns instead of a feature matrix |
 | CellProfiler Feature Dataset | `BUILD_CP_FEATURES` (new) | selects `cp_*`-prefixed CellProfiler columns straight out of `BUILD_CELL_IMAGES`' `cell_table.parquet` (that stage already folded in each tile's CellProfiler CSV, by row position) -- see [Data contracts](#cell-images-build_cell_images-output-from-starcall-workflow) |
 | Filter CP Features | `FILTER_CP_FEATURES` (thin wrapper) | reuses `filter.py`'s `filter_and_fit_normalizer`/`load_filtered_embeddings` directly (already feature-agnostic) -- joins against `QC_FILTER`'s existing output, not a second QC run |
 | Aggregation (CellProfiler track) | `AGGREGATE_CP_FEATURES` (thin wrapper) | `fisseq_common.stages.aggregate.aggregate_methods` with `feature_selector=FEATURE_SELECTOR` |
 | OVWT Distinguish-ability Scores (CellProfiler track) | `OVWT_BATCHWISE_CP_FEATURES` (thin wrapper) | reuses `ovwt.py`'s `ovwt_batchwise` with `feature_selector=FEATURE_SELECTOR` |
-| Variant-wise median pooling + PCA (CellProfiler track) | `GLOBAL_VARIANT_CP_FEATURES` (thin wrapper) | reuses `global_embeddings.py`'s `global_variant_embeddings` directly (already `FEATURE_SELECTOR`-based, no fork needed) |
-| Variant-wise median pooling (CellProfiler scores branch) | `GLOBAL_VARIANT_DISTINGUISHABILITY_CP_FEATURES` (thin wrapper) | reuses `global_distinguishability.py`'s `global_variant_distinguishability` directly (already feature-agnostic) |
 
 ## Architecture decisions
 
@@ -129,10 +111,12 @@ Global Variant CP Distinguish-ability Scores (once, across all experiments)
    Snakemake and then moved back, so the nested starcall-workflow run could
    be driven by a user-supplied snakemake profile from a single task -- see
    decisions 18 and 20.
-2. **Fully standalone**: vendors the small pieces of `fisseq-data-pipeline`
-   it actually needs (`Normalizer`, `load_batches`, `xgbparams` helpers,
-   `compute_pca`, the Hydra config base classes, `classify_variant`)
-   rather than depending on that repo as a library.
+2. **Shared code lives in `fisseq-common`.** This pipeline once vendored the
+   pieces of `fisseq-data-pipeline` it needed; in the fisseqmono workspace both
+   pipelines import them from `fisseq-common` instead (`Normalizer`, the schema,
+   `classify_variant`, and the shared stages under `fisseq_common.stages`: QC,
+   filter, OvWT, the reproducibility chain, aggregation, PCA). This package keeps
+   the Cell-DINO and image stages, its Hydra entry points and its workflow.
 3. **Cell-DINO** = Meta's `dinov2` repo, run in **Bag of Channels** mode by
    default (though not every real checkpoint is bag-of-channels -- see
    [below](#embed_cells-cell-dino-inference-internals)).
@@ -151,13 +135,15 @@ Global Variant CP Distinguish-ability Scores (once, across all experiments)
 7. The synonymous z-score is folded into `FILTER_EMBEDDINGS` itself (fit
    once per experiment, applied once), rather than duplicated inside both
    downstream stages.
-8. Unlike `fisseq-data-pipeline`'s `global_channels` mechanism, the two
-   global stages here run once, unconditionally, over **every**
-   experiment.
-9. **Global distinguish-ability pooling is two steps, not one**:
-   `GLOBAL_VARIANT_DISTINGUISHABILITY` first z-scores each experiment's
-   `auroc_pooled`/`auroc_median_barcode`/`auroc_median_fold` against that same experiment's
-   own synonymous variants, *then* medians the z-scored values across
+8. **No cross-experiment stages.** The pipeline's former global stages
+   (GLOBAL_BLOCKLIST, GLOBAL_VARIANT_EMBEDDINGS, GLOBAL_VARIANT_DISTINGUISHABILITY and the
+   two CellProfiler-track ones) moved to fisseqborn (`fisseqborn-global`,
+   `fisseq_common.global_aggregation`), which pools either pipeline's runs with the same
+   methods; the monorepo's `tests/test_global_parity.py` checks it reproduces their outputs.
+9. **Cross-experiment distinguish-ability pooling is two steps, not one**
+   (now in fisseqborn): each experiment's
+   `auroc_pooled`/`auroc_median_barcode`/`auroc_median_fold` is first z-scored against that same experiment's
+   own synonymous variants, *then* the z-scored values are medianed across
    experiments -- rather than medianing raw AUROC directly.
 10. **No pipeline stage copies another stage's data wholesale -- outputs
     reference each other by join key instead**, the same pattern
@@ -170,7 +156,7 @@ Global Variant CP Distinguish-ability Scores (once, across all experiments)
     `random_state`/seed field owned by each stage's own config. A single
     pipeline-level `--random_seed` override therefore reproduces an
     entire run's stochastic stages (`OVWT_BATCHWISE`'s CV/XGBoost/
-    calibration, `GLOBAL_VARIANT_EMBEDDINGS`'s PCA) at once.
+    calibration, `GENERATE_SPLIT`'s halves) at once.
 12. **Default pipeline parameters live in a YAML file (`params.yaml`,
     repo root), not in a profile**. Profiles carry executor/deployment
     settings only; see [Configuration](configuration.md).
@@ -182,7 +168,7 @@ Global Variant CP Distinguish-ability Scores (once, across all experiments)
     (what the test suite and CI use) -- see
     [Nextflow Workflow](nextflow.md#profiles-and-containers).
 14. **The CellProfiler-feature track is a set of thin wrappers, not a
-    fork.** `filter.py`/`global_embeddings.py`/`global_distinguishability.py`
+    fork.** `filter.py` and the former global stages
     were already feature-agnostic (keyed off `FEATURE_SELECTOR`/
     `JOIN_KEYS`/`META_SELECTOR`, never `EMBEDDING_SELECTOR`) and are
     imported directly, unchanged. `aggregate.py`/`ovwt.py` needed one
@@ -445,23 +431,19 @@ Global Variant CP Distinguish-ability Scores (once, across all experiments)
     - **Passthrough aggregates live in a separate output file, not just a
       later join.** The sibling keeps passthrough columns out of selection
       and PCA by joining them last, within one process. That is not enough
-      here: `GLOBAL_VARIANT_EMBEDDINGS` is a *separate* stage that re-reads
-      its input from disk and selects features with `FEATURE_SELECTOR`
-      (exclude `meta_*`), which happily matches a stat-suffixed
+      here: a consumer re-reads the files from disk and may select features
+      with `FEATURE_SELECTOR` (exclude `meta_*`), which matches a stat-suffixed
       `emb_0000_KSnegLogP`. So `FILTER_AGGREGATE` writes two files:
-      `filtered_aggregate.parquet` (PCA's input, no passthrough) and the
-      terminal `aggregate_with_passthrough.parquet`. A passthrough column
-      that never enters the first cannot leak into the PCA however a future
-      consumer uses the selector.
+      `filtered_aggregate.parquet` (no passthrough) and
+      `aggregate_with_passthrough.parquet`. A passthrough column that never
+      enters the first cannot leak into a PCA however a consumer uses the
+      selector.
 
-    - **`GLOBAL_VARIANT_EMBEDDINGS` reads the *unfiltered* per-experiment
-      aggregates and applies the global blocklist itself.** Reading the
-      per-experiment `filtered_aggregate.parquet` instead would let
-      `median_across_batches`' column intersection silently reduce every
-      setting to "reproducible in every experiment", making
-      `reproducibility_global_min_batches_ok` inert. This is the same split
-      the sibling makes between its batchwise `FINALIZE_FEATURE_SELECT` and
-      its `GLOBAL_FEATURE_SELECT`.
+    - **Cross-experiment pooling reads the *unfiltered* per-experiment
+      aggregates and applies its own cross-experiment vote** (fisseqborn).
+      Reading the per-experiment `filtered_aggregate.parquet` instead would
+      let the median's column intersection silently reduce every setting to
+      "reproducible in every experiment", making a `--min-batches` vote inert.
 
     A fourth, smaller one: `CORRELATE_FEATURES` normalizes a NaN
     correlation (a dimension constant in one half) to null, where the
@@ -545,7 +527,7 @@ fisseq-embeddings-pipeline/
   main.nf                         # entry point: runs EmbeddingsPipeline
   workflows/
     embeddings.nf                 # the whole DAG: channel wiring, both tracks,
-                                   # the reproducibility fan-out, global stages
+                                   # the reproducibility fan-out
   conf/modules.config             # entry point/args/publishDir of each shared module
   modules/local/                  # this pipeline's own processes; the ones shared with
                                    # fisseq-data-pipeline (and functions.nf) are in the
@@ -589,15 +571,10 @@ fisseq-embeddings-pipeline/
     blocklist.py                  # BLOCKLIST                  | (cellDINO only)
     combineblocklists.py          # COMBINE_BLOCKLISTS         |
     filter_aggregate.py           # FILTER_AGGREGATE          /
-    global_blocklist.py           # GLOBAL_BLOCKLIST
-    global_embeddings.py          # GLOBAL_VARIANT_EMBEDDINGS
-    global_distinguishability.py  # GLOBAL_VARIANT_DISTINGUISHABILITY
     cp_features.py                     # BUILD_CP_FEATURES
     filter_cp_features.py              # FILTER_CP_FEATURES (thin wrapper over filter.py)
     aggregate_cp_features.py           # AGGREGATE_CP_FEATURES (thin wrapper, shared aggregators)
     ovwt_cp_features.py                # OVWT_BATCHWISE_CP_FEATURES (thin wrapper over ovwt.py)
-    global_variant_cp_features.py      # GLOBAL_VARIANT_CP_FEATURES (thin wrapper over global_embeddings.py)
-    global_variant_distinguishability_cp_features.py  # GLOBAL_VARIANT_DISTINGUISHABILITY_CP_FEATURES (thin wrapper over global_distinguishability.py)
     vendor/dinov2/                # minimal vendored dinov2 subset
     utils/
       constants.py                # vendored
@@ -605,7 +582,6 @@ fisseq-embeddings-pipeline/
       batches.py                  # vendored (load_batches)
       splits.py                   # split files, keyed on JOIN_KEYS (decision 22)
       xgbparams.py                # vendored, one retargeted seed field
-      globalfeatureselect.py      # vendored (median_across_batches only)
       vectors.py                  # vendored (compute_impact_score/compute_cosine_distance)
       cell_table.py               # shared cell_table.parquet -> meta_* projection
                                    # (BUILD_CELL_METADATA + BUILD_CP_FEATURES)

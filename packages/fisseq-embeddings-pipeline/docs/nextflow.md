@@ -99,14 +99,12 @@ EMBED_CELLS  (reads each tile's shard in place via tiles.parquet)
                                             │                               │                  ▼
                                             │                               │   COMBINE_BLOCKLISTS
                                             │                               │                  │
-                                            ├──────── FILTER_AGGREGATE ◄────┼──────────────────┤
-                                            │   (+ AGGREGATE_PASSTHROUGH)   │                  │
-                                            │                               │                  ▼ (collected)
-                                            │                               │          GLOBAL_BLOCKLIST
-                                            ▼ (collected, all experiments)  ▼ (collected)      │
-                                   GLOBAL_VARIANT_EMBEDDINGS ◄──────────────┼──────────────────┘
-                                                                   GLOBAL_VARIANT_DISTINGUISHABILITY
+                                            └──────── FILTER_AGGREGATE ◄────┴──────────────────┘
+                                                (+ AGGREGATE_PASSTHROUGH)
 ```
+
+Every process runs per experiment. Pooling experiments is done afterwards by
+`fisseqborn-global` (the fisseqborn package), from the published outputs.
 
 `BUILD_CELL_IMAGES` runs unconditionally for every experiment (not gated
 on `cp_features`) -- both the cellDINO track above and the CellProfiler
@@ -147,10 +145,10 @@ containerized real-starcall integration tests use it.
 
 ### Reproducibility filtering
 
-`GENERATE_SPLIT` through `FILTER_AGGREGATE` sit between
-`AGGREGATE_EMBEDDINGS`' `aggregate.parquet` and the global stages, on the
+`GENERATE_SPLIT` through `FILTER_AGGREGATE` sit downstream of
+`AGGREGATE_EMBEDDINGS`' `aggregate.parquet`, on the
 cellDINO track only -- see [Architecture](architecture.md) decision 21 for
-what they compute and why. Four things about the *wiring* are worth
+what they compute and why. Three things about the *wiring* are worth
 knowing:
 
 - **The fan-out is channel combinatorics.** `GENERATE_SPLIT` gets one task
@@ -166,40 +164,22 @@ knowing:
   rather than waiting forever: that method's (and so that experiment's)
   blocklist is then simply missing. `BLOCKLIST` is the one gather across
   replicates.
-- **`bare_columns` is decided in the workflow.** `aggregate.parquet`'s
+- **`bare_columns` is decided from the whole method list.** `aggregate.parquet`'s
   columns are bare (`emb_0000`) only when `aggregate_methods` is exactly
-  `["median"]`. Each `AGGREGATE_HALF` task sees only its own method, so the
-  workflow works it out from the whole list and passes it in -- the names
-  have to match or `FILTER_AGGREGATE`'s blocklist finds nothing to drop.
-- **`GLOBAL_VARIANT_EMBEDDINGS` takes the *unfiltered* aggregates** plus
-  `global/embeddings/blocklist.parquet`, not the per-experiment
-  `filtered_aggregate.parquet`. `median_across_batches` intersects feature
-  columns across experiments, so consuming the filtered files would make
-  `reproducibility_global_min_batches_ok` inert.
+  `["median"]`. Each `AGGREGATE_HALF` task sees only its own method, so
+  `conf/modules.config` works it out from the whole list and passes it in -- the
+  names have to match or `FILTER_AGGREGATE`'s blocklist finds nothing to drop.
+
+Across experiments, `fisseqborn-global` reads the *unfiltered* `aggregate.parquet`
+plus each experiment's `blocklist.parquet` and votes, not the per-experiment
+`filtered_aggregate.parquet`: pooling intersects feature columns across
+experiments, so the filtered files would turn any vote into "OK in every
+experiment".
 
 `aggregate_with_passthrough.parquet` is terminal -- nothing downstream reads
 it. With `aggregate_methods_passthrough: []` (the default) no
 `AGGREGATE_PASSTHROUGH` task runs and `FILTER_AGGREGATE` gets an empty
 passthrough list.
-
-### Global stages
-
-The five cross-experiment processes each take one
-`(batch_stems, files)` tuple: `sortedPairs()` in `workflows/embeddings.nf`
-collects every experiment's `(batch_stem, file)` pair, sorts by
-`batch_stem`, and splits them into two parallel lists, so the pairing can't
-drift and the input order doesn't depend on which experiment finished
-first. Every experiment's file has the same basename, so the module stages
-them under numbered names (`stageAs: "agg_input_*.parquet"`) and passes
-them as an explicit `input_files` list.
-
-A global stage pools over **whichever experiments survived**: with
-`errorStrategy 'ignore'`, a failed experiment simply contributes nothing
-to `.collect()`, so the cross-experiment median is computed over the rest.
-This differs from the short-lived Snakemake version of this pipeline, where
-a missing input kept the global job from running at all. Check the run's
-log (`Error executing process` lines) or `-with-report` before trusting a
-global output from a run with failures.
 
 ## CellProfiler-feature track
 
@@ -230,9 +210,6 @@ QC_FILTER ──┐  (the SAME QC_FILTER output FILTER_EMBEDDINGS uses -- no
     ┌────────┴────────┐
     ▼                  ▼
 AGGREGATE_CP_FEATURES   OVWT_BATCHWISE_CP_FEATURES
-    │                              │
-    ▼ (collected, all experiments) ▼ (collected, all experiments)
-GLOBAL_VARIANT_CP_FEATURES   GLOBAL_VARIANT_DISTINGUISHABILITY_CP_FEATURES
 ```
 
 `BUILD_CP_FEATURES` is a flat read + column-select against
@@ -570,24 +547,6 @@ changed.
     results.parquet                       # auroc_pooled, auroc_median_barcode, auroc_folds, auroc_median_fold
     cell_scores.parquet                   # per-cell out-of-fold scores, one row per cell per variant scored against
     models.pkl                            # dict[variant] -> list[(model, calibrator)], one pair per CV fold
-  global/
-    embeddings/
-      blocklist.parquet                   # cross-experiment vote: feature, n_batches, n_ok, feature_ok
-      median_aggregate.parquet            # cross-experiment median, pre-PCA
-      pca_scores.parquet                  # full retained rank
-      pca_components.parquet              # loadings only
-      pca_variance_explained.parquet      # per-component + cumulative variance explained
-      pca_reduced.parquet                 # variance-thresholded PC scores + meta_is_control + meta_impact_score
-    distinguishability/
-      global_scores.parquet               # Global Variant Distinguish-ability Scores
-    cp_features/
-      median_aggregate.parquet
-      pca_scores.parquet
-      pca_components.parquet
-      pca_variance_explained.parquet
-      pca_reduced.parquet
-    distinguishability_cp_features/
-      global_scores.parquet
   cp_features/<batch>/cp_features.parquet   # unfiltered, all cells -- CellProfiler feature columns
   filter_cp_features/<batch>/
     filtered_keys.parquet                 # QC-passed join key + meta_is_control -- no CellProfiler feature columns
@@ -606,7 +565,7 @@ Each stage's own `<stage>.log` (written by `fisseq_common.utils.log` into
 Nextflow's `.command.log`/`.command.err`; it isn't published.
 
 The `cp_features/`, `filter_cp_features/`, `feature_select_batchwise_cp_features/`,
-`ovwt_batchwise_cp_features/`, and `global/*_cp_features` directories only
+and `ovwt_batchwise_cp_features/` directories only
 appear when at least one `params.experiments` entry sets `cp_features:
 true` (see [CellProfiler-feature track](#cellprofiler-feature-track)
 above).

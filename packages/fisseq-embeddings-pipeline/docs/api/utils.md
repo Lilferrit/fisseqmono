@@ -21,8 +21,6 @@ with `fisseq-data-pipeline` and `fisseqborn`.
 
 ::: fisseq_common.stages.dimreduction
 
-::: fisseq_embeddings_pipeline.utils.globalfeatureselect
-
 ::: fisseq_common.utils.vectors
 
 ::: fisseq_common.utils.log

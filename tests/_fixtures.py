@@ -10,8 +10,12 @@ Scenarios:
 
 - ``data``: the data pipeline's two-experiment session fixture (``batch1``, ``batch2``).
 - ``embeddings``: the embeddings pipeline's one-experiment session fixture (``batch1``).
-- ``embeddings_global``: synthetic per-experiment outputs (``_global_fixture``) and what the
-  embeddings pipeline's old GLOBAL_* stages made of them.
+- ``embeddings_global``: synthetic per-experiment outputs (``_global_fixture``).
+
+``tests/reference/<scenario>/global/`` holds what the embeddings pipeline's GLOBAL_* stages made
+of the embeddings scenarios' outputs, captured before those stages were deleted. A run no
+longer writes ``global/``: it is the baseline of ``test_global_parity`` (fisseqborn's
+cross-experiment aggregation), and the reference comparison and ``capture.py`` leave it alone.
 - ``embeddings_two``: the same fixture written twice with different tile images, as
   ``batch1`` and ``batch2`` in one run, so the cross-experiment vote and median see more
   than one experiment. Its variants include two synonymous ones
@@ -55,8 +59,10 @@ _EMBEDDINGS_OUTPUT_DIRS = (
     "filter_cp_features",
     "feature_select_batchwise_cp_features",
     "ovwt_batchwise_cp_features",
-    "global",
 )
+
+#: The reference subdirectory holding the former global stages' outputs (see the docstring).
+GLOBAL_REFERENCE = "global/"
 
 
 def _load(package: str) -> ModuleType:
@@ -96,7 +102,6 @@ def _run_global(work_dir: Path) -> Path:
 
     pipeline_dir = work_dir / "pipeline"
     _global_fixture.write_inputs(pipeline_dir)
-    _global_fixture.run_old_global_stages(pipeline_dir)
     return pipeline_dir
 
 

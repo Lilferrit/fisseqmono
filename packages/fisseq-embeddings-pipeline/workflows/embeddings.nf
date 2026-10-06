@@ -11,16 +11,13 @@
 //
 //   cellDINO:  EMBED_CELLS -> FILTER_EMBEDDINGS ->
 //              {AGGREGATE_EMBEDDINGS, OVWT_BATCHWISE, reproducibility chain}
-//              -> {GLOBAL_BLOCKLIST -> GLOBAL_VARIANT_EMBEDDINGS,
-//                  GLOBAL_VARIANT_DISTINGUISHABILITY}
 //   CP track:  BUILD_CP_FEATURES -> FILTER_CP_FEATURES ->
-//              {AGGREGATE_CP_FEATURES, OVWT_BATCHWISE_CP_FEATURES} ->
-//              {GLOBAL_VARIANT_CP_FEATURES,
-//               GLOBAL_VARIANT_DISTINGUISHABILITY_CP_FEATURES}
+//              {AGGREGATE_CP_FEATURES, OVWT_BATCHWISE_CP_FEATURES}
 //
-// Every per-experiment task carries errorStrategy 'ignore', so independent
-// branches keep running when one fails. The global stages then pool over
-// whichever experiments survived -- check the run report for failures.
+// Every output is per experiment: aggregating across experiments is the
+// fisseqborn package's job (`fisseqborn-global`). Every task carries
+// errorStrategy 'ignore', so independent branches keep running when one
+// fails -- check the run report for failures.
 
 // Shared modules (one copy for both pipelines) live in the repo's nextflow/ directory; this
 // pipeline's per-process settings for them are in conf/modules.config.
@@ -39,26 +36,10 @@ include { CORRELATE_FEATURES } from '../../../nextflow/modules/local/correlate_f
 include { BLOCKLIST } from '../../../nextflow/modules/local/blocklist/main.nf'
 include { COMBINE_BLOCKLISTS } from '../../../nextflow/modules/local/combine_blocklists/main.nf'
 include { FILTER_AGGREGATE } from '../modules/local/filter_aggregate/main.nf'
-include { GLOBAL_BLOCKLIST } from '../modules/local/global_blocklist/main.nf'
-include { GLOBAL_VARIANT_EMBEDDINGS } from '../modules/local/global_variant_embeddings/main.nf'
-include { GLOBAL_VARIANT_DISTINGUISHABILITY } from '../modules/local/global_variant_distinguishability/main.nf'
 include { BUILD_CP_FEATURES } from '../modules/local/build_cp_features/main.nf'
 include { FILTER as FILTER_CP_FEATURES } from '../../../nextflow/modules/local/filter/main.nf'
 include { AGGREGATE_CP_FEATURES } from '../modules/local/aggregate_cp_features/main.nf'
 include { OVWT_BATCHWISE as OVWT_BATCHWISE_CP_FEATURES } from '../../../nextflow/modules/local/ovwt_batchwise/main.nf'
-include { GLOBAL_VARIANT_CP_FEATURES } from '../modules/local/global_variant_cp_features/main.nf'
-include { GLOBAL_VARIANT_DISTINGUISHABILITY_CP_FEATURES } from '../modules/local/global_variant_distinguishability_cp_features/main.nf'
-
-// (batch_stem, file) pairs from every experiment -> one
-// ([batch_stems], [files]) tuple, sorted by batch_stem so a global stage's
-// input order doesn't depend on which experiment finished first. Emits
-// nothing if no experiment produced the file.
-def sortedPairs(ch) {
-    return ch
-        .toSortedList { a, b -> a[0] <=> b[0] }
-        .filter { pairs -> !pairs.isEmpty() }
-        .map { pairs -> tuple(pairs.collect { p -> p[0] }, pairs.collect { p -> p[1] }) }
-}
 
 workflow EmbeddingsPipeline {
     main:
@@ -98,7 +79,7 @@ workflow EmbeddingsPipeline {
         // themselves from these three; none reads a pre-normalized copy.
         embed_and_filtered = embeddings.join(filtered)            // (stem, embeddings, filtered_keys, normalizer)
         aggregates = AGGREGATE_EMBEDDINGS(embed_and_filtered)
-        ovwt = OVWT_BATCHWISE(embed_and_filtered)
+        OVWT_BATCHWISE(embed_and_filtered)
 
         // ── Reproducibility filtering ───────────────────────────────────
         // One split per bootstrap replicate, two halves per split, one
@@ -143,13 +124,6 @@ workflow EmbeddingsPipeline {
             : aggregates.map { stem, _agg -> tuple(stem, []) }
         FILTER_AGGREGATE(aggregates.join(blocklists).join(passthrough))
 
-        // ── Global stages ───────────────────────────────────────────────
-        global_blocklist = GLOBAL_BLOCKLIST(sortedPairs(blocklists))
-        GLOBAL_VARIANT_EMBEDDINGS(sortedPairs(aggregates), global_blocklist)
-        GLOBAL_VARIANT_DISTINGUISHABILITY(
-            sortedPairs(ovwt.map { stem, results, _cell_scores, _models -> tuple(stem, results) })
-        )
-
         // ── CellProfiler-feature track (experiments with cp_features: true) ─
         // Reuses the SAME QC_FILTER output -- no second QC pass -- and gets
         // no reproducibility filtering: its columns are hand-engineered and
@@ -161,11 +135,7 @@ workflow EmbeddingsPipeline {
         )
         cp_filtered = FILTER_CP_FEATURES(cp_features.join(qc_passed))
         cp_and_filtered = cp_features.join(cp_filtered)
-        cp_aggregates = AGGREGATE_CP_FEATURES(cp_and_filtered)
-        cp_ovwt = OVWT_BATCHWISE_CP_FEATURES(cp_and_filtered)
-        GLOBAL_VARIANT_CP_FEATURES(sortedPairs(cp_aggregates))
-        GLOBAL_VARIANT_DISTINGUISHABILITY_CP_FEATURES(
-            sortedPairs(cp_ovwt.map { stem, results, _cell_scores, _models -> tuple(stem, results) })
-        )
+        AGGREGATE_CP_FEATURES(cp_and_filtered)
+        OVWT_BATCHWISE_CP_FEATURES(cp_and_filtered)
     }
 }

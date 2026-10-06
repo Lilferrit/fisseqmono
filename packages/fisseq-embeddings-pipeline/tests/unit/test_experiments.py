@@ -39,7 +39,6 @@ def _config(**overrides):
         "aggregate_methods_passthrough": [],
         "reproducibility_bootstrap_reps": 10,
         "reproducibility_min_correlation": 0.5,
-        "reproducibility_global_min_batches_ok": None,
         "ovwt_cv_mode": "kfold",
         "ovwt_n_folds": 5,
     }
@@ -131,15 +130,25 @@ def test_in_range_min_correlation_is_accepted(r):
     validate_config(_config(reproducibility_min_correlation=r))
 
 
-@pytest.mark.parametrize("n", [0, -1, "two"])
-def test_invalid_global_min_batches_ok_raises(n):
-    with pytest.raises(ValueError, match="reproducibility_global_min_batches_ok"):
-        validate_config(_config(reproducibility_global_min_batches_ok=n))
+@pytest.mark.parametrize(
+    "key",
+    [
+        "reproducibility_global_min_batches_ok",
+        "global_variant_embeddings_cumulative_variance_explained",
+        "global_variant_cp_features_cumulative_variance_explained",
+    ],
+)
+def test_removed_global_params_warn(key, caplog):
+    """The global stages moved to fisseqborn; their params are ignored with a warning."""
+    with caplog.at_level("WARNING"):
+        validate_config(_config(**{key: 2}))
+    assert key in caplog.text and "fisseqborn-global" in caplog.text
 
 
-def test_null_global_min_batches_ok_is_accepted():
-    """null means unanimity -- the default."""
-    validate_config(_config(reproducibility_global_min_batches_ok=None))
+def test_unset_removed_global_params_dont_warn(caplog):
+    with caplog.at_level("WARNING"):
+        validate_config(_config(reproducibility_global_min_batches_ok=None))
+    assert "fisseqborn-global" not in caplog.text
 
 
 # ── validate_config: OVWT cross-validation ─────────────────────────────────

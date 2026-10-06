@@ -106,16 +106,21 @@ def assert_frames_equal(
 
 
 def compare_trees(
-    actual: dict[str, Path], reference_dir: Path, run_root: Path, prefix: str = ""
+    actual: dict[str, Path],
+    reference_dir: Path,
+    run_root: Path,
+    prefix: str = "",
+    skip: tuple[str, ...] = (),
 ) -> list[str]:
     """Problems found comparing ``actual`` (relative path -> file) with ``reference_dir``.
 
-    Only reference files under ``prefix`` are considered.
+    Only reference files under ``prefix``, and not under any of ``skip``, are considered.
     """
     expected = {
-        p.relative_to(reference_dir).as_posix(): p
+        rel: p
         for p in reference_dir.rglob("*.parquet")
-        if p.relative_to(reference_dir).as_posix().startswith(prefix)
+        if (rel := p.relative_to(reference_dir).as_posix()).startswith(prefix)
+        and not rel.startswith(skip)
     }
     actual = {k: v for k, v in actual.items() if k.startswith(prefix)}
     problems = [f"missing from run: {k}" for k in sorted(set(expected) - set(actual))]

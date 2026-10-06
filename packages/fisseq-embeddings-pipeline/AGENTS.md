@@ -15,7 +15,8 @@
 `fisseq-embeddings-pipeline` is the embedding-space sibling of
 `fisseq-data-pipeline` — same overall shape (a workflow engine orchestrating
 Python/Hydra/polars stages, per-experiment batches, a QC → normalize →
-one-vs-wildtype → aggregate → global-pool structure), but scores genetic
+one-vs-wildtype → aggregate structure; pooling across experiments is
+fisseqborn's `fisseqborn-global`), but scores genetic
 variants against a pretrained **Cell-DINO** vision transformer's learned
 embeddings instead of hand-engineered CellProfiler features. See
 [`docs/architecture.md`](docs/architecture.md) for the full picture and
