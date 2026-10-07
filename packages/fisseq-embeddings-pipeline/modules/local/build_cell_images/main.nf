@@ -46,11 +46,17 @@ process BUILD_CELL_IMAGES {
     def conda_prefix = task.ext.conda_bin_dir ? "PATH=\"${task.ext.conda_bin_dir}:\$PATH\" " : ''
     def snakemake = "${conda_prefix}${task.ext.snakemake_bin}"
     def cluster_mode = params.starcall_profile as boolean
+    // A list from params.yaml, or a comma-separated string from the command
+    // line; absent from an older params.yaml.
+    def site_binds = params.starcall_job_binds ?: []
+    if (!(site_binds instanceof Collection)) {
+        site_binds = site_binds.toString().tokenize(',')*.trim()
+    }
     def jobscript_args = !cluster_mode ? '' : [
         "starcall_job_image=${params.starcall_job_image}",
         "starcall_container_bin=${params.starcall_container_bin}",
         "starcall_job_gpu=${params.starcall_gpu.toString().toBoolean()}",
-        hydraList('jobscript_binds', [starcall_dir, cache_dir]),
+        hydraList('jobscript_binds', [starcall_dir, cache_dir] + site_binds),
     ].join(' ')
     // In cluster mode --cores is left to the profile: there it is the budget
     // across all submitted jobs, and a local-sized value would silently cap

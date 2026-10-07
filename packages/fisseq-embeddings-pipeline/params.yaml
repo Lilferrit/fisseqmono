@@ -145,6 +145,12 @@ snakemake_cores: 4             # the nested run's --cores in local mode (no star
 starcall_profile: null         # path to a snakemake 7 profile dir; null = local mode
 starcall_job_image: null       # a .sif of container_image on storage every node can read -- required with starcall_profile
 starcall_container_bin: apptainer  # what a child job re-enters the image with; some nodes only ship `singularity`
+# Extra host paths every child job binds, on top of the ones BUILD_CELL_IMAGES
+# derives (the data dirs, starcall_workflow_dir, the snakemake cache, each
+# also at its symlink-resolved path). Use it for data a starcall config
+# reaches through a symlink elsewhere, e.g. the same broad shared-storage
+# root your site config binds for the outer tasks.
+starcall_job_binds: []
 #
 # Where BUILD_CELL_IMAGES points $XDG_CACHE_HOME (and $HOME) for the nested
 # run. Snakemake mkdir's $XDG_CACHE_HOME/snakemake while constructing its

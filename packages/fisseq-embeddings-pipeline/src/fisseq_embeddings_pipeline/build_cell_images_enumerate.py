@@ -168,7 +168,9 @@ class BuildCellImagesEnumerateConfig(AppConfig):
         no GPU, so this is safe to leave on. Defaults to ``False``.
     jobscript_binds : list[str]
         Extra host paths to bind into each child job, on top of the ones
-        this stage derives itself (see :func:`jobscript_bind_paths`).
+        this stage derives itself (see :func:`jobscript_bind_paths`). The
+        process passes ``starcall_workflow_dir``, the snakemake cache dir and
+        ``params.starcall_job_binds``.
     jobscript_out : str
         Output filename for the jobscript, written under `output_dir`.
     resolved_dirs_out : str
@@ -407,12 +409,20 @@ def jobscript_bind_paths(
 ) -> List[str]:
     """Every host path a starcall child job can touch, deduplicated.
 
-    ``cwd`` is not optional: snakemake prefixes every cluster job with
-    ``cd <the directory the submitter was launched from>``
-    (``ClusterExecutor.get_job_exec_prefix``), which is the task's own work
-    directory, not ``--directory``.
+    Each path is bound both as given and at its ``os.path.realpath``:
+    starcall's rules use the paths as given, but snakemake prefixes every
+    cluster job with ``cd <workdir>`` (``ClusterExecutor.
+    get_job_exec_prefix``), and it records that workdir with ``os.getcwd()``
+    after changing into ``--directory`` (``starcall_workflow_dir``), so
+    symlinks in it come out resolved. A ``starcall_workflow_dir`` reached
+    through a symlink is otherwise missing from the image at the path the
+    job ``cd``s into.
+
+    ``cwd`` (this task's work directory, where the jobscript and targets
+    live) is bound as well.
     """
-    return sorted({*resolved_dirs.values(), *extra, cwd})
+    paths = {*resolved_dirs.values(), *extra, cwd}
+    return sorted({q for p in paths for q in (p, os.path.realpath(p))})
 
 
 def render_starcall_jobscript(

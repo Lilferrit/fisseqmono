@@ -62,9 +62,10 @@ the job's `{exec_job}`. It passes its own text rather than its path: a
 scheduler may keep the script in a node-local spool (SGE's
 `/var/spool/<cell>/<host>/job_scripts/`) that isn't bound into the image. The binds (`jobscript_bind_paths`) are the three
 resolved data dirs, `jobscript_binds` (the process passes
-`starcall_workflow_dir` and the snakemake cache dir), and the current working directory
--- snakemake `cd`s each cluster job into the directory the submitter was
-launched from. snakemake fills the template with `str.format`, so a path
+`starcall_workflow_dir`, the snakemake cache dir and `starcall_job_binds`), and the
+current working directory, each also at its `os.path.realpath`: snakemake
+`cd`s each cluster job into its workdir as `os.getcwd()` recorded it after
+entering `--directory`, with symlinks resolved. snakemake fills the template with `str.format`, so a path
 containing a brace is rejected up front.
 
 ## Config fields
