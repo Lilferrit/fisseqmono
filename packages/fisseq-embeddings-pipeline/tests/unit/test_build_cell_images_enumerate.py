@@ -10,6 +10,7 @@ target-list/manifest logic feeding BUILD_CELL_IMAGES' own
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -346,3 +347,18 @@ def test_jobscript_bind_paths_includes_cwd_and_dedupes():
         "/work/ab/123",
     )
     assert binds == ["/cache", "/s/p", "/s/q", "/work/ab/123"]
+
+
+def test_jobscript_bind_paths_adds_resolved_symlinks(tmp_path):
+    # snakemake cd's each child job into os.getcwd() after entering
+    # --directory, i.e. starcall_workflow_dir with symlinks resolved.
+    real = tmp_path / "nobackup" / "exp"
+    real.mkdir(parents=True)
+    link = tmp_path / "exp"
+    link.symlink_to(real)
+
+    binds = mod.jobscript_bind_paths({}, [str(link)], "/work/ab/123")
+
+    assert str(link) in binds
+    assert os.path.realpath(link) in binds
+    assert os.path.realpath(link).endswith("/nobackup/exp")

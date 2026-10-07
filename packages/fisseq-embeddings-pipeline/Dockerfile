@@ -158,7 +158,10 @@ RUN git clone --recursive "${STARCALL_WORKFLOW_GIT_URL}" starcall-workflow \
 # Forcing the real stdlib `distutils` (which does ship that submodule,
 # platform-conditional behavior notwithstanding) is the standard fix for
 # this well-documented numpy.distutils/setuptools incompatibility.
-ENV SETUPTOOLS_USE_DISTUTILS=stdlib
+# Exported in this RUN only, never ENV: the uv layers below build sdists
+# (antlr4-python3-runtime, for hydra) on Python 3.13, which has no stdlib
+# distutils, so the setting there fails `uv sync` with "No module named
+# 'distutils'".
 # NOT editable (-e) installs for the two submodules -- confirmed via a real
 # `docker build` + `docker run` that `pip install -e` fails at import time
 # here: both packages/starcall/setup.py and packages/constitch/setup.py
@@ -174,7 +177,8 @@ ENV SETUPTOOLS_USE_DISTUTILS=stdlib
 # `packages=[...]`-driven file discovery, which tolerates the trailing
 # slash typo fine, and does not need to remain "live" against the checkout
 # afterward (only workflow/ is kept, below).
-RUN pip install --no-cache-dir -r starcall-workflow/requirements.txt \
+RUN export SETUPTOOLS_USE_DISTUTILS=stdlib \
+    && pip install --no-cache-dir -r starcall-workflow/requirements.txt \
     && pip install --no-cache-dir starcall-workflow/packages/constitch \
     && pip install --no-cache-dir starcall-workflow/packages/starcall
 

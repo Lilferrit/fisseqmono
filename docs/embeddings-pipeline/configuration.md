@@ -97,6 +97,7 @@ global default. All three route to `BUILD_CELL_IMAGES` only.
 | `starcall_profile` | `null` | `BUILD_CELL_IMAGES`: a snakemake 7 profile directory for the nested starcall run; set it to submit each starcall rule as its own cluster job. See [Nextflow Workflow](nextflow.md#running-on-a-cluster-bring-your-own-profiles) |
 | `starcall_job_image` | `null` (required with `starcall_profile`) | `BUILD_CELL_IMAGES`, cluster mode: the `.sif` of `container_image` every starcall child job re-enters, on storage every compute node can read |
 | `starcall_container_bin` | `"apptainer"` | `BUILD_CELL_IMAGES`, cluster mode: the runtime a child job re-enters the image with (`singularity` on some nodes) |
+| `starcall_job_binds` | `[]` | `BUILD_CELL_IMAGES`, cluster mode: extra host paths every starcall child job binds, on top of the ones it derives (e.g. your shared-storage root) |
 | `snakemake_cache_dir` | `null` (-> `<pipeline_dir>/.snakemake_cache`) | `BUILD_CELL_IMAGES` (where its nested `snakemake` points `$XDG_CACHE_HOME`/`$HOME` -- see [read-only `$HOME`](#the-nested-snakemake-and-a-read-only-home) below) |
 | `starcall_gpu` | `true` | `BUILD_CELL_IMAGES` (`--nv`/`--gpus all` on its container, and `--nv` on every child job in cluster mode, for starcall's stardist/cellpose segmentation; set `false` on a GPU-less **Docker** host, where `--gpus` fails outright) |
 | `embeddings_only` | `false` | the workflow: `true` stops after `EMBED_CELLS` -- no QC-dependent cellDINO stages, no feature selection, no CellProfiler track |

@@ -599,6 +599,7 @@ def test_starcall_profile_switches_to_profile_mode(tmp_path_factory):
             "starcall_job_image": "/images/pipeline.sif",
             "starcall_container_bin": "singularity",
             "starcall_gpu": "false",
+            "starcall_job_binds": "/site/shared,/site/scratch",
             "embeddings_only": "true",
         },
     )
@@ -623,7 +624,9 @@ def test_starcall_profile_switches_to_profile_mode(tmp_path_factory):
         exp_dir / "phenotyping",
         exp_dir / "sequencing",
         exp_dir / ".snakemake_cache",
-        jobscript_path.parent,  # the task dir: snakemake cd's there first
+        jobscript_path.parent,  # the task dir
+        "/site/shared",  # starcall_job_binds
+        "/site/scratch",
     ):
         assert f"{bound}:{bound}" in reentry, (bound, reentry)
 

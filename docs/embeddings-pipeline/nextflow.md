@@ -338,13 +338,14 @@ By default `BUILD_CELL_IMAGES`' nested snakemake runs in **local mode**:
 `--cores {snakemake_cores}`, every starcall rule a subprocess of the one
 task. There is parallelism *across* experiments and none *within* one.
 
-Set three params to fan starcall's rules out instead:
+Set three params (plus, optionally, `starcall_job_binds`) to fan starcall's rules out instead:
 
 | Param | What it is |
 |---|---|
 | `starcall_profile` | A snakemake **7** profile directory (a `config.yaml` inside it) saying how to submit jobs: `cluster:`, `cluster-cancel:`, `jobs:`, and optionally `default-resources`/`set-resources`, `latency-wait`, `retries`. Bound into the task's container automatically. |
 | `starcall_job_image` | A `.sif` of `container_image` on storage every compute node can read. Required with `starcall_profile` (`PLAN_EXPERIMENTS` fails fast without it). |
 | `starcall_container_bin` | What a child job re-enters the image with. Default `apptainer`; some nodes only ship `singularity`. |
+| `starcall_job_binds` | Optional. Extra host paths every child job binds (a list, or a comma-separated string on the command line), e.g. the shared-storage root your site config binds for the outer tasks, so data a starcall config reaches through a symlink elsewhere is visible too. Default `[]`. |
 
 A minimal profile looks like:
 
@@ -397,11 +398,13 @@ How the pieces fit:
   variable Apptainer passes through), then runs the job as usual.
 - **Binds are baked in.** The jobscript binds, at unchanged paths, the
   resolved `phenotyping_dir`/`segmentation_dir`/`sequencing_dir`,
-  `starcall_workflow_dir`, the snakemake cache dir, and the task's own work
-  directory -- snakemake prefixes every cluster job with `cd <the directory
-  the submitter was launched from>`, which is that work directory. So the
-  Nextflow work directory has to be on shared storage, as it already must
-  be for any cluster executor.
+  `starcall_workflow_dir`, the snakemake cache dir, `starcall_job_binds`
+  and the task's own work directory -- each also at its symlink-resolved
+  path. Snakemake prefixes every cluster job with `cd <workdir>`, and it
+  records that workdir with `os.getcwd()` after changing into
+  `--directory`, so a `starcall_workflow_dir` reached through a symlink
+  comes out resolved. The Nextflow work directory has to be on shared
+  storage, as it already must be for any cluster executor.
 - **GPU.** `starcall_gpu: true` adds `--nv` to every child job's re-entry;
   Apptainer only warns on a GPU-less node. Which jobs get a GPU *node* is
   your profile's business (`set-resources` above).
