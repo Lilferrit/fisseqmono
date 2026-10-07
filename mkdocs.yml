@@ -61,6 +61,7 @@ nav:
     - ROC curves: fisseqborn/plots/roc.md
     - Heatmaps: fisseqborn/plots/heatmap.md
     - Clustermaps: fisseqborn/plots/clustermap.md
+    - Variant effect maps: fisseqborn/plots/variant-map.md
     - Explained variance: fisseqborn/plots/explained-variance.md
     - Pair plots: fisseqborn/plots/pairplot.md
     - Volcano plots: fisseqborn/plots/volcano.md
