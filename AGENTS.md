@@ -94,7 +94,10 @@ workflow" button), so run them locally before merging.
   `ghcr.io/<owner>/fisseqmono/<pipeline>` from `main` and `v*` tags (never on PRs). Its
   `paths` filter lists exactly the files the Dockerfile copies (Nextflow files, tests and docs
   never reach an image; keep the filter in step when a Dockerfile changes). Tag pushes always
-  build.
+  build. Layers are cached in ghcr at `<image>:buildcache` (BuildKit registry cache,
+  `mode=max`), so a source-only change rebuilds only the source layers; keep the uv image
+  pinned and the slow, rarely-changing layers (the embeddings image's `ops` env) above the
+  `uv.lock` layer, or that cache stops paying off.
 - `docs.yml`: strict build and gh-pages deploy on every push to `main`.
 
 ## Releases
