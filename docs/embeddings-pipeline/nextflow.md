@@ -393,7 +393,7 @@ How the pieces fit:
   `starcall_jobscript.sh` (`render_starcall_jobscript` in
   `build_cell_images_enumerate.py`) and passes it as `--jobscript`. It
   re-executes itself once inside `starcall_job_image` (`<starcall_container_bin>
-  exec [--nv] --bind ... <image> /bin/sh "$0"`, guarded by an environment
+  exec [--nv] --bind ... <image> /bin/sh -c "$(cat "$0")" "$0"`, guarded by an environment
   variable Apptainer passes through), then runs the job as usual.
 - **Binds are baked in.** The jobscript binds, at unchanged paths, the
   resolved `phenotyping_dir`/`segmentation_dir`/`sequencing_dir`,

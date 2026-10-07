@@ -1448,13 +1448,13 @@ _FAKE_RUNTIME = """#!/bin/sh
 # pipeline image here (the fake "cluster" backgrounds it inside
 # BUILD_CELL_IMAGES' own container), so check what the jobscript passed
 # and run the job as the real runtime would.
-#   exec --bind SRC:DST,... IMAGE /bin/sh JOBSCRIPT
+#   exec --bind SRC:DST,... IMAGE /bin/sh -c SCRIPT_TEXT JOBSCRIPT
 [ "$1" = exec ] || { echo "fake runtime: expected 'exec', got $1" >&2; exit 90; }
 [ "$2" = --bind ] || { echo "fake runtime: expected --bind, got $2" >&2; exit 91; }
 for pair in $(echo "$3" | tr ',' ' '); do
     [ -e "${pair%%:*}" ] || { echo "fake runtime: bind source missing: $pair" >&2; exit 92; }
 done
-echo "entered $4 for $6" >> "$(dirname "$0")/fake_runtime.log"
+echo "entered $4 for $8" >> "$(dirname "$0")/fake_runtime.log"
 shift 4
 exec "$@"
 """

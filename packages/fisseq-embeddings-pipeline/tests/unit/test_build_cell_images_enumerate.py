@@ -312,6 +312,33 @@ def test_render_starcall_jobscript_reenters_image_once(tmp_path: Path):
     assert log.read_text().split() == ["entered", "ran"]
 
 
+def test_render_starcall_jobscript_reenters_without_seeing_its_own_path(
+    tmp_path: Path,
+):
+    """A scheduler may keep the jobscript in a node-local spool (SGE:
+    /var/spool/uge/<host>/job_scripts/<id>) that isn't bound into the
+    image, so the re-entered shell must not need to open "$0". The fake
+    runtime deletes the script before running the inner command."""
+    fake_bin = tmp_path / "fakeapptainer"
+    fake_bin.write_text(
+        '#!/bin/sh\nshift\n[ "$1" = --nv ] && shift\nshift 3\n'
+        'rm -f "$JOBSCRIPT"\necho entered >> "$LOG"\nexec "$@"\n'
+    )
+    fake_bin.chmod(0o755)
+    script = mod.render_starcall_jobscript(str(fake_bin), "/i.sif", ["/d"], False)
+    jobscript = tmp_path / "job.sh"
+    jobscript.write_text(_fill(script, exec_job='echo ran "$0" >> "$LOG"'))
+
+    import os
+    import subprocess
+
+    log = tmp_path / "log"
+    env = {**os.environ, "LOG": str(log), "JOBSCRIPT": str(jobscript)}
+    env.pop("FISSEQ_STARCALL_IN_IMAGE", None)
+    subprocess.run(["/bin/sh", str(jobscript)], check=True, env=env)
+    assert log.read_text().split() == ["entered", "ran", str(jobscript)]
+
+
 def test_jobscript_bind_paths_includes_cwd_and_dedupes():
     binds = mod.jobscript_bind_paths(
         {"phenotyping_dir": "/s/p", "sequencing_dir": "/s/q"},
