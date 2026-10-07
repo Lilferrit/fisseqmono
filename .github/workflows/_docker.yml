@@ -8,6 +8,12 @@
 #     ghcr.io/<owner>/<pipeline> packages belong to the pipelines' former repositories.)
 #   - Tags, on every push to main: `:latest` and `:<short-sha>`. On a pushed `v*` tag: also
 #     `:<version>` (`v2.0.0` -> `2.0.0`).
+#   - Layer cache: BuildKit's registry cache at `<image>:buildcache` (mode=max, so every
+#     intermediate layer, not just the final image's), read and written by every build, main
+#     and tags alike. A runner starts empty, so without it each build redid every layer; with
+#     it a source-only change rebuilds only the source layers at the end of the Dockerfile.
+#     Registry, not type=gha: the embeddings image is several GB, and GitHub evicts
+#     past 10 GB of Actions cache per repository.
 name: docker image
 
 on:
@@ -38,6 +44,7 @@ jobs:
         id: tags
         run: |
           image="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')/${{ inputs.pipeline }}"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
           tags="${image}:latest,${image}:${GITHUB_SHA::7}"
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             tags="${tags},${image}:${GITHUB_REF#refs/tags/v}"
@@ -49,3 +56,5 @@ jobs:
           file: packages/${{ inputs.pipeline }}/Dockerfile
           push: true
           tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=registry,ref=${{ steps.tags.outputs.image }}:buildcache
+          cache-to: type=registry,ref=${{ steps.tags.outputs.image }}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true

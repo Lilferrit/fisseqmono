@@ -23,7 +23,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # since uv provisions its own interpreter. ubuntu 22.04 (jammy) only ships
 # Python 3.10 by default, which does not satisfy pyproject.toml's
 # `requires-python` regardless.
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+# Pinned, not :latest: a new uv release would change this layer and so invalidate every cached
+# layer below it (the whole image) on the next CI build. Bump it deliberately.
+COPY --from=ghcr.io/astral-sh/uv:0.12.23 /uv /uvx /usr/local/bin/
 # Put the managed interpreter where every user can read it (the default is under /root), so a
 # container run as a non-root user can still execute .venv/bin/python.
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python
