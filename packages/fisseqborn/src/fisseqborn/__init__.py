@@ -26,6 +26,7 @@ from .pairplot import PairPlot
 from .profiles import Profiles
 from .roc import RocPlot
 from .summary import ClusterSummary
+from .variant_map import VariantEffectMap, VariantEffectMapAxes
 from .volcano import VolcanoPlot
 
 __all__ = [
@@ -48,6 +49,8 @@ __all__ = [
     "Plot",
     "Profiles",
     "RocPlot",
+    "VariantEffectMap",
+    "VariantEffectMapAxes",
     "VolcanoPlot",
     "config",
     "fisseq",

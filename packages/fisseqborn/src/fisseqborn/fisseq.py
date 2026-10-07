@@ -70,6 +70,10 @@ LMNA_DOMAIN_REGIONS: dict[str, tuple[int, int]] = {
     "Unfolded": (545, 664),
 }
 
+#: The 20 amino acids in the order of the paper's variant effect maps (hydrophobic,
+#: special, polar, charged), top to bottom on `VariantEffectMap`'s y axis.
+AMINO_ACID_ORDER: list[str] = list("AVILGFYWCMPSTNQDEHKR")
+
 # Every known level, in the order it should appear on an axis / legend.
 ORDERS: list[list[str]] = [VARIANT_TYPE_ORDER, CLINVAR_ORDER, list(LMNA_DOMAIN_REGIONS)]
 

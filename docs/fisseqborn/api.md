@@ -74,6 +74,18 @@
       members_order: source
       merge_init_into_class: true
 
+::: fisseqborn.VariantEffectMap
+    options:
+      show_source: false
+      members_order: source
+      merge_init_into_class: true
+
+::: fisseqborn.VariantEffectMapAxes
+    options:
+      show_source: false
+      members_order: source
+      merge_init_into_class: true
+
 ## Data
 
 ::: fisseqborn.Profiles

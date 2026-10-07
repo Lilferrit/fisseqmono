@@ -34,6 +34,19 @@ def position_expr(column: str, *, strict: bool = False) -> pl.Expr:
     return source.str.extract(pattern, 1).cast(pl.Int64)
 
 
+def substitution_exprs(column: str) -> tuple[pl.Expr, pl.Expr, pl.Expr]:
+    """``(wt, position, mut)`` of a single substitution like ``"A12V"`` (``"A12A"`` for a
+    synonymous one). Every other label (frameshifts, deletions, ``|`` multi-codon changes,
+    ``:<tag>`` pseudo-variants, ``"WT"``) gets null in all three."""
+    pattern = r"^([A-Z])(\d+)([A-Z])$"
+    label = pl.col(column)
+    return (
+        label.str.extract(pattern, 1),
+        label.str.extract(pattern, 2).cast(pl.Int64),
+        label.str.extract(pattern, 3),
+    )
+
+
 def region_expr(position: pl.Expr, regions: Mapping[str, tuple[int, int]]) -> pl.Expr:
     """Name of the first region whose inclusive ``(first, last)`` range holds ``position``."""
     return pl.coalesce(
