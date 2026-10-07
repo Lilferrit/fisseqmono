@@ -54,11 +54,13 @@ execute inside it -- so it has to run inside the pipeline image.
 that re-executes itself once as
 
 ```text
-<starcall_container_bin> exec [--nv] --bind <p:p,...> <starcall_job_image> /bin/sh "$0"
+<starcall_container_bin> exec [--nv] --bind <p:p,...> <starcall_job_image> /bin/sh -c "$(cat "$0")" "$0"
 ```
 
 (guarded by a `FISSEQ_STARCALL_IN_IMAGE` environment variable), then runs
-the job's `{exec_job}`. The binds (`jobscript_bind_paths`) are the three
+the job's `{exec_job}`. It passes its own text rather than its path: a
+scheduler may keep the script in a node-local spool (SGE's
+`/var/spool/<cell>/<host>/job_scripts/`) that isn't bound into the image. The binds (`jobscript_bind_paths`) are the three
 resolved data dirs, `jobscript_binds` (the process passes
 `starcall_workflow_dir` and the snakemake cache dir), and the current working directory
 -- snakemake `cd`s each cluster job into the directory the submitter was

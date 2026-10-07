@@ -427,6 +427,11 @@ def render_starcall_jobscript(
     itself there once (guarded by an environment variable, which Apptainer
     passes through by default), then runs the job as usual.
 
+    It re-enters with its contents (``sh -c "$(cat "$0")"``), not its
+    path: a scheduler may keep the script in a node-local spool (SGE's
+    ``/var/spool/<cell>/<host>/job_scripts/``) that isn't bound into the
+    image.
+
     Every path is bound at its own unchanged location because starcall's
     rules build output paths by concatenating strings onto phenotyping_dir
     and friends: a path that merely reaches the data isn't enough.
@@ -446,7 +451,7 @@ def render_starcall_jobscript(
 if [ -z "$FISSEQ_STARCALL_IN_IMAGE" ]; then
     FISSEQ_STARCALL_IN_IMAGE=1
     export FISSEQ_STARCALL_IN_IMAGE
-    exec {command} /bin/sh "$0" "$@"
+    exec {command} /bin/sh -c "$(cat "$0")" "$0" "$@"
 fi
 {{exec_job}}
 """
