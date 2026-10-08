@@ -32,10 +32,11 @@ PATH (under `-profile local`, `process.ext.snakemake_bin` is bare
 phenotyping_dir/sequencing_dir tree the way a real run would have left it
 -- per-tile cell/reads tables plus each tile's WebDataset shard, cut by
 `tile_shard.write_tile_shard` (the same code the real `make_cell_shard`
-rule runs) -- and the stub records its argv and exits 0, standing in for
-"every requested target is already up to date". So tile enumeration, the
-table build, the crop and the embedding all run for real; only snakemake
-itself is faked. The real rule, through real snakemake, is the
+rule runs) -- and the stub records its argv and does the one thing left
+for a real run to do: snakemake/Snakefile's `fisseq_tiles_manifest` rule,
+through the real `fisseq_targets.py`. So tile listing, the table build,
+the crop and the embedding all run for real; only snakemake itself is
+faked. The real rule, through real snakemake, is the
 `--container` suite's job.
 """
 
@@ -122,22 +123,79 @@ def _nf_params(params: dict) -> list[str]:
     ]
 
 
-_STUB_SNAKEMAKE_SCRIPT = """#!/bin/sh
-# Stub snakemake for integration testing: the fixture that invokes this
-# already pre-populates every real starcall-workflow-shaped target file
-# BUILD_CELL_IMAGES would request, so there's nothing for a real Snakemake
-# invocation to do -- just succeed, mimicking "every requested target is
-# already up to date". See this test module's own docstring.
-echo "stub snakemake invoked: $*" >&2
+_STUB_SNAKEMAKE_SCRIPT = """#!/usr/bin/env python
+# Stub snakemake for integration testing. The fixture pre-populates every
+# starcall-shaped tile file a real run would leave behind, so all that's
+# left of the real run is snakemake/Snakefile's fisseq_tiles_manifest rule:
+# list the tiles (with the real fisseq_targets.py, next to --snakefile),
+# check each file is there, write the manifest. See this test module's own
+# docstring.
+import os
+import sys
+import yaml
+import importlib.util
+
+argv = sys.argv[1:]
+print("stub snakemake invoked: " + " ".join(argv), file=sys.stderr)
 # Record the full argv so a test can assert on the command line
 # BUILD_CELL_IMAGES actually built -- local vs profile mode is decided
 # entirely by those flags, and nothing else in this suite can see them. One
 # line per invocation, appended: each batch invokes it twice (--unlock,
 # then the real run).
-if [ -n "${SNAKEMAKE_STUB_ARGV_LOG:-}" ]; then
-    echo "$*" >> "$SNAKEMAKE_STUB_ARGV_LOG"
-fi
-exit 0
+log = os.environ.get("SNAKEMAKE_STUB_ARGV_LOG")
+if log:
+    with open(log, "a") as f:
+        f.write(" ".join(argv) + "\\n")
+if "--unlock" in argv:
+    sys.exit(0)
+
+def option(name):
+    return argv[argv.index(name) + 1]
+
+with open(option("--configfile")) as f:
+    config = yaml.safe_load(f)
+# starcall's own fallbacks for wells/phenotyping_grid_size: the project's
+# config.yaml, else default-config.yaml (workflow/Snakefile's precedence).
+project = {}
+for name in ("config.yaml", "default-config.yaml"):
+    path = os.path.join(option("--directory"), name)
+    if os.path.isfile(path):
+        with open(path) as f:
+            project = yaml.safe_load(f) or {}
+        break
+
+spec = importlib.util.spec_from_file_location(
+    "fisseq_targets",
+    os.path.join(os.path.dirname(option("--snakefile")), "fisseq_targets.py"),
+)
+targets = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(targets)
+rows = targets.tile_rows(
+    phenotyping_dir=config["phenotyping_dir"],
+    sequencing_dir=config["sequencing_dir"],
+    wells=config.get("fisseq_wells") or project["wells"],
+    grid_size=int(
+        config.get("fisseq_grid_size") or project.get("phenotyping_grid_size", 1)
+    ),
+    segmentation_type=config["fisseq_segmentation_type"],
+    image=config["fisseq_image"],
+    window=config["fisseq_window"],
+    sequencing_reads_params=config["fisseq_sequencing_reads_params"],
+    cp_features=config["fisseq_cp_features"],
+    cellprofiler_cycle=config["fisseq_cellprofiler_cycle"],
+    cellprofiler_pipeline=config["fisseq_cellprofiler_pipeline"],
+)
+missing = [p for p in targets.row_targets(rows) if not os.path.exists(p)]
+if missing:
+    sys.exit("stub snakemake: no rule to make " + ", ".join(missing))
+
+requested = argv[argv.index("--") + 1 :]
+assert requested == [config["fisseq_manifest"]], requested
+import csv
+with open(config["fisseq_manifest"], "w", newline="") as f:
+    writer = csv.DictWriter(f, fieldnames=targets.MANIFEST_FIELDNAMES)
+    writer.writeheader()
+    writer.writerows(rows)
 """
 
 
@@ -271,7 +329,7 @@ def _write_starcall_tile(
 
 def _write_synthetic_experiment(
     exp_dir: Path,
-    include_grid_size: bool = True,
+    grid_from_project_config: bool = False,
     omit_data_dirs: bool = False,
     project_config_dir_names: dict | None = None,
 ) -> Path:
@@ -282,9 +340,10 @@ def _write_synthetic_experiment(
     track too) also under exp_dir, matching BUILD_CELL_IMAGES' real input
     contract closely enough to run end to end. Returns exp_dir.
 
-    include_grid_size=False omits grid_size from the entry entirely,
-    exercising BUILD_CELL_IMAGES' auto-detection of it from
-    phenotyping_dir's own `well1_grid1` directory naming instead.
+    grid_from_project_config=True omits wells and grid_size from the entry
+    and sets them in a starcall-workflow-shaped `config.yaml` under
+    starcall_workflow_dir instead (`wells`, `phenotyping_grid_size`),
+    exercising the nested snakemake's fallback to starcall's own.
 
     omit_data_dirs=True places phenotyping_dir/segmentation_dir/
     sequencing_dir directly under starcall_workflow_dir (as
@@ -300,7 +359,7 @@ def _write_synthetic_experiment(
     subdirectory names, places the actual tile tree under them instead of
     the plain defaults, and (like omit_data_dirs) omits the corresponding
     keys from the experiment entry -- exercising
-    build_cell_images_enumerate.py's resolve_data_dir reading a project's
+    build_cell_images_prepare.py's resolve_data_dir reading a project's
     own config.yaml through the real Nextflow/Hydra plumbing, not just a
     bare subdirectory-name default. Implies omit_data_dirs semantics for
     any key it sets; segmentation_dir (unused by the stub) is left at its
@@ -330,9 +389,12 @@ def _write_synthetic_experiment(
     (starcall_workflow_dir / "workflow" / "Snakefile").write_text(
         "# stub, never read\n"
     )
-    if project_config_dir_names:
+    project_config = {k: f"{v}/" for k, v in project_config_dir_names.items()}
+    if grid_from_project_config:
+        project_config.update(wells=["well1"], phenotyping_grid_size=1)
+    if project_config:
         (starcall_workflow_dir / "config.yaml").write_text(
-            yaml.safe_dump({k: f"{v}/" for k, v in project_config_dir_names.items()})
+            yaml.safe_dump(project_config)
         )
     segmentation_dir.mkdir(parents=True, exist_ok=True)
     _write_stub_snakemake(exp_dir / "stub_bin")
@@ -368,9 +430,10 @@ def _write_synthetic_experiment(
 
     batch_config = {
         "starcall_workflow_dir": str(starcall_workflow_dir),
-        "wells": ["well1"],
         "cp_features": True,
     }
+    if not grid_from_project_config:
+        batch_config.update(wells=["well1"], grid_size=1)
     for key, value in (
         ("phenotyping_dir", phenotyping_dir),
         ("segmentation_dir", segmentation_dir),
@@ -378,8 +441,6 @@ def _write_synthetic_experiment(
     ):
         if not omit_data_dirs and key not in project_config_dir_names:
             batch_config[key] = str(value)
-    if include_grid_size:
-        batch_config["grid_size"] = 1
     params = yaml.safe_load((_PROJECT_ROOT / "params.yaml").read_text())
     params["window"] = _WINDOW
     params["cellprofiler_pipeline"] = _CELLPROFILER_PIPELINE
@@ -567,23 +628,28 @@ def test_nested_snakemake_runs_starcalls_own_snakefile_locally(pipeline_outputs)
     assert "--cores 1" in argv, argv
     assert "--rerun-incomplete" in argv, argv
     assert "--profile" not in argv and "--jobscript" not in argv, argv
+    # starcall_retries defaults to null: no --retries, the profile's own wins.
+    assert "--retries" not in argv, argv
     # make_cell_shard's interpreter: this task's own python.
-    assert "fisseq_python=/" in argv, argv
-    # Every requested target comes after the '--': each tile's shard, and
-    # NOT the whole-tile image/mask, so snakemake can delete those temp()
-    # files once the shard is cut.
-    options, targets = argv.split(" -- ", 1)
-    assert f"tile00x00y/cells_raw_shard_{_WINDOW}.tar" in targets, targets
-    assert ".tif" not in targets, targets
-    assert ".tar" not in options, options
+    config = yaml.safe_load(
+        Path(argv.split("--configfile ", 1)[1].split()[0]).read_text()
+    )
+    assert Path(config["fisseq_python"]).is_absolute(), config
+    assert config["phenotyping_dir"].endswith("/"), config
+    # One target, the manifest: its rule lists every tile's files, so
+    # snakemake builds the rest of the DAG itself.
+    _options, targets = argv.split(" -- ", 1)
+    assert targets.split() == [targets.strip()], targets
+    assert targets.strip().endswith("/tiles_manifest.csv"), targets
 
 
 def test_starcall_profile_switches_to_profile_mode(tmp_path_factory):
     """starcall_profile adds --profile and our --jobscript, drops --cores
-    (the profile owns the job budget), and BUILD_CELL_IMAGES writes a
+    (the profile owns the job budget), starcall_retries becomes --retries,
+    and BUILD_CELL_IMAGES writes a
     jobscript that re-enters starcall_job_image with every host path a
     child job can touch bound. Nothing about the scheduler is ours: the
-    profile directory here is empty, and the stub never reads it."""
+    profile here is a one-line config.yaml, and the stub never reads it."""
     exp_dir = tmp_path_factory.mktemp("nf_experiment_profile")
     _write_synthetic_experiment(exp_dir)
     checkpoint_path = tmp_path_factory.mktemp("weights_profile") / "checkpoint.pth"
@@ -602,6 +668,7 @@ def test_starcall_profile_switches_to_profile_mode(tmp_path_factory):
             "starcall_container_bin": "singularity",
             "starcall_gpu": "false",
             "starcall_job_binds": "/site/shared,/site/scratch",
+            "starcall_retries": 2,
             "embeddings_only": "true",
         },
     )
@@ -612,6 +679,7 @@ def test_starcall_profile_switches_to_profile_mode(tmp_path_factory):
     assert f"--profile {profile_dir}" in options, argv
     assert "--jobscript " in options and "starcall_jobscript.sh" in options, argv
     assert "--cores" not in options, argv
+    assert "--retries 2" in options, argv
 
     jobscript_path = Path(options.split("--jobscript ", 1)[1].split()[0])
     jobscript = jobscript_path.read_text()
@@ -960,15 +1028,17 @@ def test_run_ovwt_and_run_feature_selection_gate_their_stages(tmp_path_factory):
         assert not (exp_dir / skipped).exists(), skipped
 
 
-def test_pipeline_auto_detects_grid_size_when_omitted(tmp_path_factory):
-    """grid_size can be omitted from an experiment entry entirely -- proves
-    auto-detection works through the real Nextflow/Hydra override
-    plumbing, not just in-process (see
-    tests/unit/test_build_cell_images_enumerate.py for the in-process
-    coverage of the detection logic itself)."""
+def test_pipeline_takes_wells_and_grid_from_starcall_config_when_omitted(
+    tmp_path_factory,
+):
+    """wells and grid_size can be omitted from an experiment entry entirely:
+    the nested snakemake then takes starcall's own (`wells`,
+    `phenotyping_grid_size`). Proves BUILD_CELL_IMAGES leaves them out of
+    its --configfile rather than passing an empty override (the stub reads
+    the project config the way starcall's Snakefile does)."""
 
     exp_dir = tmp_path_factory.mktemp("nf_experiment_auto_grid")
-    _write_synthetic_experiment(exp_dir, include_grid_size=False)
+    _write_synthetic_experiment(exp_dir, grid_from_project_config=True)
 
     checkpoint_path = tmp_path_factory.mktemp("weights_auto_grid") / "checkpoint.pth"
     _write_tiny_checkpoint(checkpoint_path)
@@ -986,7 +1056,7 @@ def test_pipeline_defaults_data_dirs_under_starcall_workflow_dir_when_omitted(
     tmp_path_factory,
 ):
     """phenotyping_dir/segmentation_dir/sequencing_dir can be omitted from
-    an experiment entry entirely -- proves build_cell_images_enumerate.py's
+    an experiment entry entirely -- proves build_cell_images_prepare.py's
     resolve_data_dir default to a subdirectory of starcall_workflow_dir
     (matching starcall-workflow's own default-config.yaml naming, when no
     project config.yaml exists to say otherwise) works through the real

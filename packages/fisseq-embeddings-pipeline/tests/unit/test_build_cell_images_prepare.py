@@ -1,11 +1,11 @@
-"""Tests for BUILD_CELL_IMAGES' enumerate phase
-(fisseq_embeddings_pipeline.build_cell_images_enumerate).
+"""Tests for BUILD_CELL_IMAGES' prepare phase
+(fisseq_embeddings_pipeline.build_cell_images_prepare).
 
 Covers `resolve_data_dir` (phenotyping_dir/segmentation_dir/sequencing_dir
 resolution against a real or absent starcall-workflow project config),
-`resolve_grid_size`/`enumerate_tile_names`, and `build_enumeration` (the
-target-list/manifest logic feeding BUILD_CELL_IMAGES' own
-`snakemake` invocation and `build_cell_images_table.py`).
+`snakemake_config` (the nested snakemake's --configfile) and the cluster
+jobscript. The tile list itself is snakemake/fisseq_targets.py's --
+tests/unit/test_snakemake_targets.py.
 """
 
 from __future__ import annotations
@@ -16,16 +16,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from fisseq_embeddings_pipeline import build_cell_images_enumerate as mod
-
-
-def _make_tile_dir(
-    phenotyping_dir: Path, well: str, grid_size: int, x: int, y: int
-) -> Path:
-    tile_dir = phenotyping_dir / f"{well}_grid{grid_size}" / f"tile{x}x{y}y"
-    tile_dir.mkdir(parents=True)
-    return tile_dir
-
+from fisseq_embeddings_pipeline import build_cell_images_prepare as mod
 
 # ---------------------------------------------------------------------------
 # resolve_data_dir -- phenotyping_dir/segmentation_dir/sequencing_dir
@@ -118,133 +109,64 @@ def test_resolve_data_dir_explicit_value_wins_over_config_yaml(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
-# resolve_grid_size / enumerate_tile_names -- grid-size/tile discovery
+# snakemake_config -- the nested snakemake's --configfile
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_grid_size_returns_explicit_value_without_scanning(tmp_path: Path):
-    assert mod.resolve_grid_size(str(tmp_path), "well1", 4) == 4
+_DIRS = {
+    "phenotyping_dir": "/data/e1/phenotyping",
+    "segmentation_dir": "/data/e1/segmentation",
+    "sequencing_dir": "/data/e1/sequencing/",
+}
 
 
-def test_resolve_grid_size_auto_detects_single_matching_directory(tmp_path: Path):
-    _make_tile_dir(tmp_path, "well1", 4, 0, 0)
-    assert mod.resolve_grid_size(str(tmp_path), "well1", None) == 4
-
-
-def test_resolve_grid_size_raises_when_no_matching_directory(tmp_path: Path):
-    with pytest.raises(ValueError, match="Could not auto-detect grid_size"):
-        mod.resolve_grid_size(str(tmp_path), "well1", None)
-
-
-def test_resolve_grid_size_raises_when_multiple_grid_sizes_found(tmp_path: Path):
-    _make_tile_dir(tmp_path, "well1", 4, 0, 0)
-    _make_tile_dir(tmp_path, "well1", 8, 0, 0)
-    with pytest.raises(ValueError, match="multiple candidate directories"):
-        mod.resolve_grid_size(str(tmp_path), "well1", None)
-
-
-def test_enumerate_tile_names_finds_every_tile(tmp_path: Path):
-    _make_tile_dir(tmp_path, "well1", 4, 0, 0)
-    _make_tile_dir(tmp_path, "well1", 4, 1, 0)
-    tiles = mod.enumerate_tile_names(str(tmp_path), "well1", 4, explicit=False)
-    assert set(tiles) == {"tile0x0y", "tile1x0y"}
-
-
-def test_enumerate_tile_names_empty_when_nothing_matches(tmp_path: Path):
-    assert mod.enumerate_tile_names(str(tmp_path), "well1", 4, explicit=False) == []
-
-
-def test_enumerate_tile_names_generates_full_grid_when_explicit(tmp_path: Path):
-    """An explicit grid size lists every tile in starcall-workflow's own
-    zero-padded naming without touching the filesystem -- so a run
-    starting from raw input, with nothing under phenotyping_dir yet,
-    still has targets to request."""
-    tiles = mod.enumerate_tile_names(str(tmp_path), "well1", 2, explicit=True)
-    assert tiles == ["tile00x00y", "tile00x01y", "tile01x00y", "tile01x01y"]
-
-
-# ---------------------------------------------------------------------------
-# build_enumeration -- target list / manifest
-# ---------------------------------------------------------------------------
-
-
-def _enumerate(tmp_path: Path, **overrides):
-    kwargs = dict(
-        phenotyping_dir=str(tmp_path),
-        sequencing_dir=str(tmp_path / "sequencing"),
-        wells=["well1"],
-        grid_size=None,
-        segmentation_type="cells",
-        use_corrected=False,
-        window=224,
-        sequencing_reads_params="",
-        cp_features=False,
-        cellprofiler_cycle="",
-        cellprofiler_pipeline="",
-    )
-    kwargs.update(overrides)
-    return mod.build_enumeration(**kwargs)
-
-
-def test_build_enumeration_lists_expected_targets_without_cp_features(tmp_path: Path):
-    _make_tile_dir(tmp_path, "well1", 4, 0, 0)
-    seq_dir = tmp_path / "sequencing"
-
-    result = _enumerate(tmp_path)
-
-    tile_dir = f"{tmp_path}/well1_grid4/tile0x0y"
-    # The shard, not the whole-tile image/mask it's cut from: those stay
-    # temp() upstream, so snakemake can delete them.
-    assert set(result["targets"]) == {
-        f"{tile_dir}/cells_raw_shard_224.tar",
-        f"{tile_dir}/cells.csv",
-        f"{seq_dir}/well1_grid4/tile0x0y/cells_reads.csv",
-    }
-    assert len(result["manifest_rows"]) == 1
-    row = result["manifest_rows"][0]
-    assert row["cellprofiler_csv"] == ""
-    assert row["segmentation_csv"] == f"{tile_dir}/cells.csv"
-    assert row["reads_csv"] == f"{seq_dir}/well1_grid4/tile0x0y/cells_reads.csv"
-    assert row["shard_tar"] == f"{tile_dir}/cells_raw_shard_224.tar"
-    assert set(row) == set(mod._MANIFEST_FIELDNAMES)
-
-
-def test_build_enumeration_names_shard_by_image_and_window(tmp_path: Path):
-    """use_corrected (mirroring starcall-workflow's own get_phenotyping_pt)
-    and window are in the shard's filename, so changing either requests a
-    new shard instead of reusing a stale one."""
-    _make_tile_dir(tmp_path, "well1", 4, 0, 0)
-
-    result = _enumerate(tmp_path, use_corrected=True, window=180)
-
-    shard = f"{tmp_path}/well1_grid4/tile0x0y/cells_corrected_shard_180.tar"
-    assert shard in result["targets"]
-    assert result["manifest_rows"][0]["shard_tar"] == shard
-
-
-def test_build_enumeration_with_explicit_grid_needs_no_existing_tiles(tmp_path: Path):
-    result = _enumerate(tmp_path, grid_size=1)
-
-    assert [r["tile"] for r in result["manifest_rows"]] == ["tile00x00y"]
-    assert (
-        f"{tmp_path}/well1_grid1/tile00x00y/cells_raw_shard_224.tar"
-        in result["targets"]
+def _config(**overrides):
+    fields = dict(starcall_workflow_dir="/data/e1", window=224)
+    fields.update(overrides)
+    return mod.snakemake_config(
+        mod.BuildCellImagesPrepareConfig(**fields),
+        _DIRS,
+        "/work/tiles_manifest.csv",
+        "/venv/bin/python",
     )
 
 
-def test_build_enumeration_includes_cellprofiler_target_when_enabled(tmp_path: Path):
-    _make_tile_dir(tmp_path, "well1", 4, 0, 0)
+def test_snakemake_config_gives_every_dir_one_trailing_slash():
+    """starcall concatenates paths onto these, so the '/' is load-bearing."""
+    config = _config()
+    assert config["phenotyping_dir"] == "/data/e1/phenotyping/"
+    assert config["segmentation_dir"] == "/data/e1/segmentation/"
+    assert config["sequencing_dir"] == "/data/e1/sequencing/"
 
-    result = _enumerate(
-        tmp_path,
-        cp_features=True,
-        cellprofiler_cycle="cycle0",
-        cellprofiler_pipeline="my_pipeline",
-    )
 
-    expected_cp = f"{tmp_path}/well1_grid4/tile0x0y/cellprofilercycle0_my_pipeline.csv"
-    assert expected_cp in result["targets"]
-    assert result["manifest_rows"][0]["cellprofiler_csv"] == expected_cp
+def test_snakemake_config_carries_the_manifest_rule_settings():
+    config = _config(use_corrected=True, window=180, cp_features=True)
+    assert config["fisseq_python"] == "/venv/bin/python"
+    assert config["fisseq_manifest"] == "/work/tiles_manifest.csv"
+    assert config["fisseq_image"] == "corrected"
+    assert config["fisseq_window"] == 180
+    assert config["fisseq_cp_features"] is True
+    assert config["fisseq_segmentation_type"] == "cells"
+
+
+def test_snakemake_config_leaves_wells_and_grid_size_to_starcall_when_unset():
+    """Unset, the Snakefile falls back to starcall's own `wells` and
+    `phenotyping_grid_size`."""
+    config = _config()
+    assert "fisseq_wells" not in config
+    assert "fisseq_grid_size" not in config
+
+
+def test_snakemake_config_passes_explicit_wells_and_grid_size():
+    config = _config(wells=["well1", "well2"], grid_size=4)
+    assert config["fisseq_wells"] == ["well1", "well2"]
+    assert config["fisseq_grid_size"] == 4
+
+
+def test_snakemake_config_is_plain_yaml():
+    """Snakemake loads it with its own YAML reader: no Python-specific tags."""
+    text = yaml.safe_dump(_config(wells=["well1"]))
+    assert yaml.safe_load(text)["fisseq_wells"] == ["well1"]
 
 
 # ---------------------------------------------------------------------------

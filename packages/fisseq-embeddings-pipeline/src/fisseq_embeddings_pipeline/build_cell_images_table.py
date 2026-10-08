@@ -8,7 +8,8 @@ step that still needs the separate `ops` conda env -- see the root
 `Dockerfile`) has materialized every tile's segmentation/reads/CellProfiler
 CSVs.
 
-Reads `manifest` (written by phase 1, `build_cell_images_enumerate.py`),
+Reads `manifest` (written in phase 2 by `snakemake/Snakefile`'s
+`fisseq_tiles_manifest` rule),
 joins each tile's segmentation-side `{segtype}.csv` to sequencing_dir's
 `{segtype}_reads{params}.csv` (by index value -- both are provably the same
 RangeIndex per tile, see `combine_cell_reads`/`merge_final_tables` below)
@@ -65,8 +66,8 @@ class BuildCellImagesTableConfig(AppConfig):
     Attributes
     ----------
     manifest : str
-        Tile manifest CSV, written by `build_cell_images_enumerate.py`'s
-        `manifest_out` (relative to `output_dir`). Defaults to
+        Tile manifest CSV, written by `snakemake/Snakefile`'s
+        `fisseq_tiles_manifest` rule (relative to `output_dir`). Defaults to
         ``"tiles_manifest.csv"``.
     output : str
         Output parquet filename (relative to `output_dir`). Defaults to

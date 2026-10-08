@@ -1,17 +1,18 @@
 // BUILD_CELL_IMAGES -- the ONLY task that touches starcall-workflow's tree
 // or runs a nested snakemake. Three phases:
 //
-//   1. build_cell_images_enumerate resolves phenotyping_dir/segmentation_dir/
-//      sequencing_dir (resolved_dirs.env), each well's grid size and tiles,
-//      and writes targets.txt + tiles_manifest.csv -- plus, in cluster mode,
-//      the jobscript every starcall child job re-enters the image through.
+//   1. build_cell_images_prepare resolves phenotyping_dir/segmentation_dir/
+//      sequencing_dir (resolved_dirs.env) and writes the nested snakemake's
+//      --configfile (snakemake_config.yaml) -- plus, in cluster mode, the
+//      jobscript every starcall child job re-enters the image through.
 //   2. One snakemake run against the REAL data dirs (so its own mtime
 //      caching reuses whatever is already computed), of starcall-workflow's
 //      own Snakefile -- cloned into the image at a pinned commit, unmodified
-//      -- plus this repo's make_cell_shard rule (snakemake/Snakefile,
-//      task.ext.fisseq_snakefile), asking for every tile's cell and reads
-//      tables and its WebDataset shard. See docs/architecture.md
-//      decision 17.
+//      -- plus this repo's rules (snakemake/Snakefile,
+//      task.ext.fisseq_snakefile), asking for one file: tiles_manifest.csv.
+//      Its rule lists every tile's cell and reads tables and WebDataset
+//      shard as inputs, so snakemake builds the whole DAG from the grid.
+//      See docs/architecture.md decision 17.
 //   3. build_cell_images_table joins the per-tile CSVs into
 //      cell_table.parquet, plus tiles.parquet naming each tile's shard.
 //
@@ -64,6 +65,10 @@ process BUILD_CELL_IMAGES {
     def submission = cluster_mode
         ? "--profile '${params.starcall_profile}' --jobscript \"\$PWD/starcall_jobscript.sh\""
         : "--cores ${params.snakemake_cores}"
+    // --retries reruns a failed starcall job with attempt + 1, and the
+    // wrapper Snakefile doubles every rule's mem_mb per attempt. null leaves it
+    // to the profile's own `retries:` (or snakemake's default, none).
+    def retries = params.starcall_retries == null ? '' : "--retries ${params.starcall_retries}"
     """
     set -euo pipefail
     ${threadEnv(task.cpus)}
@@ -76,29 +81,16 @@ process BUILD_CELL_IMAGES {
     export HOME="${cache_dir}/home"
     mkdir -p "\$XDG_CACHE_HOME" "\$HOME"
 
-    python -m fisseq_embeddings_pipeline.build_cell_images_enumerate \\
+    python -m fisseq_embeddings_pipeline.build_cell_images_prepare \\
         output_dir=. \\
         ${plan.cell_images_args} \\
         ${jobscript_args} \\
         random_seed=${params.random_seed}
 
-    # Fully resolved by phase 1, not recomputed here. Exported so the
+    # Resolved by phase 1, not recomputed here. Exported so the
     # env("phenotyping_dir") output (EMBED_CELLS' bind path) sees it.
     source resolved_dirs.env
-    export phenotyping_dir segmentation_dir sequencing_dir
-
-    # The trailing '/' on each value is load-bearing: starcall's rules build
-    # every path by plain string concatenation onto these, matching its own
-    # 'phenotyping/'-style defaults. Without it a path wildcard silently
-    # comes out malformed.
-    # fisseq_python: the interpreter make_cell_shard runs this package
-    # with -- this task's own, which every child job shares (same image).
-    starcall_config=(
-        phenotyping_dir="\$phenotyping_dir/"
-        segmentation_dir="\$segmentation_dir/"
-        sequencing_dir="\$sequencing_dir/"
-        fisseq_python="\$(command -v python)"
-    )
+    export phenotyping_dir
 
     # A killed run leaves <starcall_workflow_dir>/.snakemake/locks behind and
     # the next one dies with "Directory cannot be locked".
@@ -106,21 +98,22 @@ process BUILD_CELL_IMAGES {
         --snakefile "${task.ext.fisseq_snakefile}" \\
         --directory "${starcall_dir}" \\
         --unlock \\
-        --config "\${starcall_config[@]}" \\
+        --configfile "\$PWD/snakemake_config.yaml" \\
         || true
 
-    # '--' stops --config's parser from swallowing the targets as bogus
-    # config entries.
+    # '--' stops --configfile from swallowing the target as a second
+    # config file.
     ${snakemake} \\
         --snakefile "${task.ext.fisseq_snakefile}" \\
         --directory "${starcall_dir}" \\
         ${submission} \\
+        ${retries} \\
         --use-conda --conda-frontend conda \\
         --rerun-triggers mtime \\
         --rerun-incomplete \\
-        --config "\${starcall_config[@]}" \\
+        --configfile "\$PWD/snakemake_config.yaml" \\
         -- \\
-        \$(cat targets.txt)
+        "\$PWD/tiles_manifest.csv"
 
     python -m fisseq_embeddings_pipeline.build_cell_images_table \\
         output_dir=. \\

@@ -13,9 +13,34 @@ starcall_profile on a cluster) and the whole-tile image and mask stay
 plain temp() intermediates upstream -- requested by nothing but this rule,
 snakemake deletes them once every consumer is done. See
 docs/architecture.md decision 17.
+
+fisseq_tiles_manifest is the one target BUILD_CELL_IMAGES asks for. Its
+input function lists every tile file of every well (fisseq_targets.py),
+so this run builds its own DAG from the grid rather than from a target
+list. Its settings are the fisseq_* keys of the --configfile
+build_cell_images_prepare writes; wells and the grid size fall back to
+starcall's own (`wells`, `phenotyping_grid_size`) from the project's
+config.yaml.
+
+Every rule's mem_mb doubles with each of snakemake's attempts
+(fisseq_resources.py, applied at the end of this file), so with --retries
+(BUILD_CELL_IMAGES' starcall_retries) a job killed for memory reruns with
+twice, then four times, the request.
 """
 
+import sys
+
+# starcall's find_dots writes `pandas.DataFrame()` for an all-zero (blank
+# edge) tile without importing pandas (workflow/rules/sequencing.smk, at
+# the pinned commit). run: bodies are compiled in this file's globals, and
+# every cluster child job re-parses it, so this import covers that branch.
+import pandas
+
 include: "../starcall-workflow/workflow/Snakefile"
+
+sys.path.insert(0, workflow.basedir)
+import fisseq_resources
+import fisseq_targets
 
 
 rule make_cell_shard:
@@ -58,3 +83,43 @@ rule make_cell_shard:
         'segmentation_csv={input.cell_table:q} '
         'well={params.well:q} tile={params.tile:q} window={wildcards.window} '
         'output_tar={output.shard:q} > {log:q} 2>&1'
+
+
+def fisseq_tile_rows():
+    return fisseq_targets.tile_rows(
+        phenotyping_dir=phenotyping_dir,
+        sequencing_dir=sequencing_dir,
+        wells=config.get('fisseq_wells') or wells,
+        grid_size=int(config.get('fisseq_grid_size') or phenotyping_grid_size),
+        segmentation_type=config.get('fisseq_segmentation_type', 'cells'),
+        image=config.get('fisseq_image', 'raw'),
+        window=config['fisseq_window'],
+        sequencing_reads_params=config.get('fisseq_sequencing_reads_params', ''),
+        cp_features=config.get('fisseq_cp_features', False),
+        cellprofiler_cycle=config.get('fisseq_cellprofiler_cycle', ''),
+        cellprofiler_pipeline=config.get('fisseq_cellprofiler_pipeline', ''),
+    )
+
+
+rule fisseq_tiles_manifest:
+    """ Every tile's shard and tables, and the manifest naming them that
+    build_cell_images_table reads. Written in the BUILD_CELL_IMAGES task's
+    own directory (fisseq_manifest, an absolute path).
+    """
+    input:
+        lambda wildcards: fisseq_targets.row_targets(fisseq_tile_rows()),
+    output:
+        manifest = config.get('fisseq_manifest', 'tiles_manifest.csv'),
+    localrule: True
+    run:
+        import csv
+
+        with open(output.manifest, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fisseq_targets.MANIFEST_FIELDNAMES)
+            writer.writeheader()
+            writer.writerows(fisseq_tile_rows())
+
+
+# Last, so it sees every rule: starcall's, the two above, and the profile's
+# default-resources/set-resources, which snakemake has already merged in.
+fisseq_resources.scale_mem_by_attempt(workflow.rules)

@@ -63,13 +63,10 @@ experiments: []
 # failing that, the relevant stage's own Hydra default (or raises an error
 # if that field has none, e.g. starcall_workflow_dir).
 #
-# `grid_size` is optional -- when omitted, it's auto-detected per well by
-# scanning phenotyping_dir for that well's `{well}_grid<N>` directory
-# (starcall-workflow's own naming convention already encodes it there),
-# and only tiles already on disk are requested. Set it explicitly for a
-# run starting from raw input (nothing under phenotyping_dir yet): every
-# tile of the grid is then requested from starcall, whether or not it
-# exists yet.
+# `wells` and `grid_size` are optional -- when omitted, they're
+# starcall-workflow's own: the project config's `wells` (or the wells it
+# detects from its input tree) and its `phenotyping_grid_size`. Every tile
+# of the grid is requested from starcall, whether or not it exists yet.
 #
 # `sequencing_reads_params` (default "") is the `{params}` wildcard
 # component of starcall-workflow's `{segmentation_type}_reads{params}.csv`
@@ -97,7 +94,7 @@ experiments: []
 #     starcall_workflow_dir: /data/experiment1   # IS this experiment's root -- no separate folder needed
 #     # phenotyping_dir/segmentation_dir/sequencing_dir omitted -- default
 #     # to /data/experiment1/{phenotyping,segmentation,sequencing}
-#     wells: [well1, well2]        # grid_size omitted -- auto-detected per well
+#     wells: [well1, well2]        # grid_size omitted -- the project config's phenotyping_grid_size
 #     # window omitted -- falls back to the global `window` default below
 #     cp_features: true            # also run the CellProfiler-feature track for this experiment
 #     # cellprofiler_pipeline/cellprofiler_cycle omitted -- fall back to
@@ -133,6 +130,8 @@ cellprofiler_cycle: ""         # "" (no cycle) unless starcall-workflow ran cell
 # snakemake (7.32, in the image's ops env). By default every starcall rule
 # runs inside that one task:
 snakemake_cores: 4             # the nested run's --cores in local mode (no starcall_profile)
+starcall_retries: null         # the nested run's --retries: rerun a failed starcall job this many more times,
+                               # each attempt with double the last mem_mb; null = the profile's `retries:`, else none
 #
 # To fan starcall's rules out across your cluster instead, point
 # starcall_profile at a snakemake 7 profile directory saying how to submit

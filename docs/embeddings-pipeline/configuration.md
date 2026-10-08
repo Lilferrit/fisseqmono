@@ -51,11 +51,11 @@ these stages:
   explicitly only when that tree isn't colocated under
   `starcall_workflow_dir` at all (and see
   [Bind mounts](nextflow.md#bind-mounts) if it lives elsewhere).
-  `grid_size` is optional too: omitted, it's auto-detected per well from
-  `phenotyping_dir`'s `{well}_grid<N>` directory, and only tiles already on
-  disk are requested. **Set it explicitly for a run starting from raw
-  input**: every tile of the grid is then requested from starcall, in its
-  own `tile{x:02}x{y:02}y` naming, whether or not it exists yet.
+  `wells` and `grid_size` are optional too: omitted, they're starcall's own
+  -- the `wells` it reads from the project config (or detects from its
+  input tree) and the project config's `phenotyping_grid_size`. Every tile
+  of the grid is requested from starcall, in its own `tile{x:02}x{y:02}y`
+  naming, whether or not it exists yet, so a run can start from raw input.
   `use_corrected: true` cuts each tile's shard from the background-corrected
   whole-tile image (`corrected_pt.tif`) instead of `raw_pt.tif`. `window`
   is the side length each cell is cropped at, centred on its bbox
@@ -94,6 +94,7 @@ global default. All three route to `BUILD_CELL_IMAGES` only.
 | `cellprofiler_pipeline` | `null` (required, here or per `cp_features: true` entry, once any experiment sets `cp_features: true`) | `BUILD_CELL_IMAGES` (global default for any `cp_features: true` entry that omits `cellprofiler_pipeline`) |
 | `cellprofiler_cycle` | `""` | `BUILD_CELL_IMAGES` (global default for any `cp_features: true` entry that omits `cellprofiler_cycle`) |
 | `snakemake_cores` | `4` | `BUILD_CELL_IMAGES` (`--cores` for its nested starcall `snakemake`). **Local mode only** -- not passed with `starcall_profile`, whose profile owns the job budget |
+| `starcall_retries` | `null` | `BUILD_CELL_IMAGES` (`--retries` for its nested starcall `snakemake`, local or cluster mode): rerun a failed starcall job up to this many more times. Every rule's `mem_mb` doubles on each attempt, so a job killed for memory asks for 2x, then 4x. `null` passes nothing (a profile's own `retries:` applies) |
 | `starcall_profile` | `null` | `BUILD_CELL_IMAGES`: a snakemake 7 profile directory for the nested starcall run; set it to submit each starcall rule as its own cluster job. See [Nextflow Workflow](nextflow.md#running-on-a-cluster-bring-your-own-profiles) |
 | `starcall_job_image` | `null` (required with `starcall_profile`) | `BUILD_CELL_IMAGES`, cluster mode: the `.sif` of `container_image` every starcall child job re-enters, on storage every compute node can read |
 | `starcall_container_bin` | `"apptainer"` | `BUILD_CELL_IMAGES`, cluster mode: the runtime a child job re-enters the image with (`singularity` on some nodes) |

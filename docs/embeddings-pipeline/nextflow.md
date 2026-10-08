@@ -368,7 +368,7 @@ With `starcall_profile` set, the nested invocation becomes
 snakemake --snakefile /opt/fisseq-embeddings-pipeline/snakemake/Snakefile --directory <starcall_workflow_dir> \
     --profile <starcall_profile> --jobscript $PWD/starcall_jobscript.sh \
     --use-conda --conda-frontend conda --rerun-triggers mtime --rerun-incomplete \
-    --config phenotyping_dir=... segmentation_dir=... sequencing_dir=... fisseq_python=... -- <targets>
+    --configfile $PWD/snakemake_config.yaml -- $PWD/tiles_manifest.csv
 ```
 
 with no `--cores`: in cluster mode that's the budget across all submitted
@@ -390,9 +390,9 @@ How the pieces fit:
   node, but starcall's rules are overwhelmingly `run:` blocks, which
   execute inside the child snakemake's own interpreter and import
   numpy/tifffile/starcall/tensorflow -- snakemake never containerizes a
-  `run:` body. So `BUILD_CELL_IMAGES`' enumerate phase writes
+  `run:` body. So `BUILD_CELL_IMAGES`' prepare phase writes
   `starcall_jobscript.sh` (`render_starcall_jobscript` in
-  `build_cell_images_enumerate.py`) and passes it as `--jobscript`. It
+  `build_cell_images_prepare.py`) and passes it as `--jobscript`. It
   re-executes itself once inside `starcall_job_image` (`<starcall_container_bin>
   exec [--nv] --bind ... <image> /bin/sh -c "$(cat "$0")" "$0"`, guarded by an environment
   variable Apptainer passes through), then runs the job as usual.
@@ -413,6 +413,19 @@ How the pieces fit:
   with a `snakemake --unlock`. That is safe only because each experiment
   has its own `starcall_workflow_dir` and concurrent runs against one tree
   are forbidden.
+- **OOM retries.** `starcall_retries: N` passes `--retries N`: a failed
+  child job is resubmitted up to N more times. The wrapper Snakefile
+  doubles every rule's `mem_mb` on each of snakemake's attempts
+  (`snakemake/fisseq_resources.py`): starcall's own lambdas, and your
+  profile's `default-resources`/`set-resources` alike. So a job SGE killed
+  for memory comes back asking for 2x, then 4x. Any failure is retried, not
+  just OOM, so keep N small.
+- **Status checks run in the container too.** So does a `cluster-status:`
+  command, so whatever it reads must be bound as well. SGE's `qacct`, for
+  one, reads `$SGE_ROOT/$SGE_CELL/common/accounting`, which is often a
+  symlink to somewhere outside the client install. Unbound, `qacct` prints
+  `no jobs running since startup` on stdout, and a status script that
+  doesn't check for that reports every finished job as failed.
 - **Orphans.** snakemake runs your profile's `cluster-cancel` on a
   graceful shutdown; a SIGKILLed submitter can leave child jobs queued, to
   sweep by hand with your scheduler's tools.
@@ -478,7 +491,7 @@ process EMBED_CELLS {
 - **`publishDir ..., mode: 'copy'`** into `pipeline_dir`: real copies, so
   results don't depend on `work/` surviving. `BUILD_CELL_IMAGES` publishes
   only `cell_table.parquet`/`tiles.parquet`; its scratch files
-  (`targets.txt`, `tiles_manifest.csv`, `resolved_dirs.env`, the
+  (`snakemake_config.yaml`, `tiles_manifest.csv`, `resolved_dirs.env`, the
   jobscript) stay in its work directory.
 - **`threadEnv(task.cpus)`** (fisseq-common's `functions.nf`) exports
   `POLARS_MAX_THREADS`/`OMP_NUM_THREADS`/`OPENBLAS_NUM_THREADS`/... inside
@@ -491,7 +504,7 @@ process EMBED_CELLS {
 phases, the middle one a nested `snakemake` (which itself runs `python -m
 fisseq_embeddings_pipeline.tile_shard` once per tile, as
 `make_cell_shard`). See
-[`build_cell_images_enumerate`](cli/build_cell_images_enumerate.md) and
+[`build_cell_images_prepare`](cli/build_cell_images_prepare.md) and
 [Cell Shards](cli/tile_shard.md).
 
 ### `-resume`
