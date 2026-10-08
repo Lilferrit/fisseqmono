@@ -52,8 +52,32 @@ def asBool(v) {
     v == null ? false : v.toString().toBoolean()
 }
 
+// The profile is read only by BUILD_CELL_IMAGES' nested snakemake, deep inside an
+// errorStrategy 'ignore' task, so a malformed config.yaml would otherwise surface as both
+// experiments silently ignored. Checked here, on the head node, where the path is readable
+// without a container bind.
+def checkStarcallProfile(String dir) {
+    def config = file("${dir}/config.yaml")
+    if (!config.exists()) {
+        error("starcall_profile ${dir} has no config.yaml")
+    }
+    def parsed = null
+    try {
+        parsed = new org.yaml.snakeyaml.Yaml().load(config.text)
+    }
+    catch (Exception e) {
+        error("starcall_profile ${config} is not valid YAML: ${e.message}")
+    }
+    if (!(parsed instanceof Map)) {
+        error("starcall_profile ${config} must be a YAML mapping of snakemake flags")
+    }
+}
+
 workflow EmbeddingsPipeline {
     main:
+    if (params.starcall_profile) {
+        checkStarcallProfile(params.starcall_profile.toString())
+    }
     // Validation and per-stage routing happen in Python
     // (fisseq_embeddings_pipeline.config.experiments), over the run's params
     // serialized to JSON.

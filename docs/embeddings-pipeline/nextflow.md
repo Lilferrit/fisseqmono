@@ -342,7 +342,7 @@ Set three params (plus, optionally, `starcall_job_binds`) to fan starcall's rule
 
 | Param | What it is |
 |---|---|
-| `starcall_profile` | A snakemake **7** profile directory (a `config.yaml` inside it) saying how to submit jobs: `cluster:`, `cluster-cancel:`, `jobs:`, and optionally `default-resources`/`set-resources`, `latency-wait`, `retries`. Bound into the task's container automatically. |
+| `starcall_profile` | A snakemake **7** profile directory (a `config.yaml` inside it) saying how to submit jobs: `cluster:`, `cluster-cancel:`, `jobs:`, and optionally `default-resources`/`set-resources`, `latency-wait`, `retries`. Bound into the task's container automatically. The workflow parses its `config.yaml` at launch and stops with an error if it is missing or not valid YAML. |
 | `starcall_job_image` | A `.sif` of `container_image` on storage every compute node can read. Required with `starcall_profile` (`PLAN_EXPERIMENTS` fails fast without it). |
 | `starcall_container_bin` | What a child job re-enters the image with. Default `apptainer`; some nodes only ship `singularity`. |
 | `starcall_job_binds` | Optional. Extra host paths every child job binds (a list, or a comma-separated string on the command line), e.g. the shared-storage root your site config binds for the outer tasks, so data a starcall config reaches through a symlink elsewhere is visible too. Default `[]`. |
