@@ -22,6 +22,12 @@ if TYPE_CHECKING:
 
 _META = "meta_"
 
+# ClinVar calls made only of "Pathogenic" and "Likely pathogenic", e.g.
+# "Pathogenic/Likely pathogenic" (not "Conflicting classifications of pathogenicity").
+_PATHOGENIC_CALL = r"(?i)^(likely )?pathogenic(/(likely )?pathogenic)*$"
+_CALL = "__clinvar_call"
+_RANK = "__clinvar_rank"
+
 
 class Dataset:
     """A lazily evaluated polars frame with chainable transforms and variant annotations.
@@ -235,17 +241,18 @@ class Dataset:
         variant_type_col: str = "meta_variant_type",
         output_col: str = "meta_clinvar_annotation",
     ) -> Self:
-        """Join ClinVar pathogenicity calls and build a combined annotation column.
+        """Join ClinVar clinical significance calls and build a combined annotation column.
 
         ``clinvar`` is the converted ClinVar table (a parquet path or a frame) with a
         ``variant`` column in the same ``"A12V"`` format and a
-        ``clinvar_clinical_significance`` column. Only the first record per variant is
-        used, and only when it contains "Pathogenic". Its columns are joined in with a
-        ``meta_`` prefix.
+        ``clinvar_clinical_significance`` column. Every call is kept, one record per
+        variant: the most severe one (pathogenic or likely pathogenic, then uncertain
+        significance, then any other call), the first in the table among equals. Its
+        columns are joined in with a ``meta_`` prefix.
 
-        ``output_col`` holds the ClinVar call where there is one and the variant type
-        otherwise, with a lone "Pathogenic" merged into `fisseq.PATHOGENIC`. Run
-        `variant_type` first.
+        ``output_col`` is `fisseq.PATHOGENIC` for pathogenic and likely pathogenic calls,
+        `fisseq.UNCERTAIN` for uncertain significance, and the variant type otherwise
+        (including conflicting, benign and missing calls). Run `variant_type` first.
         """
         self._require(self.variant_col, variant_type_col)
         if isinstance(clinvar, (str, PathLike)):
@@ -257,9 +264,25 @@ class Dataset:
             pl.DataFrame(schema=schema), "variant", "clinvar_clinical_significance"
         )
         columns = schema.names()
+        significance = pl.col("clinvar_clinical_significance")
+        call = (
+            pl.when(significance.str.contains(_PATHOGENIC_CALL))
+            .then(pl.lit(fisseq.PATHOGENIC))
+            .when(significance.str.starts_with(fisseq.UNCERTAIN))
+            .then(pl.lit(fisseq.UNCERTAIN))
+        )
+        rank = (
+            pl.when(call == fisseq.PATHOGENIC)
+            .then(0)
+            .when(call == fisseq.UNCERTAIN)
+            .then(1)
+            .otherwise(2)
+        )
         table = (
-            table.unique(subset=["variant"], keep="first", maintain_order=True)
-            .filter(pl.col("clinvar_clinical_significance").str.contains("Pathogenic"))
+            table.with_columns(call.alias(_CALL), rank.alias(_RANK))
+            .sort(_RANK, maintain_order=True)
+            .unique(subset=["variant"], keep="first", maintain_order=True)
+            .drop(_RANK)
             .rename(
                 {
                     c: f"{_META}{c}"
@@ -268,8 +291,6 @@ class Dataset:
                 }
             )
         )
-        significance = pl.col("meta_clinvar_clinical_significance")
-        annotation = pl.coalesce(significance, pl.col(variant_type_col))
         return self._replace(
             self._lf.join(
                 table,
@@ -277,12 +298,11 @@ class Dataset:
                 right_on="variant",
                 how="left",
                 maintain_order="left",
-            ).with_columns(
-                pl.when(annotation == "Pathogenic")
-                .then(pl.lit(fisseq.PATHOGENIC))
-                .otherwise(annotation)
-                .alias(output_col)
             )
+            .with_columns(
+                pl.coalesce(_CALL, pl.col(variant_type_col)).alias(output_col)
+            )
+            .drop(_CALL)
         )
 
     # ----- summaries ------------------------------------------------------------------

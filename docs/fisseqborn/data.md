@@ -276,7 +276,7 @@ Every dataset has these methods. They read the `meta_aa_changes` labels:
 | `position()` | `meta_position`, the leading position of the first codon. Use `strict=True` for single substitutions only. |
 | `domain()` | `meta_domain`, from `fisseq.LMNA_DOMAIN_REGIONS`, for single substitutions |
 | `tile()` | `meta_tile`, from `fisseq.LMNA_TILES`. Use `allow_multiple=True` to list both tiles in an overlap. |
-| `clinvar(path)` | `meta_clinvar_*` columns and `meta_clinvar_annotation`: the ClinVar call, falling back to the variant type |
+| `clinvar(path)` | `meta_clinvar_*` columns (every ClinVar call, the most severe record per variant) and `meta_clinvar_annotation`: `fisseq.PATHOGENIC` (pathogenic or likely pathogenic), `fisseq.UNCERTAIN` (uncertain significance), else the variant type |
 
 ## OvWT distinguishability
 

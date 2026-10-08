@@ -99,29 +99,48 @@ def test_domain_custom_regions():
 def test_clinvar(tmp_path):
     clinvar = pl.DataFrame(
         {
-            "variant": ["A2V", "A2V", "A3V", "A4V"],
+            "variant": ["A2V", "A2V", "A3V", "A4V", "A5V", "A5V", "A6V", "A7V", "A8V"],
             "clinvar_clinical_significance": [
-                "Pathogenic",
                 "Benign",
+                "Pathogenic",
                 "Uncertain significance",
                 "Likely pathogenic/Pathogenic",
+                "Uncertain significance",
+                "Likely pathogenic",
+                "Conflicting classifications of pathogenicity",
+                "Benign",
+                "Uncertain significance/Uncertain risk allele",
             ],
-            "clinvar_name": ["x", "y", "z", "w"],
+            "clinvar_name": ["a", "b", "c", "d", "e", "f", "g", "h", "i"],
         }
     )
     path = tmp_path / "clinvar.parquet"
     clinvar.write_parquet(path)
-    ds = fb.Dataset(
-        pl.DataFrame({"meta_aa_changes": ["A1A", "A2V", "A3V", "A4V"]})
-    ).variant_type()
+    variants = ["A1A", "A2V", "A3V", "A4V", "A5V", "A6V", "A7V", "A8V"]
+    ds = fb.Dataset(pl.DataFrame({"meta_aa_changes": variants})).variant_type()
     df = ds.clinvar(path).df
     assert df["meta_clinvar_annotation"].to_list() == [
         "Synonymous",
         fisseq.PATHOGENIC,
+        fisseq.UNCERTAIN,
+        fisseq.PATHOGENIC,
+        fisseq.PATHOGENIC,
         "Single Missense",
-        "Likely pathogenic/Pathogenic",
+        "Single Missense",
+        fisseq.UNCERTAIN,
     ]
-    assert df["meta_clinvar_name"].to_list() == [None, "x", None, "w"]
+    assert df["meta_clinvar_name"].to_list() == [
+        None,
+        "b",
+        "c",
+        "d",
+        "f",
+        "g",
+        "h",
+        "i",
+    ]
+    assert df["meta_clinvar_clinical_significance"][6] == "Benign"
+    assert not any(c.startswith("__") for c in df.columns)
     assert ds.clinvar(clinvar).df.equals(df)
 
 

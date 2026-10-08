@@ -21,7 +21,7 @@ An explicit `palette=`, `order=` or `hue_order=` always wins.
 | Single Missense, WT, 3nt Deletion, Other | `grey` |
 | Frameshift, Nonsense | `purple` |
 | `fisseq.PATHOGENIC` ("Pathogenic/Likely pathogenic"), Pathogenic | `red` |
-| Uncertain significance | `gold` |
+| `fisseq.UNCERTAIN` ("Uncertain significance") | `gold` |
 
 ## Constants
 
@@ -29,6 +29,7 @@ An explicit `palette=`, `order=` or `hue_order=` always wins.
 from fisseqborn import fisseq
 
 fisseq.PATHOGENIC               # "Pathogenic/Likely pathogenic"
+fisseq.UNCERTAIN                # "Uncertain significance"
 fisseq.VARIANT_TYPE_PALETTE     # variant type -> color
 fisseq.CLINVAR_PALETTE          # ClinVar significance -> color
 fisseq.PALETTE                  # both merged

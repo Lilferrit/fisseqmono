@@ -11,6 +11,7 @@ from collections.abc import Iterable
 import seaborn as sns
 
 PATHOGENIC = "Pathogenic/Likely pathogenic"
+UNCERTAIN = "Uncertain significance"
 
 VARIANT_TYPE_PALETTE: dict[str, str] = {
     "Single Missense": "grey",
@@ -25,7 +26,7 @@ VARIANT_TYPE_PALETTE: dict[str, str] = {
 CLINVAR_PALETTE: dict[str, str] = {
     PATHOGENIC: "red",
     "Pathogenic": "red",
-    "Uncertain significance": "gold",
+    UNCERTAIN: "gold",
 }
 
 PALETTE: dict[str, str] = {**VARIANT_TYPE_PALETTE, **CLINVAR_PALETTE}
@@ -43,7 +44,7 @@ VARIANT_TYPE_ORDER: list[str] = [
 CLINVAR_ORDER: list[str] = [
     "Synonymous",
     "Single Missense",
-    "Uncertain significance",
+    UNCERTAIN,
     PATHOGENIC,
     "Pathogenic",
 ]
