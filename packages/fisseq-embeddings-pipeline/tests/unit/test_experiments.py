@@ -396,6 +396,17 @@ def test_starcall_profile_requires_job_image():
     )
 
 
+@pytest.mark.parametrize("retries", [None, 0, 3, "2"])
+def test_starcall_retries_accepts_null_or_non_negative_int(retries):
+    validate_config(_config(starcall_retries=retries))
+
+
+@pytest.mark.parametrize("retries", [-1, 1.5, "-1", "two", True])
+def test_starcall_retries_rejects_anything_else(retries):
+    with pytest.raises(ValueError, match="starcall_retries must be"):
+        validate_config(_config(starcall_retries=retries))
+
+
 # ── plan_experiments / main ────────────────────────────────────────────────
 
 

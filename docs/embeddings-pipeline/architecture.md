@@ -252,11 +252,16 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
     crop-sized copy of every cell, and stay under `phenotyping_dir`; they
     are never copied into `pipeline_dir`.
 
-    With an explicit `grid_size`, the enumerate phase lists every tile of
-    the grid in starcall's own `tile{x:02}x{y:02}y` naming without touching
-    the filesystem, so a run can start from raw input with nothing under
-    `phenotyping_dir` yet. An auto-detected grid size can only list tiles
-    that already exist.
+    The nested run asks for one target, the task's `tiles_manifest.csv`.
+    `snakemake/Snakefile`'s `fisseq_tiles_manifest` rule lists every tile
+    file as its input (`snakemake/fisseq_targets.py`: every tile of the grid
+    in starcall's own `tile{x:02}x{y:02}y` naming, the way starcall's own
+    grid-merging rules expand theirs), so snakemake builds the DAG itself and
+    a run can start from raw input with nothing under `phenotyping_dir` yet.
+    `wells` and the grid size default to starcall's own (`wells`,
+    `phenotyping_grid_size`); this replaced a Python enumerate phase that
+    wrote a `targets.txt` of every tile file and globbed `phenotyping_dir`
+    to guess the grid size.
 18. **The nested starcall run is driven by a user-supplied snakemake
     profile, with no scheduler-specific code in this repo.**
     `BUILD_CELL_IMAGES` runs starcall's own Snakefile (through
@@ -266,7 +271,7 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
     `--profile <starcall_profile>` -- the user's own snakemake 7 profile,
     which says how to submit, cancel and size jobs on their cluster -- plus
     a `--jobscript` this pipeline renders itself
-    (`build_cell_images_enumerate.render_starcall_jobscript`), which makes
+    (`build_cell_images_prepare.render_starcall_jobscript`), which makes
     every child job re-execute inside `starcall_job_image` with every host
     path it can touch bound. That jobscript is the one piece that stays in
     the repo, because it's about this pipeline's image, not any scheduler:
@@ -483,8 +488,8 @@ packages/fisseq-embeddings-pipeline/
       experiments.py              # params validation + per-experiment routing
                                    # (PLAN_EXPERIMENTS' entry point)
     cell_metadata.py              # BUILD_CELL_METADATA
-    build_cell_images_enumerate.py # BUILD_CELL_IMAGES phase 1 (grid/tile discovery,
-                                   # starcall targets, cluster-mode jobscript)
+    build_cell_images_prepare.py  # BUILD_CELL_IMAGES phase 1 (data dirs, nested
+                                   # snakemake config, cluster-mode jobscript)
     tile_shard.py                 # BUILD_CELL_IMAGES phase 2's make_cell_shard
                                    # rule body: one tile's WebDataset shard
     build_cell_images_table.py    # BUILD_CELL_IMAGES phase 3 (cell_table.parquet
@@ -527,7 +532,7 @@ the `Dockerfile`'s `STARCALL_WORKFLOW_COMMIT` (decision 24).
 ### Cell Images (`BUILD_CELL_IMAGES` output, from `starcall-workflow`)
 
 `BUILD_CELL_IMAGES` (`modules/local/build_cell_images/main.nf`,
-`build_cell_images_enumerate.py`, `build_cell_images_table.py`) is the only stage that reads
+`build_cell_images_prepare.py`, `build_cell_images_table.py`) is the only stage that reads
 `starcall-workflow`'s tree directly or runs its snakemake. For every tile of
 every configured well, it forces real `starcall-workflow` outputs to
 exist (via one `snakemake <targets>` invocation per experiment, against

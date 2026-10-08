@@ -26,11 +26,9 @@ experiments:
     # (phenotyping/segmentation/sequencing); set one explicitly only if
     # your lab's data for that tree isn't colocated under
     # starcall_workflow_dir at all.
-    wells: [well1, well2]
-    # grid_size omitted -- auto-detected per well from phenotyping_dir's
-    # own {well}_grid<N> directory naming. Set it explicitly (e.g.
-    # grid_size: 12) when starting from raw input, with nothing under
-    # phenotyping_dir yet: every tile of the grid is then requested.
+    # wells/grid_size omitted -- starcall's own: the project config's
+    # `wells` and `phenotyping_grid_size`. Set either here to override
+    # (e.g. wells: [well1, well2], grid_size: 12).
     # window omitted -- falls back to the global `window` default above.
 ```
 

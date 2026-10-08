@@ -7,8 +7,9 @@ invocation (phase 2 -- the one step needing the `ops` conda env baked into
 the root `Dockerfile`) has materialized every tile's
 segmentation/reads/CellProfiler CSVs and WebDataset shard.
 
-It reads `manifest` (written by phase 1,
-[`build_cell_images_enumerate`](build_cell_images_enumerate.md)), joins
+It reads `manifest` (written in phase 2 by `snakemake/Snakefile`'s
+`fisseq_tiles_manifest` rule -- see
+[`build_cell_images_prepare`](build_cell_images_prepare.md#tiles-and-grid-size-the-fisseq_tiles_manifest-rule)), joins
 each tile's segmentation-side `{segtype}.csv` to `sequencing_dir`'s
 `{segtype}_reads{params}.csv` (by index value) and, if `cp_features`, the
 tile's CellProfiler CSV (by row position, renamed `cp_<name>`), into one
@@ -28,7 +29,7 @@ Extends the [common config fields](#common-config-fields) below.
 
 | Field | Default | Description |
 | ----- | ------- | ----------- |
-| `manifest` | `"tiles_manifest.csv"` | Tile manifest CSV (under `output_dir`), written by phase 1's `manifest_out`. |
+| `manifest` | `"tiles_manifest.csv"` | Tile manifest CSV (under `output_dir`), written by the `fisseq_tiles_manifest` rule. |
 | `output` | `"cell_table.parquet"` | Output parquet filename (under `output_dir`). |
 | `tiles_output` | `"tiles.parquet"` | Per-tile shard table filename (under `output_dir`). |
 

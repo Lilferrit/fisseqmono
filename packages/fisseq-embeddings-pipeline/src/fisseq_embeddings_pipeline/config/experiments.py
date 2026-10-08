@@ -137,6 +137,7 @@ def validate_config(config: Mapping[str, Any]) -> List[Dict[str, Any]]:
     _warn_renamed_params(config)
     _validate_ovwt(config)
     _validate_starcall_profile(config)
+    _validate_starcall_retries(config)
 
     return [dict(entry) for entry in experiments]
 
@@ -333,6 +334,20 @@ def _validate_starcall_profile(config: Mapping[str, Any]) -> None:
         )
 
 
+def _validate_starcall_retries(config: Mapping[str, Any]) -> None:
+    """``starcall_retries`` becomes the nested snakemake's ``--retries``. A
+    command-line ``--starcall_retries 2`` can arrive as the string ``"2"``."""
+    retries = config.get("starcall_retries")
+    if retries is None:
+        return
+    if isinstance(retries, str) and retries.isdigit():
+        return
+    if isinstance(retries, bool) or not isinstance(retries, int) or retries < 0:
+        raise ValueError(
+            f"starcall_retries must be null or a non-negative integer, got {retries!r}."
+        )
+
+
 def _with_fallbacks(
     overrides: Dict[str, Any], config: Mapping[str, Any], keys: "tuple[str, ...]"
 ) -> Dict[str, Any]:
@@ -424,7 +439,7 @@ def plan_experiments(config: Mapping[str, Any]) -> List[Dict[str, Any]]:
         ``cp_features`` (bool), ``starcall_workflow_dir``, ``bind_paths``
         (see :func:`_starcall_bind_paths`), and ``cell_images_args``/
         ``cell_table_args`` -- Hydra override strings for
-        BUILD_CELL_IMAGES' enumerate phase, and for BUILD_CELL_METADATA and
+        BUILD_CELL_IMAGES' prepare phase, and for BUILD_CELL_METADATA and
         BUILD_CP_FEATURES.
     """
     plans = []

@@ -1,65 +1,40 @@
-"""BUILD_CELL_IMAGES, phase 1: enumerate.
+"""BUILD_CELL_IMAGES, phase 1: prepare the nested snakemake run.
 
 Hydra entry point (`python -m
-fisseq_embeddings_pipeline.build_cell_images_enumerate`), backing the first
-of BUILD_CELL_IMAGES' three phases (the `build_cell_images` rule).
-Resolves each well's tile grid size (explicit override or auto-detected)
-and enumerates existing tile directories directly against
-starcall-workflow's own `phenotyping_dir` tree, then writes:
+fisseq_embeddings_pipeline.build_cell_images_prepare`), backing the first
+of BUILD_CELL_IMAGES' three phases. Writes what has to exist before the
+nested snakemake starts:
 
-- `targets_out`: one Snakemake target file path per line -- for every
-  tile, its WebDataset shard (`{segmentation_type}_{raw|corrected}_shard_
-  {window}.tar`, written by this repo's own `make_cell_shard` rule --
-  `snakemake/Snakefile`), the segmentation cell table and the sequencing
-  reads table (plus the CellProfiler CSV, if `cp_features` is set).
-  Consumed by BUILD_CELL_IMAGES' nested `snakemake ... $(cat targets.txt)`
-  invocation. The whole-tile image and mask the shard is cut from are
-  deliberately NOT targets: they're `temp()` upstream, so snakemake deletes
-  them once every rule needing them is done -- see `docs/architecture.md`
-  decision 17.
-- `manifest_out`: a CSV (`well,tile,segmentation_csv,reads_csv,
-  cellprofiler_csv,shard_tar`) driving phase 3
-  (`build_cell_images_table.py`).
+- `resolved_dirs_out`: the fully resolved `phenotyping_dir`/
+  `segmentation_dir`/`sequencing_dir` (see :func:`resolve_data_dir`), a
+  shell-sourceable `key='value'` file. The process sources it for its
+  `env("phenotyping_dir")` output, EMBED_CELLS' bind path.
+- `snakemake_config_out`: the `--configfile` of both snakemake calls --
+  the same three directories (overriding the project's own config.yaml),
+  the interpreter `make_cell_shard` runs this package with, and the
+  `fisseq_*` settings of `snakemake/Snakefile`'s `fisseq_tiles_manifest`
+  rule. That rule, not this phase, lists every tile and writes the tile
+  manifest phase 3 (`build_cell_images_table.py`) reads.
 - `jobscript_out`, only when `starcall_job_image` is set (i.e. the run
   passes a `starcall_profile` for per-rule cluster submission): the
   `--jobscript` template every starcall child job runs through. See
   :func:`render_starcall_jobscript`.
 
-Until this stage's Docker image merged starcall-workflow's own `ops` conda
-env into this repo's main image (see the root `Dockerfile`), this logic
-lived in a standalone `modules/local/build_cell_images_glue.py` (since
-deleted) that
-deliberately avoided importing `fisseq_embeddings_pipeline`, because it ran
-inside a wholly separate container. That constraint no longer applies --
-this module runs like every other stage, via this repo's own installed
-package -- only the Snakemake invocation between this phase and
-`build_cell_images_table.py` still needs the separate `ops` env, and that's
-a plain shell step in the `build_cell_images` rule, not Python.
-
-`resolve_data_dir` resolves `phenotyping_dir`/`segmentation_dir`/
-`sequencing_dir` themselves, each independently optional: an explicit
-value always wins; otherwise starcall-workflow's own project config
-(`{starcall_workflow_dir}/config.yaml`, or `default-config.yaml` if that's
-absent -- the exact same file, in the exact same precedence, `workflow/
-Snakefile` itself consults, confirmed by reading it directly) is read for
-that key, so a project that remaps these paths is still resolved
-correctly; only once neither file sets it does this fall back to a
-subdirectory of `starcall_workflow_dir` matching starcall-workflow's own
-documented default (`phenotyping/`, `segmentation/`, `sequencing/`).
-`segmentation_dir` is resolved here too even though this phase's own logic
-never reads it (only the `build_cell_images` rule's own `snakemake` invocation
-does) -- see `resolved_dirs_out` below -- so there's exactly one place
-that knows how to find these three directories, not two.
+`resolve_data_dir` resolves each of the three directories independently:
+an explicit value always wins; otherwise starcall-workflow's own project
+config (`{starcall_workflow_dir}/config.yaml`, or `default-config.yaml` if
+that's absent -- the same files, in the same precedence, `workflow/
+Snakefile` itself consults) is read for that key; only once neither file
+sets it does this fall back to starcall-workflow's documented default
+subdirectory (`phenotyping/`, `segmentation/`, `sequencing/`).
 """
 
-import csv
 import dataclasses
-import glob
 import logging
 import os
 import pathlib
-import re
 import shlex
+import sys
 from typing import Any, Dict, List, Optional
 
 import hydra
@@ -70,10 +45,6 @@ from omegaconf import MISSING, DictConfig, OmegaConf
 from fisseq_common.utils.log import setup_logging
 
 from .config import AppConfig
-
-# Matches a well's grid directory name (e.g. "well1_grid4") -- used only by
-# resolve_grid_size's auto-detection scan.
-_GRID_DIR_RE = re.compile(r"_grid(\d+)$")
 
 # starcall-workflow's own default-config.yaml default for each directory
 # key, relative to its own working directory -- see resolve_data_dir.
@@ -90,25 +61,13 @@ _DEFAULT_SUBDIR = {
 # 'default-config.yaml'`).
 _PROJECT_CONFIG_FILENAMES = ("config.yaml", "default-config.yaml")
 
-_MANIFEST_FIELDNAMES = [
-    "well",
-    "tile",
-    "segmentation_csv",
-    "reads_csv",
-    "cellprofiler_csv",
-    "shard_tar",
-]
-
 _RESOLVED_DIR_KEYS = ("phenotyping_dir", "segmentation_dir", "sequencing_dir")
-
-# starcall-workflow's tile-directory naming convention, ``tile<x>x<y>y``.
-TILE_DIR_RE = re.compile(r"^tile(\d+)x(\d+)y$")
 
 
 @dataclasses.dataclass
-class BuildCellImagesEnumerateConfig(AppConfig):
+class BuildCellImagesPrepareConfig(AppConfig):
     """
-    Hydra structured configuration for BUILD_CELL_IMAGES' enumerate phase.
+    Hydra structured configuration for BUILD_CELL_IMAGES' prepare phase.
 
     Extends AppConfig (output_dir, output_root, log_level, random_seed);
     this stage's own logic doesn't consume random_seed itself, but every
@@ -129,11 +88,13 @@ class BuildCellImagesEnumerateConfig(AppConfig):
         :func:`resolve_data_dir` against `starcall_workflow_dir`; set one
         explicitly only when that tree isn't colocated under
         `starcall_workflow_dir`.
-    wells : list[str]
-        Wells to enumerate.
+    wells : list[str] or None
+        Wells to build cell images for. ``None`` (the default) takes
+        starcall-workflow's own (`wells`, from the project config or
+        detected from its input tree).
     grid_size : int or None
-        Explicit override, or ``None`` to auto-detect per well (see
-        :func:`resolve_grid_size`).
+        The tile grid each well is cut into. ``None`` (the default) takes
+        the project config's `phenotyping_grid_size`.
     segmentation_type : str
         Defaults to ``"cells"``.
     use_corrected : bool
@@ -150,13 +111,18 @@ class BuildCellImagesEnumerateConfig(AppConfig):
         (`{segmentation_type}_reads{sequencing_reads_params}.csv`).
         Defaults to ``""``.
     cp_features : bool
-        Whether to also target this experiment's CellProfiler CSV.
+        Whether to also build this experiment's CellProfiler CSV.
         Defaults to ``False``.
     cellprofiler_cycle, cellprofiler_pipeline : str
         Threaded into the CellProfiler CSV filename when `cp_features` is
         set. Default to ``""``.
-    targets_out, manifest_out : str
-        Output filenames, written under `output_dir`.
+    manifest_out : str
+        The tile manifest the nested snakemake's `fisseq_tiles_manifest`
+        rule writes (under `output_dir`), passed to it as an absolute
+        path. Defaults to ``"tiles_manifest.csv"``.
+    snakemake_config_out : str
+        Output filename (under `output_dir`) for the nested snakemake's
+        `--configfile` -- see :func:`snakemake_config`.
     starcall_job_image : str or None
         The image file (a ``.sif``) each starcall child job re-enters. Set
         only in cluster mode; when set, `jobscript_out` is written.
@@ -176,17 +142,16 @@ class BuildCellImagesEnumerateConfig(AppConfig):
     resolved_dirs_out : str
         Output filename (under `output_dir`) for the fully-resolved
         `phenotyping_dir`/`segmentation_dir`/`sequencing_dir` -- a
-        shell-sourceable `key='value'` file, one line per key, so
-        the `build_cell_images` rule's own `snakemake` invocation (phase 2) uses
-        the exact same resolved paths as this phase, without duplicating
-        this module's own resolution logic in Groovy.
+        shell-sourceable `key='value'` file, one line per key, so the
+        process's `env("phenotyping_dir")` output is the exact path this
+        phase resolved, without duplicating the resolution in Groovy.
     """
 
     starcall_workflow_dir: str = MISSING
     phenotyping_dir: Optional[str] = None
     segmentation_dir: Optional[str] = None
     sequencing_dir: Optional[str] = None
-    wells: List[str] = MISSING
+    wells: Optional[List[str]] = None
     grid_size: Optional[int] = None
     segmentation_type: str = "cells"
     use_corrected: bool = False
@@ -195,55 +160,14 @@ class BuildCellImagesEnumerateConfig(AppConfig):
     cp_features: bool = False
     cellprofiler_cycle: str = ""
     cellprofiler_pipeline: str = ""
-    targets_out: str = "targets.txt"
     manifest_out: str = "tiles_manifest.csv"
+    snakemake_config_out: str = "snakemake_config.yaml"
     starcall_job_image: Optional[str] = None
     starcall_container_bin: str = "apptainer"
     starcall_job_gpu: bool = False
     jobscript_binds: List[str] = dataclasses.field(default_factory=list)
     jobscript_out: str = "starcall_jobscript.sh"
     resolved_dirs_out: str = "resolved_dirs.env"
-
-
-def resolve_grid_size(phenotyping_dir: str, well: str, grid_size: Optional[int]) -> int:
-    """Resolve one well's tile grid size, auto-detecting it when omitted.
-
-    An explicit ``grid_size`` is returned as-is; otherwise this scans
-    ``phenotyping_dir`` for a ``{well}_grid<N>`` directory. Exactly one
-    distinct grid size is required.
-
-    Raises
-    ------
-    ValueError
-        If auto-detection finds zero or more than one distinct grid size.
-    """
-    if grid_size is not None:
-        return grid_size
-
-    matches: List[str] = []
-    sizes = set()
-    for candidate in sorted(glob.glob(f"{phenotyping_dir}/{well}_grid*")):
-        if not os.path.isdir(candidate):
-            continue
-        m = _GRID_DIR_RE.search(os.path.basename(candidate))
-        if m is not None:
-            sizes.add(int(m.group(1)))
-            matches.append(candidate)
-
-    if not sizes:
-        raise ValueError(
-            f"Could not auto-detect grid_size for well {well!r}: no "
-            f"'{well}_grid<N>' directory found under {phenotyping_dir!r}. "
-            "Fix phenotyping_dir/wells, or set grid_size explicitly."
-        )
-    if len(sizes) > 1:
-        raise ValueError(
-            f"Could not auto-detect grid_size for well {well!r}: found "
-            f"multiple candidate directories with different grid sizes "
-            f"({', '.join(matches)}). Set grid_size explicitly to "
-            "disambiguate."
-        )
-    return sizes.pop()
 
 
 def resolve_data_dir(
@@ -305,103 +229,46 @@ def resolve_data_dir(
     return os.path.join(starcall_workflow_dir, bare_name)
 
 
-def enumerate_tile_names(
-    phenotyping_dir: str, well: str, grid_size: int, explicit: bool
-) -> List[str]:
-    """List tile directory names (e.g. ``tile00x00y``) for one well/grid_size.
-
-    With an ``explicit`` grid size, every tile of the ``grid_size`` x
-    ``grid_size`` grid is listed, whether or not starcall-workflow has
-    produced it yet, named the way starcall-workflow itself names them
-    (``tile{x:02}x{y:02}y`` -- `get_segmentation_grid`/
-    `get_grid_filenames_pheno`). This is what lets a from-scratch run work:
-    the nested snakemake invocation is what creates those directories.
-
-    With an auto-detected grid size there is nothing to generate from but
-    what's already on disk, so this globs
-    ``{phenotyping_dir}/{well}_grid{grid_size}/tile*x*y`` instead and keeps
-    only names matching ``TILE_DIR_RE``.
-
-    Either way the result is sorted lexically -- exact tile order doesn't
-    affect correctness here, only reproducibility of file ordering.
-    """
-    if explicit:
-        return sorted(
-            f"tile{x:02}x{y:02}y" for x in range(grid_size) for y in range(grid_size)
-        )
-
-    tiles = []
-    pattern = f"{phenotyping_dir}/{well}_grid{grid_size}/tile*x*y"
-    for tile_dir in sorted(glob.glob(pattern)):
-        name = os.path.basename(tile_dir)
-        if TILE_DIR_RE.match(name):
-            tiles.append(name)
-    return tiles
-
-
-def build_enumeration(
-    phenotyping_dir: str,
-    sequencing_dir: str,
-    wells: List[str],
-    grid_size: Optional[int],
-    segmentation_type: str,
-    use_corrected: bool,
-    window: int,
-    sequencing_reads_params: str,
-    cp_features: bool,
-    cellprofiler_cycle: str,
-    cellprofiler_pipeline: str,
+def snakemake_config(
+    cfg: BuildCellImagesPrepareConfig,
+    resolved_dirs: Dict[str, str],
+    manifest: str,
+    fisseq_python: str,
 ) -> Dict[str, Any]:
-    """Build the full target list + tile manifest for one experiment.
+    """The nested snakemake's ``--configfile`` contents.
 
-    Returns
-    -------
-    dict
-        ``{"targets": [...], "manifest_rows": [...]}`` -- see
-        :func:`main`'s docstring for what each becomes on disk.
+    The three resolved directories, each with a trailing ``/``: starcall's
+    rules build every path by plain string concatenation onto them,
+    matching its own ``'phenotyping/'``-style defaults, so without it a
+    path wildcard silently comes out malformed. Command-line config wins
+    over the project's own config.yaml, so these are the directories
+    starcall uses.
+
+    ``fisseq_python`` is the interpreter ``make_cell_shard`` runs this
+    package with; the ``fisseq_*`` keys are the settings of the
+    ``fisseq_tiles_manifest`` rule (``snakemake/Snakefile``). ``wells``/
+    ``grid_size`` are left out when unset, so the Snakefile falls back to
+    starcall's own.
     """
-    targets: List[str] = []
-    manifest_rows: List[Dict[str, str]] = []
-    image = "corrected" if use_corrected else "raw"
-
-    for well in wells:
-        resolved_grid_size = resolve_grid_size(phenotyping_dir, well, grid_size)
-        tiles = enumerate_tile_names(
-            phenotyping_dir, well, resolved_grid_size, explicit=grid_size is not None
-        )
-        for tile in tiles:
-            grid_dir = f"{well}_grid{resolved_grid_size}"
-            tile_dir = f"{phenotyping_dir}/{grid_dir}/{tile}"
-            seq_tile_dir = f"{sequencing_dir}/{grid_dir}/{tile}"
-
-            shard_tar = f"{tile_dir}/{segmentation_type}_{image}_shard_{window}.tar"
-            seg_csv = f"{tile_dir}/{segmentation_type}.csv"
-            reads_csv = (
-                f"{seq_tile_dir}/{segmentation_type}_reads{sequencing_reads_params}.csv"
-            )
-
-            targets.extend([shard_tar, seg_csv, reads_csv])
-
-            cp_csv = ""
-            if cp_features:
-                cp_csv = (
-                    f"{tile_dir}/cellprofiler{cellprofiler_cycle}_"
-                    f"{cellprofiler_pipeline}.csv"
-                )
-                targets.append(cp_csv)
-
-            manifest_rows.append(
-                {
-                    "well": well,
-                    "tile": tile,
-                    "segmentation_csv": seg_csv,
-                    "reads_csv": reads_csv,
-                    "cellprofiler_csv": cp_csv,
-                    "shard_tar": shard_tar,
-                }
-            )
-
-    return {"targets": targets, "manifest_rows": manifest_rows}
+    config: Dict[str, Any] = {k: v.rstrip("/") + "/" for k, v in resolved_dirs.items()}
+    config["fisseq_python"] = fisseq_python
+    config["fisseq_manifest"] = manifest
+    if cfg.wells:
+        config["fisseq_wells"] = list(cfg.wells)
+    if cfg.grid_size is not None:
+        config["fisseq_grid_size"] = cfg.grid_size
+    config.update(
+        {
+            "fisseq_segmentation_type": cfg.segmentation_type,
+            "fisseq_image": "corrected" if cfg.use_corrected else "raw",
+            "fisseq_window": cfg.window,
+            "fisseq_sequencing_reads_params": cfg.sequencing_reads_params,
+            "fisseq_cp_features": cfg.cp_features,
+            "fisseq_cellprofiler_cycle": cfg.cellprofiler_cycle,
+            "fisseq_cellprofiler_pipeline": cfg.cellprofiler_pipeline,
+        }
+    )
+    return config
 
 
 def jobscript_bind_paths(
@@ -418,8 +285,8 @@ def jobscript_bind_paths(
     through a symlink is otherwise missing from the image at the path the
     job ``cd``s into.
 
-    ``cwd`` (this task's work directory, where the jobscript and targets
-    live) is bound as well.
+    ``cwd`` (this task's work directory, where the jobscript, snakemake
+    config and tile manifest live) is bound as well.
     """
     paths = {*resolved_dirs.values(), *extra, cwd}
     return sorted({q for p in paths for q in (p, os.path.realpath(p))})
@@ -457,7 +324,7 @@ def render_starcall_jobscript(
     command = " ".join(shlex.quote(a) for a in [container_bin, *runtime_args])
     script = f"""#!/bin/sh
 # properties = {{properties}}
-# Written by fisseq_embeddings_pipeline.build_cell_images_enumerate.
+# Written by fisseq_embeddings_pipeline.build_cell_images_prepare.
 if [ -z "$FISSEQ_STARCALL_IN_IMAGE" ]; then
     FISSEQ_STARCALL_IN_IMAGE=1
     export FISSEQ_STARCALL_IN_IMAGE
@@ -474,99 +341,76 @@ fi
 
 
 _cs = ConfigStore.instance()
-_cs.store(name="build_cell_images_enumerate_main", node=BuildCellImagesEnumerateConfig)
+_cs.store(name="build_cell_images_prepare_main", node=BuildCellImagesPrepareConfig)
 
 
 @hydra.main(
     version_base=None,
     config_path=None,
-    config_name="build_cell_images_enumerate_main",
+    config_name="build_cell_images_prepare_main",
 )
 def main(cfg: DictConfig) -> None:
     """
-    Hydra entry point: resolve grid sizes, enumerate tiles, write
-    targets/manifest.
+    Hydra entry point: resolve the data directories, write the nested
+    snakemake's config (and, in cluster mode, its jobscript).
 
     Configuration
     -------------
     Override any field on the command line, e.g.::
 
-        python -m fisseq_embeddings_pipeline.build_cell_images_enumerate \\
+        python -m fisseq_embeddings_pipeline.build_cell_images_prepare \\
             output_dir=./out \\
             starcall_workflow_dir=/data/experiment1 \\
-            'wells=[well1,well2]' \\
             segmentation_type=cells \\
             window=224
     """
-    enum_cfg: BuildCellImagesEnumerateConfig = OmegaConf.to_object(cfg)
+    prep_cfg: BuildCellImagesPrepareConfig = OmegaConf.to_object(cfg)
 
-    output_dir = pathlib.Path(enum_cfg.output_dir)
+    output_dir = pathlib.Path(prep_cfg.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    enum_cfg.output_dir = str(output_dir)
-    setup_logging(enum_cfg, "build_cell_images_enumerate")
+    prep_cfg.output_dir = str(output_dir)
+    setup_logging(prep_cfg, "build_cell_images_prepare")
 
     resolved_dirs = {
         dir_key: resolve_data_dir(
-            enum_cfg.starcall_workflow_dir, dir_key, getattr(enum_cfg, dir_key)
+            prep_cfg.starcall_workflow_dir, dir_key, getattr(prep_cfg, dir_key)
         )
         for dir_key in _RESOLVED_DIR_KEYS
     }
-    resolved_dirs_path = output_dir / enum_cfg.resolved_dirs_out
+    resolved_dirs_path = output_dir / prep_cfg.resolved_dirs_out
     with open(resolved_dirs_path, "w") as f:
         for dir_key in _RESOLVED_DIR_KEYS:
             f.write(f"{dir_key}='{resolved_dirs[dir_key]}'\n")
     logging.info("Resolved starcall-workflow directories: %s", resolved_dirs)
 
-    result = build_enumeration(
-        phenotyping_dir=resolved_dirs["phenotyping_dir"],
-        sequencing_dir=resolved_dirs["sequencing_dir"],
-        wells=enum_cfg.wells,
-        grid_size=enum_cfg.grid_size,
-        segmentation_type=enum_cfg.segmentation_type,
-        use_corrected=enum_cfg.use_corrected,
-        window=enum_cfg.window,
-        sequencing_reads_params=enum_cfg.sequencing_reads_params,
-        cp_features=enum_cfg.cp_features,
-        cellprofiler_cycle=enum_cfg.cellprofiler_cycle,
-        cellprofiler_pipeline=enum_cfg.cellprofiler_pipeline,
-    )
+    # Absolute: the nested snakemake runs in starcall_workflow_dir.
+    manifest = os.path.abspath(output_dir / prep_cfg.manifest_out)
+    config_path = output_dir / prep_cfg.snakemake_config_out
+    with open(config_path, "w") as f:
+        yaml.safe_dump(
+            snakemake_config(prep_cfg, resolved_dirs, manifest, sys.executable),
+            f,
+            sort_keys=False,
+        )
+    logging.info("Wrote snakemake config %s", config_path)
 
-    targets_path = output_dir / enum_cfg.targets_out
-    with open(targets_path, "w") as f:
-        for target in result["targets"]:
-            f.write(target + "\n")
-
-    manifest_path = output_dir / enum_cfg.manifest_out
-    with open(manifest_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=_MANIFEST_FIELDNAMES)
-        writer.writeheader()
-        writer.writerows(result["manifest_rows"])
-
-    if enum_cfg.starcall_job_image:
+    if prep_cfg.starcall_job_image:
         binds = jobscript_bind_paths(
             resolved_dirs,
-            list(enum_cfg.jobscript_binds),
+            list(prep_cfg.jobscript_binds),
             os.path.abspath(os.getcwd()),
         )
-        jobscript_path = output_dir / enum_cfg.jobscript_out
+        jobscript_path = output_dir / prep_cfg.jobscript_out
         jobscript_path.write_text(
             render_starcall_jobscript(
-                enum_cfg.starcall_container_bin,
-                enum_cfg.starcall_job_image,
+                prep_cfg.starcall_container_bin,
+                prep_cfg.starcall_job_image,
                 binds,
-                enum_cfg.starcall_job_gpu,
+                prep_cfg.starcall_job_gpu,
             )
         )
         jobscript_path.chmod(0o755)
         logging.info("Wrote starcall jobscript %s (binds: %s)", jobscript_path, binds)
-
-    logging.info(
-        "Enumerated %d tile(s) across %d well(s); wrote %d Snakemake target(s) to %s",
-        len(result["manifest_rows"]),
-        len(enum_cfg.wells),
-        len(result["targets"]),
-        targets_path,
-    )
 
 
 if __name__ == "__main__":

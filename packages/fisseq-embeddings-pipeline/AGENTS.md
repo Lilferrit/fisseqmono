@@ -32,7 +32,7 @@ src/fisseq_embeddings_pipeline/
   config/__init__.py              re-exports fisseq_common.stages.config's AppConfig & co.
   config/experiments.py           PLAN_EXPERIMENTS: params validation, per-experiment routing,
                                   RENAMED_PARAMS / removed-param warnings
-  build_cell_images_enumerate.py  BUILD_CELL_IMAGES phase 1 (tiles, starcall targets, jobscript)
+  build_cell_images_prepare.py    BUILD_CELL_IMAGES phase 1 (data dirs, snakemake config, jobscript)
   tile_shard.py                   make_cell_shard rule body (phase 2, inside the nested snakemake)
   build_cell_images_table.py      BUILD_CELL_IMAGES phase 3 (cell_table.parquet, tiles.parquet)
   cell_metadata.py                BUILD_CELL_METADATA (QC_FILTER's input)
@@ -43,7 +43,9 @@ src/fisseq_embeddings_pipeline/
 modules/local/                    PLAN_EXPERIMENTS, BUILD_CELL_IMAGES, BUILD_CELL_METADATA,
                                   EMBED_CELLS, BUILD_CP_FEATURES
 conf/modules.config               ext.args / ext.seed / publishDir of the shared modules
-snakemake/Snakefile               BUILD_CELL_IMAGES' nested run (starcall + make_cell_shard)
+snakemake/Snakefile               BUILD_CELL_IMAGES' nested run (starcall + make_cell_shard +
+                                  fisseq_tiles_manifest, the one target; tiles from fisseq_targets.py;
+                                  every rule's mem_mb doubled per attempt via fisseq_resources.py)
 ```
 
 **Related code:**
