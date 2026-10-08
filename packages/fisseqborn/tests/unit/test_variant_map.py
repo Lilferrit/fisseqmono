@@ -76,7 +76,9 @@ def test_positions_range_and_wrapping(variants):
     plot = fb.VariantEffectMap(variants, "z", positions=(12, 16))
     assert list(plot.matrix().columns) == [12, 13, 14, 15, 16]
 
-    _, axes = fb.VariantEffectMap(variants, "z", positions_per_row=5).plot()
+    _, axes = fb.VariantEffectMap(
+        variants, "z", positions_per_row=5, marginal=True
+    ).plot()
     assert len(axes.heatmaps) == math.ceil(12 / 5)
     assert axes.positions == [(10, 14), (15, 19), (20, 21)]
     widths = {ax.get_xlim()[1] - ax.get_xlim()[0] for ax in axes.heatmaps}
@@ -87,8 +89,10 @@ def test_positions_range_and_wrapping(variants):
 
 
 def test_panels_can_be_turned_off(variants):
+    _, axes = fb.VariantEffectMap(variants, "z").plot()
+    assert axes.marginals == []  # opt-in
     _, axes = fb.VariantEffectMap(
-        variants, "z", regions=None, position_mean=False, marginal=False
+        variants, "z", regions=None, position_mean=False
     ).plot()
     assert axes.regions == axes.means == axes.marginals == []
     assert len(axes.heatmaps) == 1
@@ -124,3 +128,79 @@ def test_layers_apply_to_first_heatmap(variants, tmp_path):
     assert (tmp_path / "m.png").exists()
     _, axes = plot.plot()
     assert axes.heatmaps[0].get_title() == "layer"
+
+
+def _offsets(ax) -> set[tuple[float, float]]:
+    """Cells marked on ``ax`` beyond the wild-type dots (the first collection)."""
+    return {tuple(o) for c in ax.collections[1:] for o in c.get_offsets()}
+
+
+def test_highlight_marks_matching_cells_on_every_row(variants):
+    base = fb.VariantEffectMap(variants, "z", positions_per_row=5)
+    where = pl.col("meta_aa_changes").is_in(["A10V", "L11A", "A16C", "WT", "A10fs"])
+    plot = base.highlight(where, label="picked")
+    assert plot._highlights and not base._highlights  # chaining copies
+    fig, axes = plot.plot()
+    rows = {aa: i for i, aa in enumerate(fisseq.AMINO_ACID_ORDER)}
+    assert _offsets(axes.heatmaps[0]) == {(10, rows["V"]), (11, rows["A"])}
+    assert _offsets(axes.heatmaps[1]) == {(16, rows["C"])}
+    assert _offsets(axes.heatmaps[2]) == set()
+    [legend] = fig.legends
+    assert [t.get_text() for t in legend.get_texts()] == ["picked"]
+    _, axes = base.plot()
+    assert _offsets(axes.heatmaps[0]) == set()
+
+
+def test_highlight_hue(variants):
+    df = variants.with_columns(
+        clin=pl.when(pl.col("meta_aa_changes") == "A10V")
+        .then(pl.lit("Pathogenic"))
+        .when(pl.col("meta_aa_changes") == "A12V")
+        .then(pl.lit("Benign"))
+    )
+    plot = fb.VariantEffectMap(df, "z").highlight(
+        pl.col("clin").is_not_null(),
+        hue="clin",
+        palette={"Pathogenic": "red", "Benign": "blue"},
+    )
+    _, axes = plot.plot()
+    marks = axes.heatmaps[0].collections[1]
+    colors = {
+        int(x): tuple(c[:3])
+        for (x, _), c in zip(marks.get_offsets(), marks.get_facecolors())
+    }
+    assert colors == {10: (1.0, 0.0, 0.0), 12: (0.0, 0.0, 1.0)}
+    with pytest.raises(TypeError, match="categorical"):
+        fb.VariantEffectMap(df, "z").highlight(pl.lit(True), hue="z").plot()
+    with pytest.raises(ValueError, match="not found"):
+        fb.VariantEffectMap(df, "z").highlight(pl.lit(True), hue="missing")
+
+
+def test_portrait(variants):
+    plot = fb.VariantEffectMap(variants, "z", orientation="portrait", marginal=True)
+    fig, axes = plot.highlight(pl.col("meta_aa_changes") == "A10V").plot()
+    heat = axes.heatmaps[0]
+    assert heat.get_images()[0].get_array().shape == (
+        12,
+        20,
+    )  # positions by amino acids
+    assert heat.get_ylim() == (21.5, 9.5)  # positions run downward
+    rows = {aa: i for i, aa in enumerate(fisseq.AMINO_ACID_ORDER)}
+    wild_type = {tuple(o) for o in heat.collections[0].get_offsets()}
+    assert (rows["A"], 10) in wild_type and (rows["L"], 11) in wild_type
+    assert _offsets(heat) == {(rows["V"], 10)}
+    box = heat.get_position()
+    width, height = fig.get_size_inches()
+    # 20 amino-acid cells across, 12 position cells down
+    assert box.width * width == pytest.approx(20 * 0.12)
+    assert box.height * height == pytest.approx(12 * 0.12)
+
+    _, axes = fb.VariantEffectMap(
+        variants, "z", orientation="portrait", positions_per_row=5, marginal=True
+    ).plot()
+    lefts = [ax.get_position().x0 for ax in axes.heatmaps]
+    assert lefts == sorted(lefts) and len(set(lefts)) == 3  # columns, left to right
+    assert all(len(g) == 3 for g in (axes.regions, axes.means, axes.marginals))
+
+    with pytest.raises(ValueError, match="orientation"):
+        fb.VariantEffectMap(variants, "z", orientation="sideways")

@@ -173,7 +173,9 @@ class EmbeddingPlot(Plot):
             if hue is None:
                 colors: Any = color
             else:
-                colors = plot._highlight_colors(subset, hue, palette, missing_color)
+                colors = _data.highlight_colors(
+                    subset, hue, palette, missing_color, base_palette=plot.palette
+                )
             handle = ax.scatter(
                 subset.get_column(plot.x).to_numpy(),
                 subset.get_column(plot.y).to_numpy(),
@@ -199,36 +201,6 @@ class EmbeddingPlot(Plot):
                 add_legend_entry(ax, handle, label)
 
         return self._with_layer(layer)
-
-    def _highlight_colors(
-        self, subset: pl.DataFrame, hue: str, palette: Any, missing_color: Any
-    ) -> list[Any]:
-        if _data.is_numeric(subset, hue) and not subset.schema[hue].is_integer():
-            raise TypeError(
-                f"highlight hue must be categorical, got numeric column {hue!r}"
-            )
-        values = subset.get_column(hue).to_list()
-        levels = [v for v in dict.fromkeys(values) if v is not None]
-
-        def lookup(colors: Mapping[Any, Any], value: Any) -> Any:
-            if value in colors:
-                return colors[value]
-            return colors.get(str(value))
-
-        if palette is not None:
-            colors = _data.resolve_palette(levels, palette)
-        elif self.palette is not None and all(
-            lookup(self.palette, v) is not None for v in levels
-        ):
-            colors = self.palette
-        else:
-            colors = _data.resolve_palette(_data.resolve_order(subset, hue), None)
-        return [
-            missing_color
-            if v is None or lookup(colors, v) is None
-            else lookup(colors, v)
-            for v in values
-        ]
 
     # ----- drawing --------------------------------------------------------------------
 

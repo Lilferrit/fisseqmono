@@ -98,6 +98,46 @@ def resolve_palette(
     return dict(zip(levels, colors))
 
 
+def highlight_colors(
+    subset: pl.DataFrame,
+    hue: str,
+    palette: Mapping[Any, Any] | str | Sequence[Any] | None,
+    missing_color: Any,
+    base_palette: Mapping[Any, Any] | None = None,
+) -> list[Any]:
+    """One color per row of ``subset`` from its categorical ``hue`` level, for highlights.
+
+    An explicit ``palette`` wins. Otherwise ``base_palette`` (the plot's own colors) is used
+    when it has a color for every level (levels are also matched as strings, so integer
+    cluster ids match string ones), else the default palette for ``subset``'s levels. Rows
+    without a color get ``missing_color``.
+    """
+    if is_numeric(subset, hue) and not subset.schema[hue].is_integer():
+        raise TypeError(
+            f"highlight hue must be categorical, got numeric column {hue!r}"
+        )
+    values = subset.get_column(hue).to_list()
+    levels = [v for v in dict.fromkeys(values) if v is not None]
+
+    def lookup(colors: Mapping[Any, Any], value: Any) -> Any:
+        if value in colors:
+            return colors[value]
+        return colors.get(str(value))
+
+    if palette is not None:
+        colors = resolve_palette(levels, palette)
+    elif base_palette is not None and all(
+        lookup(base_palette, v) is not None for v in levels
+    ):
+        colors = dict(base_palette)
+    else:
+        colors = resolve_palette(resolve_order(subset, hue), None)
+    return [
+        missing_color if v is None or lookup(colors, v) is None else lookup(colors, v)
+        for v in values
+    ]
+
+
 def color_norm(
     values: np.ndarray,
     *,

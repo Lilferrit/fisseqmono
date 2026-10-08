@@ -36,6 +36,7 @@ from fisseqborn import fisseq
 | `Heatmap(df, index, columns, values=None)` / `Heatmap.correlation(df, cols)` | pairwise matrices (long or wide form), correlation matrices |
 | `ExplainedVariancePlot(profiles.pca_reduce(...), kind="cumulative"/"scree"/"both", thresholds=[...])` | cumulative explained variance / scree plot, marking thresholds and the noise floor |
 | `PairPlot(df, vars, hue=None, diag_kind="kde")` | pairwise scatter grid (e.g. the first PCs) with the fisseq palettes / orders (figure-level) |
+| `VariantEffectMap(df, value, positions=None, orientation="landscape"/"portrait")` | position × amino-acid heatmap of single substitutions (figure-level); `.highlight(expr, ...)` marks chosen variants' cells |
 | `ClusterMap(df, groups=None, orientation="horizontal"/"vertical", row_colors=None, row_labels=None)` | clustered heatmaps with per-group color scales (figure-level, see below) |
 
 ## Loading pipeline outputs
