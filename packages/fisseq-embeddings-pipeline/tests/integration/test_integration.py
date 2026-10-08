@@ -590,6 +590,8 @@ def test_starcall_profile_switches_to_profile_mode(tmp_path_factory):
     _write_tiny_checkpoint(checkpoint_path)
     profile_dir = exp_dir / "my_site_profile"
     profile_dir.mkdir()
+    # The workflow parses this on the head node; the stub never reads it.
+    (profile_dir / "config.yaml").write_text("jobs: 1\n")
 
     result = _run_nextflow(
         exp_dir,
@@ -632,6 +634,7 @@ def test_starcall_profile_switches_to_profile_mode(tmp_path_factory):
 
 
 def test_starcall_profile_without_job_image_fails_fast(tmp_path):
+    (tmp_path / "config.yaml").write_text("jobs: 1\n")
     result = _run_validation_only(
         tmp_path,
         pipeline_dir=tmp_path,
