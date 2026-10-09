@@ -56,6 +56,7 @@ nav:
     - Concepts: fisseqborn/concepts.md
     - The fisseq theme: fisseqborn/theme.md
     - Loading pipeline outputs: fisseqborn/data.md
+    - Evidence calibration (ExCALIBR): fisseqborn/calibration.md
   - Plots:
     - Boxplots: fisseqborn/plots/box.md
     - Embeddings (UMAP / PCA): fisseqborn/plots/embedding.md
@@ -67,6 +68,7 @@ nav:
     - Explained variance: fisseqborn/plots/explained-variance.md
     - Pair plots: fisseqborn/plots/pairplot.md
     - Volcano plots: fisseqborn/plots/volcano.md
+    - Calibration: fisseqborn/plots/calibration.md
   - API reference: fisseqborn/api.md
 - Diff reports:
   - About: diff-reports/README.md

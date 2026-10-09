@@ -32,6 +32,12 @@
       members_order: source
       merge_init_into_class: true
 
+::: fisseqborn.CalibrationPlot
+    options:
+      show_source: false
+      members_order: source
+      merge_init_into_class: true
+
 ::: fisseqborn.VolcanoPlot
     options:
       show_source: false
@@ -113,6 +119,12 @@
       merge_init_into_class: true
 
 ::: fisseqborn.ClusterSummary
+    options:
+      show_source: false
+      members_order: source
+      merge_init_into_class: true
+
+::: fisseqborn.Calibration
     options:
       show_source: false
       members_order: source

@@ -1,4 +1,6 @@
-# fisseqborn's unit tests, on pull requests that change it or what it depends on.
+# fisseqborn's unit tests, on pull requests that change it or what it depends on. Its
+# integration tests (the ExCALIBR regression against upstream's examples, a few minutes)
+# run only on a manual run (workflow_dispatch).
 name: fisseqborn
 
 on:
@@ -17,4 +19,4 @@ jobs:
     uses: ./.github/workflows/_package.yml
     with:
       package: fisseqborn
-      integration: false
+      integration: ${{ github.event_name == 'workflow_dispatch' }}

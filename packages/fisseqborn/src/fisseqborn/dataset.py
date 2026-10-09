@@ -18,6 +18,7 @@ import polars as pl
 from . import _data, _remote, _variants, fisseq
 
 if TYPE_CHECKING:
+    from .calibration import Calibration
     from .summary import ClusterSummary
 
 _META = "meta_"
@@ -45,6 +46,9 @@ class Dataset:
     variant_col : str, default "meta_aa_changes"
         Column holding variant labels such as ``"A12V"``, used by the annotation methods.
     """
+
+    #: The `Calibration` set by `calibrate` or `apply_calibration` (else ``None``).
+    calibration: "Calibration | None" = None
 
     def __init__(
         self,
@@ -304,6 +308,142 @@ class Dataset:
             )
             .drop(_CALL)
         )
+
+    # ----- calibration ----------------------------------------------------------------
+
+    def calibrate(
+        self,
+        score: str,
+        *,
+        gnomad: "str | PathLike | pl.DataFrame",
+        clinvar: "str | PathLike | pl.DataFrame | pl.LazyFrame | None" = None,
+        direction: str = "auto",
+        benign_method: str = "avg",
+        n_components: int | str = "auto",
+        n_bootstrap: int = 1000,
+        n_restarts: int = 8,
+        prior: float | None = None,
+        splice_max: float | None = None,
+        min_stars: int | None = 1,
+        strict_constraint: bool = False,
+        out_of_bag: bool = True,
+        seed: int = 0,
+        n_jobs: int | None = -1,
+        prefix: str = "meta_excalibr",
+    ) -> Self:
+        """Calibrate a score into ACMG/AMP evidence points with ExCALIBR.
+
+        Fits the score distributions of pathogenic (P/LP), benign (B/LB), gnomAD and
+        synonymous variants as skew-normal mixtures over bootstrap resamples, estimates
+        the prior probability of pathogenicity from gnomAD, and turns the local
+        likelihood ratio into points from -8 (benign) to +8 (pathogenic). See the
+        calibration guide in the docs for the method and its limits.
+
+        Unlike the rest of the chain this is **eager**: it collects the data once, fits,
+        and returns a dataset wrapping the result. The fitted `Calibration` is on the
+        returned dataset's ``calibration`` attribute (carried along by later chained
+        calls) and the variants get these columns:
+
+        - ``<prefix>_group``: the control group a variant is in (``"P/LP"``,
+          ``"B/LB"``, ``"Synonymous"``, ``"gnomAD"``, first match in that order), else
+          null. ``<prefix>_groups`` lists every group it is in.
+        - ``<prefix>_lr`` and ``<prefix>_posterior``: median bootstrap local likelihood
+          ratio and the posterior at the calibration's prior.
+        - ``<prefix>_points``: evidence points. Control variants get out-of-bag points
+          (only bootstrap fits that held them out) when ``out_of_bag`` and
+          ``<prefix>_oob`` is true; every other variant gets points from the thresholds.
+
+        Parameters
+        ----------
+        score : str
+            Numeric score column, e.g. ``"auroc_pooled_corrected"`` after
+            `OvwtScores.per_variant`, or ``"meta_distinguishability_score"``.
+        gnomad : path | pl.DataFrame
+            The gnomAD browser CSV export for the gene (required: it is the population
+            sample the prior comes from).
+        clinvar : path | frame | None
+            ClinVar controls, in the table format `clinvar` reads (``variant``,
+            ``clinvar_clinical_significance``, optionally ``clinvar_review_status`` or
+            ``clinvar_stars``). ``None`` uses the gnomAD export's ClinVar column, which
+            only covers variants gnomAD observed and has no review-star filter.
+        direction : {"auto", "lower_pathogenic", "higher_pathogenic", "both"}
+            Which end of the score is pathogenic. ``"auto"`` compares the control means
+            and detects bidirectional (both ends pathogenic) assays.
+        benign_method : {"avg", "benign", "synonymous"}
+            Benign reference: B/LB, synonymous, or the average of their mixture weights
+            (the default; more stable when B/LB is small).
+        n_components : {"auto", 2, 3}
+            Skew-normal components. ``"auto"`` fits both and keeps 3 only if it wins on
+            held-out likelihood in at least 95% of bootstraps (doubles the run time).
+        n_bootstrap, n_restarts : int
+            Bootstrap iterations (the published method uses 1000) and EM restarts per
+            iteration. Run time scales with both; use ``n_bootstrap=100`` for a first
+            look and 1000 for anything reported.
+        prior : float | None
+            Use this prior probability of pathogenicity instead of estimating it.
+        splice_max : float | None
+            Leave gnomAD variants with ``spliceai_ds_max`` above this out of the gnomAD
+            sample (0.2 in Zeiberg et al. v2), for assays blind to splicing effects.
+        min_stars : int | None
+            Minimum ClinVar review stars for a ``clinvar`` table record to count.
+        strict_constraint : bool
+            Enforce the mixture density constraint over the whole score range, not just
+            where the densities are non-negligible.
+        out_of_bag : bool
+            Give control variants out-of-bag points. Keep this on whenever the score was
+            tuned or thresholded against ClinVar labels.
+        seed : int
+            Seeds every bootstrap; results do not depend on ``n_jobs``.
+        n_jobs : int | None
+            Parallel workers (joblib; -1 is every core).
+        prefix : str
+            Prefix of the added columns.
+
+        Raises
+        ------
+        ValueError
+            If a variant appears more than once (pool first with
+            `OvwtScores.per_variant` or `Profiles.median_across_batches`), if gnomAD has
+            fewer than 5 scored variants, or if no control group has at least 5. Smaller
+            control groups (5 to 9) log a warning and give ``calibration.reliable ==
+            False``.
+        """
+        from .calibration._dataset import calibrate
+
+        return calibrate(
+            self,
+            score,
+            gnomad=gnomad,
+            clinvar=clinvar,
+            direction=direction,
+            benign_method=benign_method,
+            n_components=n_components,
+            n_bootstrap=n_bootstrap,
+            n_restarts=n_restarts,
+            prior=prior,
+            splice_max=splice_max,
+            min_stars=min_stars,
+            strict_constraint=strict_constraint,
+            out_of_bag=out_of_bag,
+            seed=seed,
+            n_jobs=n_jobs,
+            prefix=prefix,
+        )
+
+    def apply_calibration(
+        self,
+        calibration: "Calibration | str | PathLike",
+        score: str | None = None,
+        *,
+        prefix: str = "meta_excalibr",
+    ) -> Self:
+        """Score ``score`` with a fitted `Calibration` (or a path to one saved with
+        `Calibration.to_json`) without refitting. Adds ``<prefix>_lr``,
+        ``<prefix>_posterior`` and ``<prefix>_points``; ``score`` defaults to the column
+        the calibration was fit on. Eager, like `calibrate`."""
+        from .calibration._dataset import apply_calibration
+
+        return apply_calibration(self, calibration, score, prefix=prefix)
 
     # ----- summaries ------------------------------------------------------------------
 

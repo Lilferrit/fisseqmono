@@ -466,6 +466,7 @@ version = "2.0.0"
 source = { editable = "packages/fisseqborn" }
 dependencies = [
     { name = "fisseq-common" },
+    { name = "joblib" },
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "pandas" },
@@ -505,6 +506,7 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "fisseq-common", editable = "packages/fisseq-common" },
+    { name = "joblib" },
     { name = "leidenalg", marker = "extra == 'cluster'", specifier = ">=0.12" },
     { name = "matplotlib", specifier = ">=3.10" },
     { name = "numpy" },
