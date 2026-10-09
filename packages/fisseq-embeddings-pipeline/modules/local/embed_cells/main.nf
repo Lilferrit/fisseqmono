@@ -6,11 +6,11 @@
 // `apply_mask` is a plain scalar (one shared mask per cell, so one flag
 // covering every selected channel -- see EmbedCellsConfig).
 //
-// The shards themselves aren't staged: tiles.parquet names each tile's shard
-// by its real path under phenotyping_dir, where the nested snakemake's
-// make_cell_shard rule left it, and nextflow.config binds that directory in.
-// metadata.parquet (BUILD_CELL_METADATA) supplies every meta_* column but
-// the shard's own well/tile/cell_index.
+// The shards themselves aren't staged: shards.parquet names each well's
+// shards by their real paths under phenotyping_dir, where the nested
+// snakemake's make_well_shards rule left them, and nextflow.config binds that
+// directory in. Each sample's meta.json carries the cell's meta_* columns;
+// batch_stem adds meta_batch.
 
 include { threadEnv } from '../../../../fisseq-common/nextflow/modules/local/functions'
 
@@ -22,7 +22,7 @@ process EMBED_CELLS {
     publishDir { "${params.pipeline_dir}/embeddings/${batch_stem}" }, mode: 'copy'
 
     input:
-    tuple val(batch_stem), path(tiles), val(phenotyping_dir), path(metadata)
+    tuple val(batch_stem), path(shards), val(phenotyping_dir)
 
     output:
     tuple val(batch_stem), path("embeddings.parquet"), emit: embeddings
@@ -32,8 +32,8 @@ process EMBED_CELLS {
     ${threadEnv(task.cpus)}
     python -m fisseq_embeddings_pipeline.embed \\
         output_dir=. \\
-        tiles_path=${tiles} \\
-        metadata_path=${metadata} \\
+        shards_path=${shards} \\
+        batch_stem=${batch_stem} \\
         checkpoint_path=${params.cell_dino_checkpoint} \\
         arch=${params.cell_dino_arch} \\
         patch_size=${params.cell_dino_patch_size} \\

@@ -13,8 +13,9 @@ nested snakemake starts:
   the same three directories (overriding the project's own config.yaml),
   the interpreter `make_cell_shard` runs this package with, and the
   `fisseq_*` settings of `snakemake/Snakefile`'s `fisseq_tiles_manifest`
-  rule. That rule, not this phase, lists every tile and writes the tile
-  manifest phase 3 (`build_cell_images_table.py`) reads.
+  rule. That rule, not this phase, lists every tile and every well's shards
+  and writes the two manifests phase 3 (`build_cell_images_table.py`)
+  reads.
 - `jobscript_out`, only when `starcall_job_image` is set (i.e. the run
   passes a `starcall_profile` for per-rule cluster submission): the
   `--jobscript` template every starcall child job runs through. See
@@ -98,14 +99,25 @@ class BuildCellImagesPrepareConfig(AppConfig):
     segmentation_type : str
         Defaults to ``"cells"``.
     use_corrected : bool
-        Cut each tile's shard from the background-corrected whole-tile
-        phenotype image (`corrected_pt.tif`) instead of the raw one
-        (`raw_pt.tif`) -- mirrors starcall-workflow's own
-        `get_phenotyping_pt`. Defaults to ``False``.
+        Stitch each tile's shard image from starcall's background-corrected
+        tiles (`corrected_tiles.tif`) instead of the raw input images --
+        starcall's own `{corrected}` choice, as in `get_phenotyping_pt`.
+        Defaults to ``False``.
     window : int
-        Crop size each cell is cut at, in the shard's filename -- see
+        Crop size each cell is cut at, in the shards' directory name -- see
         ``tile_shard.TileShardConfig``. Must match the Cell-DINO
         checkpoint's expected input (`cell_dino_crop_size`).
+    shard_size : int or None
+        Cells per WebDataset shard, each well's shards counted separately
+        (see ``well_shards.WellShardsConfig``); also in the shards'
+        directory name. ``None`` (the default) gives each well one shard.
+    barcode_col_name, aa_changes_col_name, edit_distance_col_name : str
+        Which columns of each tile's reads table are the barcode, amino-acid
+        changes and edit distance (starcall's aux tables name them per
+        experiment). Both the shards' ``meta.json`` and
+        ``cell_table.parquet`` rename them to ``meta_barcode``/
+        ``meta_aa_changes``/``meta_edit_distance``. Default to
+        ``"upBarcode"``/``"aaChanges"``/``"editDistance"``.
     sequencing_reads_params : str
         Suffix threaded into the reads CSV filename
         (`{segmentation_type}_reads{sequencing_reads_params}.csv`).
@@ -120,6 +132,9 @@ class BuildCellImagesPrepareConfig(AppConfig):
         The tile manifest the nested snakemake's `fisseq_tiles_manifest`
         rule writes (under `output_dir`), passed to it as an absolute
         path. Defaults to ``"tiles_manifest.csv"``.
+    shards_manifest_out : str
+        The shard manifest the same rule writes beside it, one row per
+        shard. Defaults to ``"shards_manifest.csv"``.
     snakemake_config_out : str
         Output filename (under `output_dir`) for the nested snakemake's
         `--configfile` -- see :func:`snakemake_config`.
@@ -156,11 +171,16 @@ class BuildCellImagesPrepareConfig(AppConfig):
     segmentation_type: str = "cells"
     use_corrected: bool = False
     window: int = MISSING
+    shard_size: Optional[int] = None
+    barcode_col_name: str = "upBarcode"
+    aa_changes_col_name: str = "aaChanges"
+    edit_distance_col_name: str = "editDistance"
     sequencing_reads_params: str = ""
     cp_features: bool = False
     cellprofiler_cycle: str = ""
     cellprofiler_pipeline: str = ""
     manifest_out: str = "tiles_manifest.csv"
+    shards_manifest_out: str = "shards_manifest.csv"
     snakemake_config_out: str = "snakemake_config.yaml"
     starcall_job_image: Optional[str] = None
     starcall_container_bin: str = "apptainer"
@@ -232,7 +252,7 @@ def resolve_data_dir(
 def snakemake_config(
     cfg: BuildCellImagesPrepareConfig,
     resolved_dirs: Dict[str, str],
-    manifest: str,
+    output_dir: str,
     fisseq_python: str,
 ) -> Dict[str, Any]:
     """The nested snakemake's ``--configfile`` contents.
@@ -244,15 +264,21 @@ def snakemake_config(
     over the project's own config.yaml, so these are the directories
     starcall uses.
 
-    ``fisseq_python`` is the interpreter ``make_cell_shard`` runs this
-    package with; the ``fisseq_*`` keys are the settings of the
-    ``fisseq_tiles_manifest`` rule (``snakemake/Snakefile``). ``wells``/
-    ``grid_size`` are left out when unset, so the Snakefile falls back to
-    starcall's own.
+    ``fisseq_python`` is the interpreter ``make_cell_shard`` and
+    ``make_well_shards`` run this package with; the other ``fisseq_*`` keys
+    are the settings of the ``fisseq_shards`` and ``fisseq_tiles_manifest``
+    rules (``snakemake/Snakefile``). The two manifests go under
+    ``output_dir``, which must be absolute: the nested snakemake runs in
+    ``starcall_workflow_dir``. ``wells``/``grid_size`` are left out when
+    unset, so the Snakefile falls back to starcall's own. Phase 3
+    (``build_cell_images_table``) reads the ``fisseq_*_col`` keys back
+    from the same file, so the table and the shards' ``meta.json`` rename
+    the same columns.
     """
     config: Dict[str, Any] = {k: v.rstrip("/") + "/" for k, v in resolved_dirs.items()}
     config["fisseq_python"] = fisseq_python
-    config["fisseq_manifest"] = manifest
+    config["fisseq_manifest"] = os.path.join(output_dir, cfg.manifest_out)
+    config["fisseq_shards_manifest"] = os.path.join(output_dir, cfg.shards_manifest_out)
     if cfg.wells:
         config["fisseq_wells"] = list(cfg.wells)
     if cfg.grid_size is not None:
@@ -262,6 +288,10 @@ def snakemake_config(
             "fisseq_segmentation_type": cfg.segmentation_type,
             "fisseq_image": "corrected" if cfg.use_corrected else "raw",
             "fisseq_window": cfg.window,
+            "fisseq_shard_size": cfg.shard_size,
+            "fisseq_barcode_col": cfg.barcode_col_name,
+            "fisseq_aa_changes_col": cfg.aa_changes_col_name,
+            "fisseq_edit_distance_col": cfg.edit_distance_col_name,
             "fisseq_sequencing_reads_params": cfg.sequencing_reads_params,
             "fisseq_cp_features": cfg.cp_features,
             "fisseq_cellprofiler_cycle": cfg.cellprofiler_cycle,
@@ -383,12 +413,12 @@ def main(cfg: DictConfig) -> None:
             f.write(f"{dir_key}='{resolved_dirs[dir_key]}'\n")
     logging.info("Resolved starcall-workflow directories: %s", resolved_dirs)
 
-    # Absolute: the nested snakemake runs in starcall_workflow_dir.
-    manifest = os.path.abspath(output_dir / prep_cfg.manifest_out)
     config_path = output_dir / prep_cfg.snakemake_config_out
     with open(config_path, "w") as f:
         yaml.safe_dump(
-            snakemake_config(prep_cfg, resolved_dirs, manifest, sys.executable),
+            snakemake_config(
+                prep_cfg, resolved_dirs, os.path.abspath(output_dir), sys.executable
+            ),
             f,
             sort_keys=False,
         )

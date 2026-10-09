@@ -86,8 +86,8 @@ workflow EmbeddingsPipeline {
     plans = PLAN_EXPERIMENTS(params_json).plans
         .flatMap { f -> new groovy.json.JsonSlurperClassic().parseText(f.text) }
 
-    cell_images = BUILD_CELL_IMAGES(plans)  // (batch_stem, cell_table, tiles, phenotyping_dir)
-    cell_tables = cell_images.map { stem, cell_table, _tiles, _pheno_dir -> tuple(stem, cell_table) }
+    cell_images = BUILD_CELL_IMAGES(plans)  // (batch_stem, cell_table, shards, phenotyping_dir)
+    cell_tables = cell_images.map { stem, cell_table, _shards, _pheno_dir -> tuple(stem, cell_table) }
 
     metadata = BUILD_CELL_METADATA(
         plans.map { p -> tuple(p.batch_stem, p.cell_table_args) }.join(cell_tables)
@@ -98,9 +98,7 @@ workflow EmbeddingsPipeline {
 
     // ── cellDINO track ───────────────────────────────────────────────────
     embeddings = EMBED_CELLS(
-        cell_images
-            .map { stem, _cell_table, tiles, pheno_dir -> tuple(stem, tiles, pheno_dir) }
-            .join(metadata)
+        cell_images.map { stem, _cell_table, shards, pheno_dir -> tuple(stem, shards, pheno_dir) }
     )
 
     // embeddings_only stops the cellDINO track here and skips the CP track:

@@ -35,6 +35,7 @@ nav:
   - Stage Reference:
     - 'Cell Images, Phase 1: Prepare (BUILD_CELL_IMAGES)': embeddings-pipeline/cli/build_cell_images_prepare.md
     - 'Cell Images, Phase 2: Cell Shards (make_cell_shard, inside BUILD_CELL_IMAGES)': embeddings-pipeline/cli/tile_shard.md
+    - 'Cell Images, Phase 2: Well Shards (make_well_shards, inside BUILD_CELL_IMAGES)': embeddings-pipeline/cli/well_shards.md
     - 'Cell Images, Phase 3: Build Table (BUILD_CELL_IMAGES)': embeddings-pipeline/cli/build_cell_images_table.md
     - Cell Metadata (BUILD_CELL_METADATA): embeddings-pipeline/cli/cell_metadata.md
     - Cell Embeddings (EMBED_CELLS): embeddings-pipeline/cli/embed.md
@@ -42,6 +43,7 @@ nav:
   - API Reference:
     - build_cell_images_prepare: embeddings-pipeline/api/build_cell_images_prepare.md
     - tile_shard: embeddings-pipeline/api/tile_shard.md
+    - well_shards: embeddings-pipeline/api/well_shards.md
     - build_cell_images_table: embeddings-pipeline/api/build_cell_images_table.md
     - cell_metadata: embeddings-pipeline/api/cell_metadata.md
     - embed: embeddings-pipeline/api/embed.md
@@ -75,6 +77,8 @@ nav:
   - 05 Row order: diff-reports/05-row-order.md
   - 06 No pycytominer: diff-reports/06-no-pycytominer.md
   - 07 Unify the embeddings pipeline: diff-reports/07-unified-pipelines.md
+  - 08 Per-well shards: diff-reports/08-well-shards.md
+  - 09 Cell table parity: diff-reports/09-cell-table-parity.md
 theme:
   name: material
   palette:

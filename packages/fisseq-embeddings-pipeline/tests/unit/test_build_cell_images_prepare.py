@@ -126,7 +126,7 @@ def _config(**overrides):
     return mod.snakemake_config(
         mod.BuildCellImagesPrepareConfig(**fields),
         _DIRS,
-        "/work/tiles_manifest.csv",
+        "/work",
         "/venv/bin/python",
     )
 
@@ -143,10 +143,33 @@ def test_snakemake_config_carries_the_manifest_rule_settings():
     config = _config(use_corrected=True, window=180, cp_features=True)
     assert config["fisseq_python"] == "/venv/bin/python"
     assert config["fisseq_manifest"] == "/work/tiles_manifest.csv"
+    assert config["fisseq_shards_manifest"] == "/work/shards_manifest.csv"
     assert config["fisseq_image"] == "corrected"
     assert config["fisseq_window"] == 180
     assert config["fisseq_cp_features"] is True
     assert config["fisseq_segmentation_type"] == "cells"
+
+
+def test_snakemake_config_names_the_genotype_columns():
+    """make_cell_shard and phase 3 both read these, so the shards'
+    meta.json and cell_table.parquet rename the same columns."""
+    config = _config()
+    assert (
+        config["fisseq_barcode_col"],
+        config["fisseq_aa_changes_col"],
+        config["fisseq_edit_distance_col"],
+    ) == ("upBarcode", "aaChanges", "editDistance")
+    config = _config(barcode_col_name="bc", aa_changes_col_name="aa")
+    assert (config["fisseq_barcode_col"], config["fisseq_aa_changes_col"]) == (
+        "bc",
+        "aa",
+    )
+
+
+def test_snakemake_config_passes_shard_size_null_by_default():
+    """null: one shard per well."""
+    assert _config()["fisseq_shard_size"] is None
+    assert _config(shard_size=2000)["fisseq_shard_size"] == 2000
 
 
 def test_snakemake_config_leaves_wells_and_grid_size_to_starcall_when_unset():

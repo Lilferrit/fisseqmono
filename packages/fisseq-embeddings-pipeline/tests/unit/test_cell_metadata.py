@@ -30,7 +30,10 @@ from fisseq_embeddings_pipeline.cell_metadata import (
     main,
 )
 from fisseq_embeddings_pipeline.cp_features import CpFeaturesConfig, build_cp_features
-from fisseq_embeddings_pipeline.utils.cell_table import CELL_METADATA_SCHEMA
+from fisseq_embeddings_pipeline.utils.cell_table import (
+    CELL_META_SCHEMA,
+    CELL_METADATA_SCHEMA,
+)
 
 # ---------------------------------------------------------------------------
 # Fixture helpers
@@ -56,15 +59,18 @@ def _row(
     edit_distance: int,
     **cp_features,
 ) -> dict:
+    """One row of BUILD_CELL_IMAGES' cell_table.parquet: its meta_*
+    columns, then CellProfiler columns under their own names."""
     row = {
-        "well": well,
-        "tile": tile,
-        "tile_cell_index": tile_cell_index,
-        "upBarcode": barcode,
-        "aaChanges": aa_changes,
-        "editDistance": edit_distance,
+        "meta_well": well,
+        "meta_tile": tile,
+        "meta_cell_index": tile_cell_index,
+        "meta_barcode": barcode,
+        "meta_aa_changes": aa_changes,
+        "meta_edit_distance": edit_distance,
+        "meta_variant_class": "Synonymous",
     }
-    row.update({f"cp_{k}": v for k, v in cp_features.items()})
+    row.update(cp_features)
     return row
 
 
@@ -115,9 +121,10 @@ def test_build_cell_metadata_carries_join_keys(tmp_path: Path):
     assert set(JOIN_KEYS).issubset(result.columns)
 
 
-def test_build_cell_metadata_drops_non_meta_columns(tmp_path: Path):
-    """No feature columns, no raw starcall column names -- QC only ever
-    needs the seven meta_* fields."""
+def test_build_cell_metadata_drops_features_and_the_variant_class(tmp_path: Path):
+    """No feature columns -- QC only ever needs the seven meta_* fields --
+    and no meta_variant_class: QC and every stage after it derive the
+    class from meta_aa_changes themselves."""
     cell_table = _write_cell_table(
         tmp_path / "cell_table.parquet",
         [_row("well1", "tile0x0y", 0, "bc1", "A1A", 0, Cells_AreaShape_Area=1.0)],
@@ -125,53 +132,14 @@ def test_build_cell_metadata_drops_non_meta_columns(tmp_path: Path):
 
     result = build_cell_metadata(_cfg(cell_table))
 
-    assert not any(c.startswith("cp_") for c in result.columns)
     assert "Cells_AreaShape_Area" not in result.columns
-    assert "well" not in result.columns
-    assert "upBarcode" not in result.columns
-
-
-def test_build_cell_metadata_honours_column_name_overrides(tmp_path: Path):
-    cell_table = _write_cell_table(
-        tmp_path / "cell_table.parquet",
-        [
-            {
-                "well": "well1",
-                "tile": "tile0x0y",
-                "tile_cell_index": 0,
-                "myBarcode": "bc1",
-                "myChanges": "A1A",
-                "myDistance": 2,
-            }
-        ],
-    )
-
-    result = build_cell_metadata(
-        _cfg(
-            cell_table,
-            barcode_col_name="myBarcode",
-            aa_changes_col_name="myChanges",
-            edit_distance_col_name="myDistance",
-        )
-    )
-
-    assert result[META_BARCODE_COL].to_list() == ["bc1"]
-    assert result[META_EDIT_DISTANCE_COL].to_list() == [2]
+    assert "meta_variant_class" not in result.columns
 
 
 def test_build_cell_metadata_empty_table_keeps_schema(tmp_path: Path):
     cell_table = tmp_path / "cell_table.parquet"
     cell_table.parent.mkdir(parents=True, exist_ok=True)
-    pl.DataFrame(
-        schema={
-            "well": pl.String,
-            "tile": pl.String,
-            "tile_cell_index": pl.Int64,
-            "upBarcode": pl.String,
-            "aaChanges": pl.String,
-            "editDistance": pl.Int64,
-        }
-    ).write_parquet(cell_table)
+    pl.DataFrame(schema=CELL_META_SCHEMA).write_parquet(cell_table)
 
     result = build_cell_metadata(_cfg(cell_table))
 

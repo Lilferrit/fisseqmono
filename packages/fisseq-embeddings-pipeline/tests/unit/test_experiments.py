@@ -308,10 +308,15 @@ def test_cell_images_overrides_keeps_only_starcall_facing_keys():
         "batch_stem": "expt1",
         "starcall_workflow_dir": "/data/e1",
         "wells": ["w1"],
-        "barcode_col_name": "bc",  # a cell_table.parquet reader's, not starcall's
+        "barcode_col_name": "bc",  # names a reads-table column: starcall-facing
+        "some_other_key": 1,
     }
     overrides = cell_images_overrides(entry, {})
-    assert overrides == {"starcall_workflow_dir": "/data/e1", "wells": ["w1"]}
+    assert overrides == {
+        "starcall_workflow_dir": "/data/e1",
+        "wells": ["w1"],
+        "barcode_col_name": "bc",
+    }
     assert set(overrides) <= CELL_IMAGES_FIELDS
 
 
@@ -323,8 +328,24 @@ def test_cell_table_overrides_drops_starcall_and_non_stage_keys():
         "wells": ["w1"],
         "window": 180,
         "barcode_col_name": "bc",
+        "aa_changes_col_name": "aa",
+        "edit_distance_col_name": "ed",
+        "some_other_key": 1,
     }
-    assert cell_table_overrides(entry) == {"barcode_col_name": "bc"}
+    assert cell_table_overrides(entry) == {"some_other_key": 1}
+
+
+def test_shard_size_routes_to_cell_images():
+    """shard_size names each well's shard directory, like window."""
+    assert cell_images_overrides({"batch_stem": "e"}, {"shard_size": 2000}) == {
+        "shard_size": 2000
+    }
+    entry = {"batch_stem": "expt1", "shard_size": 500}
+    assert cell_images_overrides(entry, {"shard_size": 2000})["shard_size"] == 500
+    assert "shard_size" not in cell_images_overrides(
+        {"batch_stem": "e"}, {"shard_size": None}
+    )
+    assert "shard_size" not in cell_table_overrides(entry)
 
 
 def test_window_routes_to_cell_images():
@@ -407,6 +428,24 @@ def test_starcall_retries_rejects_anything_else(retries):
         validate_config(_config(starcall_retries=retries))
 
 
+@pytest.mark.parametrize("shard_size", [None, 1, 2000, "2000"])
+def test_shard_size_accepts_null_or_positive_int(shard_size):
+    validate_config(_config(shard_size=shard_size))
+
+
+@pytest.mark.parametrize("shard_size", [0, -5, 1.5, "big", True])
+def test_shard_size_rejects_anything_else(shard_size):
+    with pytest.raises(ValueError, match="shard_size must be"):
+        validate_config(_config(shard_size=shard_size))
+
+
+def test_shard_size_is_checked_per_experiment_too():
+    config = _config()
+    config["experiments"][0]["shard_size"] = 0
+    with pytest.raises(ValueError, match=r"experiments\[0\]\.shard_size must be"):
+        validate_config(config)
+
+
 # ── plan_experiments / main ────────────────────────────────────────────────
 
 
@@ -437,7 +476,8 @@ def test_plan_experiments_renders_each_stage_override():
     assert "cp_features=true" in first["cell_images_args"]
     assert "cellprofiler_pipeline=pipe" in first["cell_images_args"]
     assert "window=224" in first["cell_images_args"]
-    assert first["cell_table_args"] == "barcode_col_name=bc"
+    assert "barcode_col_name=bc" in first["cell_images_args"]
+    assert first["cell_table_args"] == ""
     assert plans[1]["cell_table_args"] == ""
 
 

@@ -1,9 +1,13 @@
 # CellProfiler Feature Dataset (`BUILD_CP_FEATURES`)
 
-`python -m fisseq_embeddings_pipeline.cp_features` (Nextflow process `BUILD_CP_FEATURES`) selects `BUILD_CELL_IMAGES`' `cp_*`-prefixed
-CellProfiler feature columns out of its `cell_table.parquet`, stripping
-the prefix back off, into one per-experiment `cp_features.parquet` -- the
-CellProfiler-feature analog of `EMBED_CELLS`' `embeddings.parquet`.
+`python -m fisseq_embeddings_pipeline.cp_features` (Nextflow process `BUILD_CP_FEATURES`) selects the CellProfiler feature columns
+of `BUILD_CELL_IMAGES`' `cell_table.parquet` (every column without a
+`meta_` prefix, already under CellProfiler's own names) into one
+per-experiment `cp_features.parquet` -- the CellProfiler-feature analog of
+`EMBED_CELLS`' `embeddings.parquet`. Its `meta_*` columns are the same seven
+`BUILD_CELL_METADATA` writes (`utils.cell_table.cell_metadata_exprs`),
+`meta_batch` included. A table with no CellProfiler columns (an experiment
+whose `cp_features` was off when `BUILD_CELL_IMAGES` ran) logs a warning.
 
 This stage no longer discovers tiles, reads any CSV, or touches
 `starcall-workflow`'s tree at all -- `BUILD_CELL_IMAGES` is the only stage
@@ -19,17 +23,15 @@ Extends the [common config fields](#common-config-fields) below.
 
 | Field | Default | Description |
 | ----- | ------- | ----------- |
-| `cell_images_dir` | **required** | `BUILD_CELL_IMAGES`' per-experiment output directory (holds `cell_table.parquet`, already carrying this experiment's `cp_*`-prefixed CellProfiler columns). Injected automatically when run through the pipeline (the process stages `cell_table.parquet` into its work directory and passes `cell_images_dir=.`); set explicitly only when invoking this module's CLI directly against a `BUILD_CELL_IMAGES` output you already have. |
+| `cell_images_dir` | **required** | `BUILD_CELL_IMAGES`' per-experiment output directory (holds `cell_table.parquet`, already carrying this experiment's CellProfiler columns). Injected automatically when run through the pipeline (the process stages `cell_table.parquet` into its work directory and passes `cell_images_dir=.`); set explicitly only when invoking this module's CLI directly against a `BUILD_CELL_IMAGES` output you already have. |
 | `batch_stem` | **required** | This experiment's identifier, written into every row as `meta_batch`. |
-| `barcode_col_name` | `"upBarcode"` | Column name for cell barcodes in `cell_table.parquet`. |
-| `aa_changes_col_name` | `"aaChanges"` | Column name for amino-acid change labels in `cell_table.parquet`. |
-| `edit_distance_col_name` | `"editDistance"` | Column name for edit distances in `cell_table.parquet`. |
 
 `phenotyping_dir`/`wells`/`grid_size`/`segmentation_type`/`use_corrected`/
-`cellprofiler_cycle`/`cellprofiler_pipeline`/`csv_schema_scan_rows` are no
-longer fields on this stage -- they're `BUILD_CELL_IMAGES`-only now
+`cellprofiler_cycle`/`cellprofiler_pipeline`/`csv_schema_scan_rows`, and the
+genotype column names (`barcode_col_name`/`aa_changes_col_name`/
+`edit_distance_col_name`), are no longer fields on this stage -- they're `BUILD_CELL_IMAGES`-only now
 (starcall-workflow-discovery concerns, including which CellProfiler CSV to
-force and fold in).
+force and fold in, and which reads-table columns to rename to `meta_*`).
 
 ## Output file
 
@@ -37,8 +39,8 @@ Written to `output_dir`:
 
 - `cp_features.parquet` -- one row per cell: `meta_batch`, `meta_well`,
   `meta_tile`, `meta_cell_index`, `meta_barcode`, `meta_aa_changes`,
-  `meta_edit_distance`, plus every CellProfiler feature column bare/
-  unprefixed.
+  `meta_edit_distance`, plus every CellProfiler feature column under its
+  own CellProfiler name, in the table's order.
 
 ## Example
 

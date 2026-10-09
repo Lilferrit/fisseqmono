@@ -12,18 +12,21 @@ The routing contract:
 
 - ``BUILD_CELL_IMAGES`` is the only stage that touches starcall-workflow's
   tree, so every starcall-facing key (:data:`CELL_IMAGES_FIELDS`) routes
-  to it and to nothing else.
+  to it and to nothing else. That includes the ``*_col_name`` overrides
+  naming the reads tables' genotype columns: ``BUILD_CELL_IMAGES`` renames
+  them to ``meta_*`` in both ``cell_table.parquet`` and the shards.
 - ``BUILD_CELL_METADATA`` and ``BUILD_CP_FEATURES`` both get whatever
   keys are left after excluding the starcall-facing set plus
-  ``batch_stem`` and ``cp_features`` (the ``*_col_name`` overrides both
-  read ``cell_table.parquet`` with). ``cell_table``/``cell_images_dir``
-  are injected by the workflow from ``BUILD_CELL_IMAGES``' own output,
-  never set by the user.
+  ``batch_stem`` and ``cp_features`` -- none of their own fields today, so
+  a stray key fails there. ``cell_table``/``cell_images_dir`` are injected
+  by the workflow from ``BUILD_CELL_IMAGES``' own output, never set by the
+  user.
 - ``window``, ``cellprofiler_pipeline`` and ``cellprofiler_cycle`` each
   have a pipeline-wide default in ``params.yaml``; an entry that doesn't
   set its own value inherits it. An entry's own value always wins.
   ``window`` is the crop size each tile's shard is cut at, so it routes to
-  ``BUILD_CELL_IMAGES`` -- it names the shard target.
+  ``BUILD_CELL_IMAGES`` -- it names the shard target. ``shard_size``
+  (cells per WebDataset shard) works the same way.
 """
 
 import argparse
@@ -33,9 +36,9 @@ import sys
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 #: Keys routed to ``BUILD_CELL_IMAGES`` only -- the starcall-workflow-facing
-#: fields, the crop ``window`` its per-tile shard targets are named by, and
-#: the three ``cp_features``-related ones it folds into
-#: ``cell_table.parquet``.
+#: fields, the crop ``window`` and ``shard_size`` its shard targets are
+#: named by, the reads tables' genotype column names, and the three
+#: ``cp_features``-related ones it folds into ``cell_table.parquet``.
 CELL_IMAGES_FIELDS = frozenset(
     {
         "starcall_workflow_dir",
@@ -47,7 +50,11 @@ CELL_IMAGES_FIELDS = frozenset(
         "segmentation_type",
         "use_corrected",
         "window",
+        "shard_size",
         "sequencing_reads_params",
+        "barcode_col_name",
+        "aa_changes_col_name",
+        "edit_distance_col_name",
         "cp_features",
         "cellprofiler_pipeline",
         "cellprofiler_cycle",
@@ -61,7 +68,12 @@ _NON_STAGE_FIELDS = frozenset({"batch_stem", "cp_features"})
 
 #: Global ``params.yaml`` defaults an ``experiments:`` entry inherits when it
 #: doesn't set the key itself. See the module docstring.
-_CELL_IMAGES_FALLBACKS = ("window", "cellprofiler_pipeline", "cellprofiler_cycle")
+_CELL_IMAGES_FALLBACKS = (
+    "window",
+    "shard_size",
+    "cellprofiler_pipeline",
+    "cellprofiler_cycle",
+)
 
 
 def validate_config(config: Mapping[str, Any]) -> List[Dict[str, Any]]:
@@ -138,6 +150,7 @@ def validate_config(config: Mapping[str, Any]) -> List[Dict[str, Any]]:
     _validate_ovwt(config)
     _validate_starcall_profile(config)
     _validate_starcall_retries(config)
+    _validate_shard_sizes(config, experiments)
 
     return [dict(entry) for entry in experiments]
 
@@ -348,6 +361,27 @@ def _validate_starcall_retries(config: Mapping[str, Any]) -> None:
         )
 
 
+def _validate_shard_sizes(
+    config: Mapping[str, Any], experiments: Sequence[Mapping[str, Any]]
+) -> None:
+    """``shard_size``, global or an entry's own, is null (one shard per
+    well) or a positive cell count. A command-line ``--shard_size 1000`` can
+    arrive as the string ``"1000"``."""
+    sources = [("shard_size", config.get("shard_size"))] + [
+        (f"experiments[{i}].shard_size", entry.get("shard_size"))
+        for i, entry in enumerate(experiments)
+    ]
+    for name, value in sources:
+        if value is None:
+            continue
+        if isinstance(value, str) and value.isdigit():
+            value = int(value)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ValueError(
+                f"{name} must be null or a positive integer, got {value!r}."
+            )
+
+
 def _with_fallbacks(
     overrides: Dict[str, Any], config: Mapping[str, Any], keys: "tuple[str, ...]"
 ) -> Dict[str, Any]:
@@ -365,7 +399,7 @@ def cell_images_overrides(
     """
     The ``BUILD_CELL_IMAGES``-bound Hydra overrides for one experiment.
 
-    :data:`CELL_IMAGES_FIELDS` only, with the ``window``/
+    :data:`CELL_IMAGES_FIELDS` only, with the ``window``/``shard_size``/
     ``cellprofiler_pipeline``/``cellprofiler_cycle`` global fallbacks
     applied.
     """
@@ -379,10 +413,11 @@ def cell_table_overrides(entry: Mapping[str, Any]) -> Dict[str, Any]:
     readers, ``BUILD_CELL_METADATA`` and ``BUILD_CP_FEATURES``.
 
     Everything the starcall-facing set and :data:`_NON_STAGE_FIELDS` don't
-    claim -- in practice the ``*_col_name`` overrides. Both stages get the
-    same set, so a cell's ``meta_*`` values agree across the two tracks.
-    ``cell_table``/``cell_images_dir`` are injected by the workflow, not
-    here.
+    claim. Neither stage has a per-experiment field of its own any more
+    (the ``*_col_name`` overrides moved to ``BUILD_CELL_IMAGES``), so in
+    practice this is empty, and a key nothing claims fails in those
+    stages' Hydra config. ``cell_table``/``cell_images_dir`` are injected by
+    the workflow, not here.
     """
     excluded = CELL_IMAGES_FIELDS | _NON_STAGE_FIELDS
     return {k: v for k, v in entry.items() if k not in excluded}
