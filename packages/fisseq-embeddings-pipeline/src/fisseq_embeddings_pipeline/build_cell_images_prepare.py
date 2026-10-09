@@ -99,10 +99,10 @@ class BuildCellImagesPrepareConfig(AppConfig):
     segmentation_type : str
         Defaults to ``"cells"``.
     use_corrected : bool
-        Cut each tile's shard from the background-corrected whole-tile
-        phenotype image (`corrected_pt.tif`) instead of the raw one
-        (`raw_pt.tif`) -- mirrors starcall-workflow's own
-        `get_phenotyping_pt`. Defaults to ``False``.
+        Stitch each tile's shard image from starcall's background-corrected
+        tiles (`corrected_tiles.tif`) instead of the raw input images --
+        starcall's own `{corrected}` choice, as in `get_phenotyping_pt`.
+        Defaults to ``False``.
     window : int
         Crop size each cell is cut at, in the shards' directory name -- see
         ``tile_shard.TileShardConfig``. Must match the Cell-DINO

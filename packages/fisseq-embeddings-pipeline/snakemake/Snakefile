@@ -9,23 +9,27 @@ starcall-workflow next to this directory to use it.
 
 make_cell_shard cuts every cell of one tile straight into a WebDataset
 shard, so cropping runs as one snakemake job per tile (fanned out by a
-starcall_profile on a cluster) and the whole-tile image and mask stay
-plain temp() intermediates upstream -- requested by nothing but this rule,
-snakemake deletes them once every consumer is done. make_well_shards then
-packs a well's tile shards, themselves temp(), into the well's gzipped
-shards of fisseq_shard_size cells each (one shard when it's unset). See
-docs/architecture.md decision 17.
+starcall_profile on a cluster). It stitches the tile's image and mask
+itself, in memory, with starcall's own stitch_well_section and
+stitch_segmentation_section, from the files starcall keeps (the input
+images, the stitching composites, the segmentation-grid masks), so it
+never asks for starcall's temp() whole-tile raw_pt.tif / cells_mask.tif.
+make_well_shards then packs a well's tile shards, themselves temp(), into
+the well's gzipped shards of fisseq_shard_size cells each (one shard when
+it's unset). See docs/architecture.md decision 17.
 
 BUILD_CELL_IMAGES runs this file twice: first for fisseq_shards (every
 well's shards), then for fisseq_tiles_manifest. The manifest rule's input
 function lists every tile file of every well (fisseq_targets.py), so the
 run builds its own DAG from the grid rather than from a target list. The
-first pass exists because a tile shard reads starcall's temp() whole-tile
-image and mask: once a well's shards are missing, snakemake regenerates
-them, and in a DAG that also holds the CellProfiler and reads tables it
-would rerun every job downstream of them, however complete their outputs.
-Built alone, the shards leave those jobs out; by the second pass the temp
-files are gone again, and only tables that are really missing get built.
+first pass guards use_corrected: corrected tiles are stitched from
+starcall's temp() corrected_tiles.tif, and once a well's shards are
+missing snakemake regenerates it -- in a DAG that also holds the
+CellProfiler and reads tables, it would rerun every job downstream of it,
+however complete their outputs. Built alone, the shards leave those jobs
+out; by the second pass the temp file is gone again, and only tables that
+are really missing get built. (From the raw images, a shard's inputs are
+all files starcall keeps, so there's nothing to regenerate.)
 Its settings are the fisseq_* keys of the --configfile
 build_cell_images_prepare writes; wells and the grid size fall back to
 starcall's own (`wells`, `phenotyping_grid_size`) from the project's
@@ -38,6 +42,7 @@ twice, then four times, the request.
 """
 
 import sys
+import types
 
 # starcall's find_dots writes `pandas.DataFrame()` for an all-zero (blank
 # edge) tile without importing pandas (workflow/rules/sequencing.smk, at
@@ -52,25 +57,91 @@ import fisseq_resources
 import fisseq_targets
 
 
+def _fisseq_tile(wildcards):
+    """ (well, grid_size, x, y) of make_cell_shard's {path},
+    '<well>_grid<N>/tile<x>x<y>y'; x and y keep starcall's zero padding. """
+    grid, tile = wildcards.path.split('/')
+    well, grid_size = grid.rsplit('_grid', 1)
+    x, y = tile[len('tile'):-len('y')].split('x')
+    return well, int(grid_size), x, y
+
+
+def _fisseq_tile_images(wildcards):
+    """ stitch_tile_pt's images_pt: each phenotype cycle's input images
+    (starcall's find_input_tiles; corrected_tiles.tif for {image} corrected). """
+    well = _fisseq_tile(wildcards)[0]
+    tile_wildcards = types.SimpleNamespace(well_stitching=well, corrected=wildcards.image)
+    return [find_input_tiles(tile_wildcards, cycle=cycle) for cycle in config['phenotype_cycles']]
+
+
+def _fisseq_tile_composites(wildcards):
+    """ stitch_tile_pt's composites_pt. """
+    well = _fisseq_tile(wildcards)[0]
+    return [stitching_dir + f'{well}/cycle{cycle}/composite.json' for cycle in phenotype_cycles]
+
+
+def _fisseq_tile_seg_masks(wildcards):
+    """ stitch_tile_segmentation's images: the well's segmentation-grid
+    masks (starcall's get_grid_filenames, phenotype-scale, not downscaled). """
+    well, grid_size, _, _ = _fisseq_tile(wildcards)
+    names = get_grid_filenames(types.SimpleNamespace(grid_size=grid_size))
+    return [
+        name.format(well=well, segmentation_type=wildcards.segmentation_type, downscaled='')
+        for name in names
+    ]
+
+
+def _fisseq_tile_mem_mb(wildcards, input):
+    """ starcall's own requests for stitch_tile_pt and
+    stitch_tile_segmentation, summed (this one job holds both arrays), plus
+    the crop job's own (the stitched image's share of the input images). """
+    grid_size = _fisseq_tile(wildcards)[1]
+    images_mb = sum(f.size for f in input.images_pt) / 1024 / 1024
+    seg_mb = (
+        sum(f.size for f in input.seg_masks)
+        + input.seg_composite.size
+        + input.grid_composite.size
+        + input.cell_table.size
+    ) / 1024 / 1024
+    stitch_tile_pt = 5000 + images_mb * 2.2 / grid_size**2
+    stitch_tile_segmentation = 5000 + seg_mb * 2
+    crop = 2000 + images_mb * 2.5 / grid_size**2
+    return stitch_tile_pt + stitch_tile_segmentation + crop
+
+
 rule make_cell_shard:
     """ One tile's cells as a WebDataset shard, for make_well_shards. {image}
-    picks the raw or background-corrected whole-tile image (use_corrected)
-    in the filename itself, so switching it requests a different shard
-    rather than reusing a stale one; {window} likewise.
+    picks the raw or background-corrected images (use_corrected; starcall's
+    {corrected} wildcard) in the filename itself, so switching it requests
+    a different shard rather than reusing a stale one; {window} likewise.
+
+    The tile's image and mask are stitched here, in memory, by the same
+    starcall functions and arguments as stitch_tile_pt and
+    stitch_tile_segmentation (the pinned commit's rule bodies, line for
+    line), from the files starcall keeps: the input images, the stitching
+    and segmentation composites, the segmentation-grid masks and the
+    tile's cell table. So starcall's temp() raw_pt.tif / cells_mask.tif are
+    never requested, and recutting a shard regenerates nothing CellProfiler
+    reads. Only use_corrected's corrected_tiles.tif is itself temp().
 
     Each sample's meta.json is the cell's key, QC fields and variant class,
-    from the tile's segmentation and reads tables (tile_shard.py). The
-    reads table's ancestors don't include the temp() image and mask, so
-    regenerating those doesn't rerun the reads chain. Its genotype column
-    names are params: changing them doesn't recut existing shards.
+    from the tile's segmentation and reads tables (tile_shard.py). Its
+    genotype column names are params: changing them doesn't recut existing
+    shards.
 
-    A shell rule, not run:, so the body runs in this pipeline's own Python
-    (config['fisseq_python'], the same image's 3.13 venv) rather than
-    inside the ops env's 3.10 snakemake interpreter.
+    A run: rule because stitch_well_section/stitch_segmentation_section
+    live in starcall's Snakefile and need the ops env (constitch, nd2). The
+    stitched image and mask go to a job-local temp directory as tifs, the
+    way starcall writes them, and the crop itself runs in this pipeline's
+    own Python (config['fisseq_python'], the image's 3.13 venv).
     """
     input:
-        image = phenotyping_dir + '{path}/{image}_pt.tif',
-        mask = phenotyping_dir + '{path}/{segmentation_type}_mask.tif',
+        images_pt = _fisseq_tile_images,
+        composites_pt = _fisseq_tile_composites,
+        grid_composite = lambda wildcards: stitching_dir + wildcards.path.split('/')[0] + '/grid_composite.json',
+        seg_masks = _fisseq_tile_seg_masks,
+        seg_composite = lambda wildcards: (segmentation_dir + _fisseq_tile(wildcards)[0]
+            + '_grid' + str(segmentation_grid_size) + '/grid_composite.json'),
         cell_table = phenotyping_dir + '{path}/{segmentation_type}.csv',
         reads = sequencing_dir + '{path}/{segmentation_type}_reads'
             + config.get('fisseq_sequencing_reads_params', '') + '.csv',
@@ -85,27 +156,64 @@ rule make_cell_shard:
         window = r'\d+',
     params:
         python = config.get('fisseq_python', 'python'),
-        well = lambda wildcards: wildcards.path.split('/')[0].rsplit('_grid', 1)[0],
+        well = lambda wildcards: _fisseq_tile(wildcards)[0],
         tile = lambda wildcards: wildcards.path.split('/')[1],
         barcode_col = config.get('fisseq_barcode_col', 'upBarcode'),
         aa_changes_col = config.get('fisseq_aa_changes_col', 'aaChanges'),
         edit_distance_col = config.get('fisseq_edit_distance_col', 'editDistance'),
     resources:
-        mem_mb = lambda wildcards, input: input.size_mb * 2.5 + 2000
-    shell:
-        # Hydra's run dir and this stage's own log file go to a scratch
-        # directory: the job's cwd is the experiment directory, which must
-        # not collect an outputs/ tree per tile.
-        'tmp="$(mktemp -d)"; trap \'rm -rf "$tmp"\' EXIT; '
-        '{params.python} -m fisseq_embeddings_pipeline.tile_shard '
-        'output_dir="$tmp" hydra.run.dir="$tmp" hydra.output_subdir=null '
-        'image_tif={input.image:q} mask_tif={input.mask:q} '
-        'segmentation_csv={input.cell_table:q} reads_csv={input.reads:q} '
-        'barcode_col_name={params.barcode_col:q} '
-        'aa_changes_col_name={params.aa_changes_col:q} '
-        'edit_distance_col_name={params.edit_distance_col:q} '
-        'well={params.well:q} tile={params.tile:q} window={wildcards.window} '
-        'output_tar={output.shard:q} > {log:q} 2>&1'
+        mem_mb = _fisseq_tile_mem_mb
+    run:
+        import shutil
+        import tempfile
+
+        import constitch
+        import tifffile
+
+        _, grid_size, x, y = _fisseq_tile(wildcards)
+        tile_index = int(x) * grid_size + int(y)
+
+        # stitch_tile_pt
+        grid_composite = constitch.load(input.grid_composite, constraints=False)
+        box = grid_composite.boxes[tile_index]
+        box.position *= phenotype_scale
+        box.position //= bases_scale
+        box.size *= phenotype_scale
+        box.size //= bases_scale
+        image = stitch_well_section(input.images_pt, input.composites_pt, box.point1, box.point2, phenotype=True)
+
+        # stitch_tile_segmentation
+        composite = constitch.load(input.grid_composite)
+        composite.boxes.positions[:,:2] *= phenotype_scale
+        composite.boxes.positions[:,:2] //= bases_scale
+        composite.boxes.sizes[:,:2] *= phenotype_scale
+        composite.boxes.sizes[:,:2] //= bases_scale
+        mask = stitch_segmentation_section(input.seg_masks, input.seg_composite,
+                composite.boxes[tile_index], input.cell_table, phenotype=True)
+
+        # Hydra's run dir and this stage's own log file go here too: the
+        # job's cwd is the experiment directory, which must not collect an
+        # outputs/ tree per tile.
+        tmp = tempfile.mkdtemp()
+        try:
+            image_tif = tmp + '/image.tif'
+            mask_tif = tmp + '/mask.tif'
+            tifffile.imwrite(image_tif, image)
+            tifffile.imwrite(mask_tif, mask)
+            del image, mask
+            shell(
+                '{params.python} -m fisseq_embeddings_pipeline.tile_shard '
+                'output_dir={tmp:q} hydra.run.dir={tmp:q} hydra.output_subdir=null '
+                'image_tif={image_tif:q} mask_tif={mask_tif:q} '
+                'segmentation_csv={input.cell_table:q} reads_csv={input.reads:q} '
+                'barcode_col_name={params.barcode_col:q} '
+                'aa_changes_col_name={params.aa_changes_col:q} '
+                'edit_distance_col_name={params.edit_distance_col:q} '
+                'well={params.well:q} tile={params.tile:q} window={wildcards.window} '
+                'output_tar={output.shard:q} > {log:q} 2>&1'
+            )
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 rule make_well_shards:

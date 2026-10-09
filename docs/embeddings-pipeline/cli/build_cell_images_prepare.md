@@ -47,10 +47,11 @@ way starcall's own grid-merging rules do. The rule then writes the two
 manifests phase 3 ([`build_cell_images_table`](build_cell_images_table.md))
 reads: `tiles_manifest.csv` (`well,tile,segmentation_csv,reads_csv,
 cellprofiler_csv`) and `shards_manifest.csv` (`well,shard_tar`, one row
-per shard found in each well's directory). The tile shards, and the
-whole-tile image and mask they are cut from, are deliberately *not*
-inputs: they are `temp()`, so snakemake deletes them once the well is
-packed -- see [Architecture](../architecture.md) decision 17.
+per shard found in each well's directory). The tile shards are
+deliberately *not* inputs: they are `temp()`, so snakemake deletes them
+once the well is packed. `make_cell_shard` stitches each tile's image and
+mask itself, so starcall's `temp()` whole-tile `raw_pt.tif`/mask are
+never requested -- see [Architecture](../architecture.md) decision 17.
 
 Every tile of the `grid_size` x `grid_size` grid is listed, in
 starcall-workflow's own naming (`{well}_grid{grid_size}/tile{x:02}x{y:02}y`),
@@ -93,7 +94,7 @@ Extends the [common config fields](#common-config-fields) below.
 | `wells` | `null` | Wells to build cell images for; `null` takes starcall's own `wells`. |
 | `grid_size` | `null` | Tile grid size; `null` takes the project config's `phenotyping_grid_size`. |
 | `segmentation_type` | `"cells"` | Segmentation type name, threaded into every tile filename. |
-| `use_corrected` | `false` | Cut each shard from `corrected_pt.tif` instead of `raw_pt.tif` (mirroring starcall's own `get_phenotyping_pt`); names the shard directory `..._corrected_shards_...` rather than `..._raw_shards_...`. |
+| `use_corrected` | `false` | Stitch each shard's tile from starcall's background-corrected `corrected_tiles.tif` instead of the raw input images (mirroring starcall's own `get_phenotyping_pt`; fails at the pinned commit, see [Configuration](../configuration.md)); names the shard directory `..._corrected_shards_...` rather than `..._raw_shards_...`. |
 | `window` | **required** | Crop size each cell is cut at, in the shard directory name. Must match `cell_dino_crop_size`. Routed from the experiment's `window` (or the global default). |
 | `shard_size` | `null` | Cells per WebDataset shard, each well's counted separately; in the shard directory name (`all` for `null`). `null` gives each well one shard. Routed from the experiment's `shard_size` (or the global default). |
 | `barcode_col_name` | `"upBarcode"` | The reads tables' barcode column (starcall's aux tables name it per experiment), renamed `meta_barcode` in the shards' `meta.json` and `cell_table.parquet`. Written as `fisseq_barcode_col`. |

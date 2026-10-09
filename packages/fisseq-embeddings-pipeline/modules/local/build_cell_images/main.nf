@@ -10,8 +10,9 @@
 //      Snakefile -- cloned into the image at a pinned commit, unmodified --
 //      plus this repo's rules (snakemake/Snakefile,
 //      task.ext.fisseq_snakefile), in two passes: fisseq_shards (every
-//      well's WebDataset shards, alone, so regenerating their temp() inputs
-//      doesn't rerun CellProfiler), then tiles_manifest.csv, whose rule
+//      well's WebDataset shards, alone, so use_corrected regenerating its
+//      temp() corrected_tiles.tif doesn't rerun CellProfiler), then
+//      tiles_manifest.csv, whose rule
 //      lists every tile's cell and reads tables and every well's shards as
 //      inputs, so snakemake builds the whole DAG from the grid.
 //      See docs/architecture.md decision 17.
@@ -118,13 +119,14 @@ process BUILD_CELL_IMAGES {
             "\$1"
     }
 
-    # Two passes, shards first. A well's shards are cut from its tiles'
-    # whole-tile images and masks, which starcall keeps as temp() files, so
-    # cutting missing shards regenerates them. In the same DAG, snakemake would then rerun every
-    # job downstream of those files too -- CellProfiler and the reads chain
-    # -- however complete their outputs ("Input files updated by another
+    # Two passes, shards first. make_cell_shard stitches each tile itself
+    # from files starcall keeps, except with use_corrected: its corrected
+    # images come from starcall's temp() corrected_tiles.tif, which cutting
+    # missing shards regenerates. In the same DAG, snakemake would then
+    # rerun every job downstream of it too -- CellProfiler included --
+    # however complete their outputs ("Input files updated by another
     # job"). The fisseq_shards pass has nothing else in its DAG, and by the
-    # manifest pass the temp files are gone again, so only tables that are
+    # manifest pass the temp file is gone again, so only tables that are
     # really missing get built. See docs/architecture.md decision 17.
     nested_snakemake fisseq_shards
     nested_snakemake "\$PWD/tiles_manifest.csv"

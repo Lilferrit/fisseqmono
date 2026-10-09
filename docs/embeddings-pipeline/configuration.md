@@ -58,7 +58,10 @@ these stages:
   of the grid is requested from starcall, in its own `tile{x:02}x{y:02}y`
   naming, whether or not it exists yet, so a run can start from raw input.
   `use_corrected: true` cuts each tile's shard from the background-corrected
-  whole-tile image (`corrected_pt.tif`) instead of `raw_pt.tif`. `window`
+  images (starcall's `corrected_tiles.tif`) instead of the raw input
+  images; at the pinned starcall commit it fails at DAG build, in
+  starcall's own `calc_background` rule (`'Wildcards' object has no
+  attribute 'well_stitching'`), a known upstream issue. `window`
   is the side length each cell is cropped at, centred on its bbox
   midpoint, by the per-tile `make_cell_shard` rule (see
   [Cell Shards](cli/tile_shard.md)); it's part of the shard's filename,

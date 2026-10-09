@@ -1,13 +1,12 @@
 # Cell Shards (`make_cell_shard`)
 
 `python -m fisseq_embeddings_pipeline.tile_shard` crops every cell of
-**one tile** out of `starcall-workflow`'s whole-tile phenotype image and
-writes them into that tile's **WebDataset** shard (a `.tar`, one sample per
+**one tile** out of the tile's stitched phenotype image and writes them into that tile's **WebDataset** shard (a `.tar`, one sample per
 cell, unfiltered). `make_well_shards` then packs each well's tile shards
 into the gzipped shards `EMBED_CELLS` streams from -- see
 [Well Shards](well_shards.md).
 
-It is not a Nextflow process. It's the body of `rule make_cell_shard`,
+It is not a Nextflow process. It's the crop step of `rule make_cell_shard`,
 which this repo adds on top of starcall's own Snakefile
 (`snakemake/Snakefile`), so it runs inside `BUILD_CELL_IMAGES`' nested
 snakemake, once per tile, as phase 2 of that stage. `BUILD_CELL_IMAGES`
@@ -26,8 +25,12 @@ every cell once, up front.
 ## The rule
 
 ```text
-input:   {phenotyping_dir}{well}_grid{N}/tile{x}x{y}y/{raw|corrected}_pt.tif
-         {phenotyping_dir}{well}_grid{N}/tile{x}x{y}y/{segmentation_type}_mask.tif
+input:   each phenotype cycle's input images (starcall's find_input_tiles;
+           corrected_tiles.tif for corrected)
+         {stitching_dir}{well}/cycle{c}/composite.json, for each phenotype cycle
+         {stitching_dir}{well}_grid{N}/grid_composite.json
+         the segmentation-grid masks (starcall's get_grid_filenames)
+         {segmentation_dir}{well}_grid{S}/grid_composite.json
          {phenotyping_dir}{well}_grid{N}/tile{x}x{y}y/{segmentation_type}.csv
          {sequencing_dir}{well}_grid{N}/tile{x}x{y}y/{segmentation_type}_reads{sequencing_reads_params}.csv
 params:  the reads table's genotype column names (fisseq_barcode_col,
@@ -46,26 +49,34 @@ the well's shard directory to have them recut with the new names.
 
 The reads table is an input so each sample's `meta.json` can carry the
 cell's genotype. It doesn't drag the reads chain into the shards pass: a
-dry run against starcall's real Snakefile showed the temp `raw_pt.tif`/
-`cells_mask.tif` aren't among its ancestors, so regenerating them for a
-missing shard doesn't rerun the reads jobs.
+dry run against starcall's real Snakefile showed the stitched tile image
+and mask aren't among its ancestors.
 
-It's a `shell:` rule, not `run:`, so the body runs in this pipeline's own
-Python 3.13 venv (`config['fisseq_python']`, which `BUILD_CELL_IMAGES` sets
-to its own `$(command -v python)`) rather than in the `ops` env's 3.10
-snakemake interpreter. Every child job re-enters the same image, so that
-path is valid on a cluster node too. Hydra's run directory and this
-module's own log file go to a scratch `mktemp -d` directory, so the job's
+The rule stitches the tile's image and mask itself, in memory, with
+starcall's own `stitch_well_section` and `stitch_segmentation_section`,
+called with exactly the arguments starcall's `rule stitch_tile_pt` and
+`rule stitch_tile_segmentation` pass. Its inputs are all files starcall
+keeps, so starcall's `temp()` whole-tile `raw_pt.tif`/`cells_mask.tif`
+are never requested, and recutting a shard regenerates nothing
+CellProfiler reads. The exception is `use_corrected`: `corrected_tiles.tif`
+(per cycle, whole well) is itself `temp()`, so a missing shard regenerates
+it. Its `mem_mb` is starcall's own requests for those two rules plus the
+crop's own.
+
+It's a `run:` rule, in the `ops` env's 3.10 snakemake interpreter,
+because the stitching functions live in starcall's Snakefile and need
+that env (`constitch`, `nd2`). It writes the stitched image and mask as
+tifs, the way starcall writes them, to a job-local `tempfile.mkdtemp()`
+directory (under `$TMPDIR`, never seen by snakemake), then runs this
+module in the pipeline's own Python 3.13 venv (`config['fisseq_python']`,
+which `BUILD_CELL_IMAGES` sets to its own `$(command -v python)`) with
+`image_tif`/`mask_tif` pointing there. Every child job re-enters the same
+image, so that path is valid on a cluster node too. Hydra's run directory
+and this module's own log file go to the same directory, so the job's
 working directory (the experiment directory) doesn't collect a Hydra
-`outputs/` tree per tile. The console log lands in the rule's `log:` file.
-
-The whole-tile image is a `temp()` output upstream (`rule stitch_tile_pt`)
-and is no longer requested as a target itself. Once the shard is cut,
-snakemake deletes it. The shard itself is `temp()` as well, deleted once
-`make_well_shards` has packed it. The tile mask is `temp()` only when
-`stitch_tile_segmentation` builds it (`relabel_segmentation`/
-`stitch_tile_from_well_segmentation` write a plain output), so it may
-stay.
+`outputs/` tree per tile; it is removed when the job ends. The console
+log lands in the rule's `log:` file. The shard itself is `temp()`,
+deleted once `make_well_shards` has packed it.
 
 ## Cropping
 
@@ -74,7 +85,7 @@ stay.
 `BUILD_CELL_IMAGES`' table phase uses, so the two can't disagree on which
 row is which cell. Each row has a `tile_cell_index` (the CSV's own index)
 and a `crop_index` (its 0-based on-disk row position). The module then reads
-the whole-tile image (starcall's `(cycles, channels, H, W)` flattened to
+the tile's image (starcall's `(cycles, channels, H, W)` flattened to
 `(C, H, W)`) and the label mask (`(H, W)`) once, and cuts every cell out
 with `crop_cell`:
 
@@ -101,8 +112,8 @@ Extends the [common config fields](#common-config-fields) below.
 
 | Field | Default | Description |
 | ----- | ------- | ----------- |
-| `image_tif` | **required** | The tile's whole-tile phenotype image, `(cycles, channels, H, W)`. |
-| `mask_tif` | **required** | The tile's `(H, W)` segmentation label mask. |
+| `image_tif` | **required** | The tile's stitched phenotype image, `(cycles, channels, H, W)` (written job-locally by `make_cell_shard`). |
+| `mask_tif` | **required** | The tile's stitched `(H, W)` segmentation label mask (likewise). |
 | `segmentation_csv` | **required** | The tile's `{segmentation_type}.csv`. |
 | `reads_csv` | **required** | The tile's `{segmentation_type}_reads{sequencing_reads_params}.csv` (`sequencing_dir`), the source of each cell's genotype. |
 | `barcode_col_name` | `"upBarcode"` | The reads table's barcode column. |
@@ -144,6 +155,9 @@ gzipped shards, which is what `BUILD_CELL_IMAGES`' `shards.parquet`
 lists.
 
 ## Example
+
+Run standalone, `image_tif`/`mask_tif` can be starcall's own whole-tile
+files, which have the same layout, where they exist:
 
 ```bash
 uv run python -m fisseq_embeddings_pipeline.tile_shard \

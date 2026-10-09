@@ -389,9 +389,9 @@ snakemake --snakefile /opt/fisseq-embeddings-pipeline/snakemake/Snakefile --dire
 
 once with `<target>` = `fisseq_shards` (every well's shards, alone), then
 with `$PWD/tiles_manifest.csv`. Building the shards in a pass of their own
-keeps snakemake from rerunning CellProfiler and the reads chain when it
-regenerates the `temp()` whole-tile image and mask missing shards need
-([Architecture](architecture.md) decision 17).
+keeps snakemake from rerunning CellProfiler when, with `use_corrected`, it
+regenerates the `temp()` `corrected_tiles.tif` missing shards need; with
+raw images it's harmless ([Architecture](architecture.md) decision 17).
 
 with no `--cores`: in cluster mode that's the budget across all submitted
 jobs and silently caps every rule's own `threads:`, so it belongs in the
@@ -607,10 +607,11 @@ The WebDataset shards -- per well,
 `shard_size` cells each, all cells, unfiltered -- stay under starcall's
 `phenotyping_dir`, next to that well's tiles, not here: `EMBED_CELLS`
 reads them in place via `shards.parquet`, and snakemake's own mtime check
-reuses them on a rerun. The per-tile shards they're packed from, and the
-whole-tile `raw_pt.tif`/`corrected_pt.tif` those are cut from, are
+reuses them on a rerun. The per-tile shards they're packed from are
 `temp()` outputs and not targets, so snakemake deletes them once the well
-is packed -- see [Architecture](architecture.md) decision 17.
+is packed; the tile image and mask those are cut from are stitched in the
+job and never written under `phenotyping_dir` -- see
+[Architecture](architecture.md) decision 17.
 
 See the [Stage Reference](cli/tile_shard.md) pages and
 [Shared stages](../common/stages.md) for each file's exact column set.

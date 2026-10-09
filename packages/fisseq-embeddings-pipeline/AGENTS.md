@@ -33,7 +33,7 @@ src/fisseq_embeddings_pipeline/
   config/experiments.py           PLAN_EXPERIMENTS: params validation, per-experiment routing,
                                   RENAMED_PARAMS / removed-param warnings
   build_cell_images_prepare.py    BUILD_CELL_IMAGES phase 1 (data dirs, snakemake config, jobscript)
-  tile_shard.py                   make_cell_shard rule body (phase 2, inside the nested snakemake);
+  tile_shard.py                   make_cell_shard's crop (phase 2, inside the nested snakemake);
                                   each sample's meta.json is the cell's CELL_META_SCHEMA row
   well_shards.py                  make_well_shards rule body: a well's temp() tile shards packed
                                   into well_{n}_shard_{k}.tar.gz, shard_size cells each
@@ -49,11 +49,12 @@ src/fisseq_embeddings_pipeline/
 modules/local/                    PLAN_EXPERIMENTS, BUILD_CELL_IMAGES, BUILD_CELL_METADATA,
                                   EMBED_CELLS, BUILD_CP_FEATURES
 conf/modules.config               ext.args / ext.seed / publishDir of the shared modules
-snakemake/Snakefile               BUILD_CELL_IMAGES' nested run (starcall + make_cell_shard +
-                                  make_well_shards; two passes: fisseq_shards alone, then
-                                  fisseq_tiles_manifest, so regenerating a shard's temp() inputs
-                                  doesn't rerun CellProfiler; tiles and shard dirs from
-                                  fisseq_targets.py;
+snakemake/Snakefile               BUILD_CELL_IMAGES' nested run (starcall + make_cell_shard,
+                                  which stitches each tile in memory with starcall's own
+                                  functions, + make_well_shards; two passes: fisseq_shards alone,
+                                  then fisseq_tiles_manifest, so use_corrected regenerating its
+                                  temp() corrected_tiles.tif doesn't rerun CellProfiler; tiles
+                                  and shard dirs from fisseq_targets.py;
                                   every rule's mem_mb doubled per attempt via fisseq_resources.py)
 ```
 
@@ -167,6 +168,13 @@ rebuild the image, and run `tests/integration --container`.
   in starcall's tree; `batch_stem` is a run-level name): the stages add it. The genotype
   column names (`*_col_name`) are `BUILD_CELL_IMAGES` settings and `make_cell_shard`
   params, so changing one doesn't recut existing shards (snakemake reruns on mtime).
+- **`make_cell_shard` mirrors two starcall rule bodies**: it calls starcall's
+  `stitch_well_section`/`stitch_segmentation_section` with the arguments `stitch_tile_pt`/
+  `stitch_tile_segmentation` pass, copied from those rules' bodies at the pinned commit. On a
+  `STARCALL_WORKFLOW_COMMIT` bump, check those functions' signatures and those rule bodies
+  (and their `mem_mb`, summed in `_fisseq_tile_mem_mb`), and rerun `tests/integration
+  --container`, whose `test_shard_matches_starcall_stitched_tile` checks a shard equals one
+  cut from starcall's own `raw_pt.tif`/`cells_mask.tif`.
 - **The CP track has no feature selection**: no splits, blocklists or `output.parquet`
   under `feature_select_batchwise_cp_features/`, only `aggregates/`.
 - **Output changes are deliberate**: the root `tests/test_reference_outputs.py` compares

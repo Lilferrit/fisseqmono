@@ -84,7 +84,7 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
 | Diagram node | This pipeline's stage | Code |
 | --- | --- | --- |
 | Cell Images | `BUILD_CELL_IMAGES` | the ONLY stage that touches `starcall-workflow`'s tree (`phenotyping_dir`/`segmentation_dir`/`sequencing_dir`) or runs its snakemake -- **`origin/devel`**, cloned into the image at a pinned commit and run unmodified through `snakemake/Snakefile`. Requests each well's shards and each tile's cell table and reads table, joins the segmentation-side cell table to the sequencing-side genotype table into one self-sufficient `cell_table.parquet`, and records where each shard is in `shards.parquet` -- see [Data contracts](#cell-images-build_cell_images-output-from-starcall-workflow) |
-| Cell Shards | `make_cell_shard` and `make_well_shards` (snakemake rules inside `BUILD_CELL_IMAGES`, bodies `tile_shard.py` and `well_shards.py`) | crops every cell of one tile (bbox midpoint, `window` px, zero-padded) straight out of starcall's whole-tile image into a temporary tile shard -- `tile_shard.crop_cell` -- then packs each well's tile shards into `well_{n}_shard_{k}.tar.gz`, `shard_size` cells each; see decisions 17 and 24 |
+| Cell Shards | `make_cell_shard` and `make_well_shards` (snakemake rules inside `BUILD_CELL_IMAGES`, bodies `tile_shard.py` and `well_shards.py`) | crops every cell of one tile (bbox midpoint, `window` px, zero-padded) straight out of the tile's phenotype image (stitched in the rule with starcall's own functions) into a temporary tile shard -- `tile_shard.crop_cell` -- then packs each well's tile shards into `well_{n}_shard_{k}.tar.gz`, `shard_size` cells each; see decisions 17 and 24 |
 | Cell Metadata | `BUILD_CELL_METADATA` | `cell_metadata.py`: `meta_batch` plus `cell_table.parquet`'s six key and QC `meta_*` columns |
 | Cell Embeddings | `EMBED_CELLS` | `embed.py`, wrapping Meta's `dinov2` Cell-DINO |
 | QC_FILTER | `QC_FILTER` (shared) | `fisseq_common.stages.qcfilter` |
@@ -219,15 +219,27 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
 
     So nothing asks starcall's own rule for crops. `snakemake/Snakefile`
     includes starcall's Snakefile and adds `rule make_cell_shard`: per
-    tile, it reads the whole-tile phenotype image (`{raw|corrected}_pt.tif`
-    -- `use_corrected`, mirroring upstream's own `get_phenotyping_pt`), the
-    segmentation mask (`<segmentation_type>_mask.tif`), the
+    tile, it stitches the tile's phenotype image and segmentation mask
+    itself, in memory, with starcall's own `stitch_well_section` and
+    `stitch_segmentation_section`, called with exactly the arguments
+    starcall's `rule stitch_tile_pt` and `rule stitch_tile_segmentation`
+    pass them. Its inputs are files starcall keeps: each phenotype cycle's
+    input images (starcall's `find_input_tiles`; with `use_corrected`,
+    starcall's `corrected_tiles.tif`, mirroring upstream's own
+    `get_phenotyping_pt`), the cycles' `stitching/<well>/cycle<c>/composite.json`,
+    the grid's `stitching/<well>_grid<N>/grid_composite.json`, the
+    segmentation-grid masks (`get_grid_filenames`) and
+    `segmentation/<well>_grid<S>/grid_composite.json`, the tile's
     segmentation table and the sequencing-side reads table (for each
-    sample's `meta.json`, decision 24), and writes
-    `<segmentation_type>_{raw|corrected}_shard_<window>.tar` next to them,
-    a `temp()` output.
-    Its body is `tile_shard.py` (a `shell:` rule running this pipeline's
-    own Python, not a `run:` block in the `ops` interpreter), which cuts
+    sample's `meta.json`, decision 24). It writes
+    `<segmentation_type>_{raw|corrected}_shard_<window>.tar` next to the
+    tile's tables, a `temp()` output.
+    It is a `run:` rule, in the `ops` interpreter, because the stitching
+    functions live in starcall's Snakefile and need its environment
+    (`constitch`, `nd2`). It writes the stitched image and mask as tifs
+    to a job-local temp directory (`tempfile.mkdtemp`, under `$TMPDIR`,
+    never seen by snakemake) and shells out to `tile_shard.py` in this
+    pipeline's own Python, which cuts
     every cell's `window` x `window` crop with `tile_shard.crop_cell`:
     centred on the bbox midpoint, zero-padded at tile edges, with the mask
     crop `mask == crop_index + 1` (starcall's own row-i-is-label-i+1
@@ -259,24 +271,24 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
     `ruleorder:`, writing intermediate per-tile crop-stack TIFFs; same
     arithmetic as `crop_cell`.)
 
-    **Disk.** The whole-tile image is a `temp()` output upstream
-    (`rule stitch_tile_pt`). It used to be requested as an explicit target
-    -- snakemake never deletes one -- so it persisted under
-    `phenotyping_dir`, roughly one extra copy of the experiment's stitched
-    phenotype images. Now only `make_cell_shard` consumes it, so snakemake
-    deletes it once the tile shard is cut (confirmed in a snakemake 7.32.4
-    dry run: "Would remove temporary output .../raw_pt.tif"). The tile
-    mask is `temp()` only when `rule stitch_tile_segmentation` produces
-    it; `rule relabel_segmentation` and `rule
-    stitch_tile_from_well_segmentation` write it as a plain output, so
-    depending on which rule builds it for an experiment it may stay. (The
-    old docs here claimed both image and mask were `temp()`; for the mask
-    that was only true of the one rule.) The tile shards are `temp()` too,
+    **Disk.** starcall's own whole-tile image and mask
+    (`{raw|corrected}_pt.tif` from `rule stitch_tile_pt`,
+    `<segmentation_type>_mask.tif` from `rule stitch_tile_segmentation`,
+    both `temp()`) are never requested: `make_cell_shard` stitches the
+    same arrays itself, and its job-local copies go when the job ends.
+    (They used to be its inputs, and before that explicit targets, which
+    snakemake never deletes, so they persisted under `phenotyping_dir`.)
+    Its memory request is the sum of starcall's own requests for those
+    two rules plus the crop's own. The tile shards are `temp()` too,
     deleted once their well is packed, so what stays is the well shards:
     about one gzipped crop-sized copy of every cell, under
     `phenotyping_dir`, never copied into `pipeline_dir`. Changing
     `shard_size` (or `window`, or `use_corrected`) therefore recuts every
-    tile, regenerating its temp image and mask.
+    tile, restitching its image and mask from the kept inputs; with raw
+    images that regenerates nothing CellProfiler reads.
+    A `--container` integration test
+    (`test_shard_matches_starcall_stitched_tile`) checks that a shard is
+    identical to one cut from starcall's own `raw_pt.tif`/`cells_mask.tif`.
 
     The nested run asks for one target, the task's `tiles_manifest.csv`.
     `snakemake/Snakefile`'s `fisseq_tiles_manifest` rule lists every tile
@@ -291,18 +303,21 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
 
     The shards are built in a pass of their own first, with the target
     `fisseq_shards` (only every well's shard directory), and the manifest
-    after it. A tile shard's inputs are starcall's `temp()` whole-tile
-    image and mask, so missing shards make snakemake regenerate them. Snakemake reruns every
+    after it. With raw images a tile shard's inputs are all files
+    starcall keeps, so this is harmless; it guards `use_corrected`, whose
+    images come from starcall's `temp()` `corrected_tiles.tif` (per cycle,
+    whole well), which missing shards make snakemake regenerate. Snakemake reruns every
     job in the DAG downstream of a job it runs ("Input files updated by
     another job"), whatever `--rerun-triggers` says. With the CellProfiler
     and reads tables in the same DAG, every tile's CellProfiler chain
-    reran, though `Cells.csv` was on disk (the 2026-10-08 cluster run). In
-    a pass with only the shards, nothing downstream of the image and mask
-    is in the DAG. By the manifest pass they have been deleted again, which
-    snakemake accepts for a `temp()` input whose consumers' outputs exist,
-    so only tables that are really missing get built. (Such a tile
-    regenerates the image, and so recuts its tile shard, and its well is
-    packed again.) The same holds one level down: the tile shards are
+    reran, though `Cells.csv` was on disk (the 2026-10-08 cluster run,
+    when the shards were still cut from starcall's `temp()` whole-tile
+    image and mask). In a pass with only the shards, nothing downstream of
+    the regenerated file is in the DAG. By the manifest pass it has been
+    deleted again, which snakemake accepts for a `temp()` input whose
+    consumers' outputs exist, so only tables that are really missing get
+    built. (Such a table regenerates the file, and so may recut tile
+    shards, and their well is packed again.) The same holds one level down: the tile shards are
     `temp()`, gone once packed, and a well whose shards exist doesn't
     need them (checked on a snakemake 7.32.4 toy workflow of the same
     shape: with the shards there, neither pass has anything to do).
@@ -504,16 +519,16 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
     `*_col_name` override doesn't recut its existing shards (delete the
     well's shard directory to force it). Adding the reads table as an
     input doesn't make the shards pass rerun the reads chain: a dry run
-    against starcall's real Snakefile showed the temp `raw_pt.tif`/
-    `cells_mask.tif` aren't among its ancestors.
+    against starcall's real Snakefile showed the stitched tile image and
+    mask aren't among its ancestors.
 
     The trade-off is more moving parts in exchange for less redundant work:
     a commit to keep pinned and bump, and a Snakefile of this repo's
     own layered on upstream's. In
     return, cropping fans out one job per tile under a `starcall_profile`
     instead of one serial pass in one task, snakemake mtime-caches every
-    shard, the whole-tile image is cleaned up as the `temp()` file it is
-    upstream, and the `BUILD_DATASET` stage is gone.
+    shard, starcall's whole-tile image and mask are never written, and the
+    `BUILD_DATASET` stage is gone.
 
 ## Repository layout
 
@@ -607,16 +622,24 @@ commit, unmodified, plus `make_cell_shard`/`make_well_shards` -- and the real,
 unredirected tree, so snakemake's own mtime caching reuses whatever's
 already built) and reads them:
 
-- **`rule stitch_tile_pt`** -- the tile's whole-tile phenotype image,
-  `phenotyping_dir/{well}_grid{N}/tile{x}x{y}y/raw_pt.tif`
-  (`corrected_pt.tif` with `use_corrected`), `(cycles, channels, H, W)`.
-- **`rule stitch_tile_segmentation`** (or `relabel_segmentation`/
-  `stitch_tile_from_well_segmentation`) -- the tile's label mask,
-  `.../{segmentation_type}_mask.tif`, `(H, W)`; label `i+1` is the cell
-  table's `i`-th row, 0-based.
+- **What `rule stitch_tile_pt` and `rule stitch_tile_segmentation`
+  read** -- each phenotype cycle's input images (`find_input_tiles`;
+  `corrected_tiles.tif` with `use_corrected`),
+  `stitching_dir/{well}/cycle{c}/composite.json`,
+  `stitching_dir/{well}_grid{N}/grid_composite.json`, the
+  segmentation-grid masks (`get_grid_filenames`) and
+  `segmentation_dir/{well}_grid{S}/grid_composite.json`.
+  `make_cell_shard` passes them to starcall's `stitch_well_section` and
+  `stitch_segmentation_section` as those two rules' bodies do, so it
+  depends on those functions' signatures and those bodies at the pinned
+  commit. The results are what the rules would have written: the tile's
+  phenotype image, `(cycles, channels, H, W)`, and its label mask,
+  `(H, W)`, where label `i+1` is the cell table's `i`-th row, 0-based.
+  The rules' own `raw_pt.tif`/`{segmentation_type}_mask.tif` are never
+  requested.
 - **`rule make_cell_shard`** (this repo's, `snakemake/Snakefile`) -- the
-  tile's WebDataset shard, cut from the two above (its `meta.json` from
-  the segmentation and reads tables below),
+  tile's WebDataset shard, cut from the stitched image and mask (its
+  `meta.json` from the segmentation and reads tables below),
   `.../{segmentation_type}_{raw|corrected}_shard_{window}.tar` (`temp()`).
 - **`rule make_well_shards`** (this repo's) -- the well's WebDataset
   shards, packed from its tiles' shards,
@@ -624,8 +647,7 @@ already built) and reads them:
   see [Cell Shards](#cell-shards-make_cell_shard-make_well_shards) below.
 
   Only the well's shard directory is requested as a target, not the tile
-  shards, image or mask, so the `temp()` ones are deleted once the well
-  is packed -- see decision 17. Each shard's path is recorded, not
+  shards, so they are deleted once the well is packed -- see decision 17. Each shard's path is recorded, not
   copied, in `shards.parquet`.
 - **`rule split_grid_table`/`drop_duplicate_cells`** -- the tile's
   segmentation-side cell table:
@@ -689,8 +711,8 @@ anyone reaching for `.cells_full.csv` directly elsewhere.
 ### Cell Shards (`make_cell_shard`, `make_well_shards`)
 
 Per tile: one **WebDataset** `.tar` (one sample per cell), written by the
-nested run's `make_cell_shard` rule (`tile_shard.py`), which reads the
-tile's whole-tile image and mask once and cuts every cell out with
+nested run's `make_cell_shard` rule (`tile_shard.py`), which stitches the
+tile's image and mask once and cuts every cell out with
 `tile_shard.crop_cell` -- a `window` x `window` crop centred on the cell's
 bbox midpoint (`bbox_x*` on image axis 0, `bbox_y*` on axis 1), zero-padded
 where it runs off the tile, with the mask crop `mask == crop_index + 1` as
@@ -700,7 +722,7 @@ keyed `{well}_{tile}_{tile_cell_index}` and carries `crop.npy`
 (the cell's `CELL_META_SCHEMA` row -- the same seven `meta_*` columns
 `cell_table.parquet` leads with, from the same `tile_cell_meta`; no
 `meta_batch`, which `EMBED_CELLS` adds; decision 24). A tile with no cells still gets a valid,
-empty tar, and its image and mask are never opened.
+empty tar, and `tile_shard.py` never opens its image and mask.
 
 Per well: `make_well_shards` (`well_shards.py`) copies the well's tile
 shards, tile by tile in grid order, into gzipped `.tar.gz` shards of

@@ -8,9 +8,10 @@ as a snakemake target, so cropping fans out one job per tile under a
 ``starcall_profile`` and each shard is cached by snakemake's own mtime
 check -- see ``docs/architecture.md`` decision 17.
 
-Reads the tile's whole-tile phenotype image (``raw_pt.tif``/
-``corrected_pt.tif``), segmentation mask (``{segmentation_type}_mask.tif``),
-segmentation cell table (``{segmentation_type}.csv``) and reads table
+Reads the tile's stitched phenotype image and segmentation mask (which
+``make_cell_shard`` stitches with starcall's own functions and writes to a
+job-local temp directory, in the layout of starcall's ``raw_pt.tif``/
+``{segmentation_type}_mask.tif``), segmentation cell table (``{segmentation_type}.csv``) and reads table
 (``{segmentation_type}_reads{params}.csv``), crops every cell out with
 :func:`crop_cell`, and writes one tar of per-cell samples (``crop.npy``,
 ``mask.npy``, ``meta.json``).
@@ -65,9 +66,10 @@ class TileShardConfig(AppConfig):
     Attributes
     ----------
     image_tif : str
-        The tile's whole-tile phenotype image, ``(cycles, channels, H, W)``.
+        The tile's stitched phenotype image, ``(cycles, channels, H, W)``
+        (written job-locally by ``make_cell_shard``).
     mask_tif : str
-        The tile's ``(H, W)`` segmentation label mask.
+        The tile's stitched ``(H, W)`` segmentation label mask (likewise).
     segmentation_csv : str
         The tile's ``{segmentation_type}.csv`` -- see
         ``build_cell_images_table.read_segmentation_table``.
@@ -163,8 +165,8 @@ def crop_cell(
 
 
 def _read_tile_image(path: str) -> np.ndarray:
-    """A whole-tile phenotype image as ``(C, H, W)``. starcall writes
-    ``raw_pt.tif`` as ``(cycles, channels, H, W)``; its own
+    """A tile's phenotype image as ``(C, H, W)``. It is
+    ``(cycles, channels, H, W)``, as starcall writes ``raw_pt.tif``; its own
     ``make_cell_images`` flattens the leading axes the same way."""
     image = tifffile.imread(path)
     return image.reshape(-1, *image.shape[-2:])
@@ -244,7 +246,8 @@ def main(cfg: DictConfig) -> None:
 
     Configuration
     -------------
-    Normally run by the ``make_cell_shard`` rule, e.g.::
+    Normally run by the ``make_cell_shard`` rule, on its job-local
+    stitched image and mask. Standalone, e.g. on starcall's own tile files::
 
         python -m fisseq_embeddings_pipeline.tile_shard \\
             output_dir=/tmp/log \\

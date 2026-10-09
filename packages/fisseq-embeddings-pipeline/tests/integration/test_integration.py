@@ -1618,11 +1618,93 @@ def test_real_starcall_local(real_starcall_local_run):
     assert [p.name for p in shard_dir.iterdir()] == [
         f"well_{_MINI_WELL.removeprefix('well')}_shard_000000.tar.gz"
     ]
-    # temp() and no longer a target, so snakemake deleted each once the
-    # shards were packed -- see docs/architecture.md decision 17.
+    # The tile shard is temp(), so snakemake deleted it once the well's
+    # shards were packed; make_cell_shard stitches the tile in memory, so
+    # starcall's temp() raw_pt.tif is never written for it -- see
+    # docs/architecture.md decision 17.
     tile_dir = grid_dir / _MINI_TILE
     assert not (tile_dir / f"cells_raw_shard_{_WINDOW}.tar").exists()
     assert not (tile_dir / "raw_pt.tif").exists()
+
+
+@pytest.mark.container
+def test_shard_matches_starcall_stitched_tile(
+    real_starcall_image, real_starcall_local_run
+):
+    """make_cell_shard stitches the tile's image and mask itself, in memory,
+    with starcall's stitch_well_section/stitch_segmentation_section. Its
+    samples must equal a shard cut from the raw_pt.tif / cells_mask.tif
+    starcall's own stitch_tile_pt / stitch_tile_segmentation write, crop
+    for crop."""
+    swd, _, pipeline_dir, _ = real_starcall_local_run
+    if not (pipeline_dir / "cell_images" / "lmna_t3" / "cell_table.parquet").exists():
+        pytest.skip("the local-mode run failed -- see test_real_starcall_local")
+    grid_dir = swd / "phenotyping" / f"{_MINI_WELL}_grid1"
+    tile_dir = grid_dir / _MINI_TILE
+    starcall_tifs = [tile_dir / "raw_pt.tif", tile_dir / "cells_mask.tif"]
+    (reads_csv,) = (swd / "sequencing" / f"{_MINI_WELL}_grid1" / _MINI_TILE).glob(
+        "cells_reads*.csv"
+    )
+
+    try:
+        # starcall's own Snakefile alone; --notemp keeps the two temp() tifs.
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "-u",
+                f"{os.getuid()}:{os.getgid()}",
+                "-e",
+                "HOME=/tmp",
+                "-e",
+                "XDG_CACHE_HOME=/tmp",
+                "-v",
+                f"{swd}:{swd}",
+                real_starcall_image,
+                "/opt/conda/envs/ops/bin/snakemake",
+                "--snakefile",
+                "/opt/fisseq-embeddings-pipeline/starcall-workflow/workflow/Snakefile",
+                "--directory",
+                str(swd),
+                "--cores",
+                "2",
+                "--notemp",
+                "--rerun-triggers",
+                "mtime",
+                "--",
+                *map(str, starcall_tifs),
+            ],
+            check=True,
+            timeout=1800,
+        )
+        expected_tar = swd / "expected_shard.tar"
+        write_tile_shard(
+            TileShardConfig(
+                output_dir=str(swd / "expected_shard_log"),
+                image_tif=str(starcall_tifs[0]),
+                mask_tif=str(starcall_tifs[1]),
+                segmentation_csv=str(tile_dir / "cells.csv"),
+                reads_csv=str(reads_csv),
+                well=_MINI_WELL,
+                tile=_MINI_TILE,
+                window=_WINDOW,
+                output_tar=str(expected_tar),
+            )
+        )
+    finally:
+        for path in starcall_tifs:
+            path.unlink(missing_ok=True)
+
+    (packed,) = (grid_dir / f"cells_raw_shards_{_WINDOW}_all").glob("*.tar.gz")
+    expected = list(wds.WebDataset(str(expected_tar), shardshuffle=False).decode())
+    actual = list(wds.WebDataset(str(packed), shardshuffle=False).decode())
+    assert len(actual) == len(expected) > 0
+    for want, got in zip(expected, actual):
+        assert got["__key__"] == want["__key__"]
+        np.testing.assert_array_equal(got["crop.npy"], want["crop.npy"])
+        np.testing.assert_array_equal(got["mask.npy"], want["mask.npy"])
+        assert got["meta.json"] == want["meta.json"]
 
 
 _FAKE_RUNTIME = """#!/bin/sh
@@ -1666,14 +1748,13 @@ def test_real_starcall_profile_mode(
     swd, checkpoint_path, local_dir, _ = real_starcall_local_run
     if not (local_dir / "cell_images" / "lmna_t3" / "cell_table.parquet").exists():
         pytest.skip("the local-mode run failed -- see test_real_starcall_local")
-    # Remove the per-tile outputs and the well's shards, and let
+    # Remove the tile's cell table and the well's shards, and let
     # mtime-based rerun rebuild them (and only them) through the "cluster"
     # -- make_cell_shard and make_well_shards included.
     grid_dir = swd / "phenotyping" / f"{_MINI_WELL}_grid1"
     tile_dir = grid_dir / _MINI_TILE
     shard_dir = grid_dir / f"cells_raw_shards_{_WINDOW}_all"
-    for name in ("cells.csv", "cells_mask.tif"):
-        (tile_dir / name).unlink(missing_ok=True)
+    (tile_dir / "cells.csv").unlink(missing_ok=True)
     shutil.rmtree(shard_dir, ignore_errors=True)
 
     fake_runtime = swd / "fake_apptainer"
