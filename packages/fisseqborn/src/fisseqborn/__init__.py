@@ -14,6 +14,7 @@ from ._base import Config, FigurePlot, Plot, config
 from .batch_correlation import BatchCorrelationHeatmap
 from .blocklist import Blocklists
 from .box import BoxPlot
+from .calibration import Calibration, CalibrationPlot
 from .clustermap import ClusterMap, ClusterMapAxes, FeatureGroup
 from .correlation import CorrelationPlot
 from .dataset import Dataset
@@ -33,6 +34,8 @@ __all__ = [
     "BatchCorrelationHeatmap",
     "Blocklists",
     "BoxPlot",
+    "Calibration",
+    "CalibrationPlot",
     "ClusterMap",
     "ClusterMapAxes",
     "ClusterSummary",

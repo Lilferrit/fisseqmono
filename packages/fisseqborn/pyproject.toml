@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "fisseq-common @ git+https://github.com/Lilferrit/fisseqmono@v2.0.0#subdirectory=packages/fisseq-common",
+    "joblib",
     "matplotlib>=3.10",
     "numpy",
     "pandas",
