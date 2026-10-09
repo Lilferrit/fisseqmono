@@ -49,20 +49,23 @@ nothing but Nextflow.
 Every entry in `params.yaml`'s `experiments:` list supplies fields for
 `BUILD_CELL_IMAGES` (starcall-workflow-facing: `starcall_workflow_dir`,
 `phenotyping_dir`, `segmentation_dir`, `sequencing_dir`, `wells`,
-`grid_size`, `use_corrected`, `window`, ...) and for the two stages reading
-its `cell_table.parquet`, `BUILD_CELL_METADATA` and `BUILD_CP_FEATURES` (the
-`*_col_name` overrides; `BUILD_CP_FEATURES` runs only for `cp_features:
-true` entries). `batch_stem` is a required key inside each entry and must
-be unique across the list.
+`grid_size`, `use_corrected`, `window`, the `*_col_name` overrides naming
+the reads tables' genotype columns, ...). The two stages reading its
+`cell_table.parquet`, `BUILD_CELL_METADATA` and `BUILD_CP_FEATURES`
+(`BUILD_CP_FEATURES` runs only for `cp_features: true` entries), have no
+per-experiment fields of their own. `batch_stem` is a required key inside
+each entry and must be unique across the list.
 
 `config/experiments.py` routes each key to the stage(s) owning it and
 renders the plan's `cell_images_args` and `cell_table_args` as Hydra CLI
-overrides; `cell_table_args` goes to both cell-table readers, so the two
-tracks read the table with the same column names. `window` has a
+overrides; `cell_table_args` goes to both cell-table readers and is empty
+today, since `BUILD_CELL_IMAGES` already renames the genotype columns to
+`meta_*` in both the table and the shards. `window` has a
 pipeline-wide default (`params.window`) filled into an entry's
 `BUILD_CELL_IMAGES`-bound overrides when the entry doesn't set its own --
 it's the crop size each tile's shard is cut at, and it names the shard
-target. `cellprofiler_pipeline`/`cellprofiler_cycle` work the same way. An
+target. `shard_size` (cells per WebDataset shard) and
+`cellprofiler_pipeline`/`cellprofiler_cycle` work the same way. An
 entry's own value always wins.
 
 ## Stage graph
@@ -71,13 +74,13 @@ entry's own value always wins.
 PLAN_EXPERIMENTS  (validates params; one plan per experiment)
     │
     ▼
-BUILD_CELL_IMAGES  (nested starcall snakemake, incl. make_cell_shard: one
-    │               WebDataset shard per tile; cell_table.parquet + tiles.parquet)
+BUILD_CELL_IMAGES  (nested starcall snakemake, incl. make_cell_shard/make_well_shards:
+    │               gzipped WebDataset shards per well; cell_table.parquet + shards.parquet)
     │
     ├──► BUILD_CELL_METADATA ──► QC_FILTER   (shared by BOTH tracks; see below)
-    │              │                 │
-    ▼              ▼ (meta_* joined) │
-EMBED_CELLS ◄──────┘                 │
+    │                                │
+    ▼                                │
+EMBED_CELLS                          │
     │                                │
     ▼                                │
 NORMALIZE  ◄─────────────────────────┘  (filtered_keys + WT-fitted normalizer)
@@ -120,14 +123,17 @@ tracks fan out: see
 pipeline's, including `qc_n_variants` and the pseudo-variant downsampling
 (`qc_downsample_amounts`); both are off by default.
 
-`EMBED_CELLS` streams every tile's WebDataset shard (cut inside
-`BUILD_CELL_IMAGES`' nested snakemake by `make_cell_shard` -- see
-[Cell Shards](cli/tile_shard.md)) and has no dependency on `QC_FILTER` --
+`EMBED_CELLS` streams every well's WebDataset shards (cut and packed
+inside `BUILD_CELL_IMAGES`' nested snakemake by `make_cell_shard` and
+`make_well_shards` -- see [Cell Shards](cli/tile_shard.md) and
+[Well Shards](cli/well_shards.md)) and has no dependency on `QC_FILTER` --
 the whole point of building the shards up front is that this expensive
 GPU pass runs once per experiment regardless of how many times QC
-thresholds get retuned afterward. A shard's `meta.json` carries only the
-cell's location; `EMBED_CELLS` joins every other `meta_*` column on from
-`BUILD_CELL_METADATA`'s `metadata.parquet`.
+thresholds get retuned afterward. Each shard sample's `meta.json` carries
+the cell's key, QC fields and variant class, so `EMBED_CELLS` takes its
+`meta_*` columns from there (adding `meta_batch` from `batch_stem`) and
+doesn't wait for `BUILD_CELL_METADATA`: it starts as soon as
+`BUILD_CELL_IMAGES` finishes.
 `NORMALIZE` joins `EMBED_CELLS`' output against `QC_FILTER`'s
 `filtered_cells.parquet` (only that one of `QC_FILTER`'s three outputs;
 the other two are informational QC-report files) and fits the normalizer on the wildtype
@@ -245,17 +251,19 @@ executor, queue or resource settings, and no default parameter values
   is no `ops` env here, so the nested starcall `snakemake` is whatever
   `snakemake` is on `PATH` -- the test suite puts a stub there.
 
-`process.ext.snakemake_bin` (`/opt/conda/envs/ops/bin/snakemake`) and
-`process.ext.conda_bin_dir` (`/opt/conda/bin`) point `BUILD_CELL_IMAGES` at
-the image's `ops` env by absolute path, and `process.ext.fisseq_snakefile`
+`process.ext.snakemake_bin` (`/opt/conda/envs/ops/bin/snakemake`) points
+`BUILD_CELL_IMAGES` at the image's `ops` env by absolute path, and
+`process.ext.fisseq_snakefile`
 (`/opt/fisseq-embeddings-pipeline/snakemake/Snakefile`) at the Snakefile it
 runs -- starcall's own, cloned into the image at a pinned commit,
-plus `make_cell_shard`. That env is deliberately kept off
+plus `make_cell_shard`/`make_well_shards`. That env is deliberately kept off
 `PATH` so bare `python` always resolves to this repo's own Python 3.13
-venv; `conda_bin_dir` is prepended onto `PATH` for the one nested
-invocation only, because `--use-conda` shells out to a bare `conda`.
-`-profile local` resets the first two, and points `fisseq_snakefile` at
-`${projectDir}/snakemake/Snakefile`.
+venv. Conda's base `bin` (`/opt/conda/bin`, which holds `conda` itself) is
+on the image's `PATH`, after the venv, because `--use-conda` shells out to
+a bare `conda` -- in the nested snakemake and in every starcall child job
+(see [The nested starcall run](#the-nested-starcall-run-starcall_profile)).
+`-profile local` resets `snakemake_bin` to the `snakemake` on `PATH`, and
+points `fisseq_snakefile` at `${projectDir}/snakemake/Snakefile`.
 
 ### Bind mounts
 
@@ -270,7 +278,7 @@ Docker, `-B` under Apptainer):
   `--gpus all` when `starcall_gpu` is true.
 - **`EMBED_CELLS`** -- `cell_dino_checkpoint`, and the experiment's
   resolved `phenotyping_dir` (emitted by `BUILD_CELL_IMAGES` as an
-  `env("phenotyping_dir")` output): `tiles.parquet` names each tile's shard
+  `env("phenotyping_dir")` output): `shards.parquet` names each shard
   by its real path there, and the shards are read in place. Plus `--nv` /
   `--gpus all` unless `cell_dino_device` is `cpu`.
 
@@ -362,14 +370,28 @@ default-resources: [cuda=0]
 set-resources: [segment_nuclei:cuda=1, segment_cells:cuda=1]
 ```
 
-With `starcall_profile` set, the nested invocation becomes
+On SGE, start from starcall-workflow's own launcher (`run.sh` at the pinned
+commit): its `--cluster`, `--cluster-cancel`, `-j`, `--cores`, `--resources`,
+`--set-resource-scopes`, `--default-resources`, `--keep-incomplete` and
+`--latency-wait` carry over to the profile as they are. `cluster:` runs
+through a shell. `cluster-cancel:` doesn't (snakemake 7 runs it as one
+executable plus the job ids), so a cancel command that needs any setup
+first has to be a script.
+
+With `starcall_profile` set, the nested invocations become
 
 ```text
 snakemake --snakefile /opt/fisseq-embeddings-pipeline/snakemake/Snakefile --directory <starcall_workflow_dir> \
     --profile <starcall_profile> --jobscript $PWD/starcall_jobscript.sh \
     --use-conda --conda-frontend conda --rerun-triggers mtime --rerun-incomplete \
-    --configfile $PWD/snakemake_config.yaml -- $PWD/tiles_manifest.csv
+    --configfile $PWD/snakemake_config.yaml -- <target>
 ```
+
+once with `<target>` = `fisseq_shards` (every well's shards, alone), then
+with `$PWD/tiles_manifest.csv`. Building the shards in a pass of their own
+keeps snakemake from rerunning CellProfiler and the reads chain when it
+regenerates the `temp()` whole-tile image and mask missing shards need
+([Architecture](architecture.md) decision 17).
 
 with no `--cores`: in cluster mode that's the budget across all submitted
 jobs and silently caps every rule's own `threads:`, so it belongs in the
@@ -395,7 +417,10 @@ How the pieces fit:
   `build_cell_images_prepare.py`) and passes it as `--jobscript`. It
   re-executes itself once inside `starcall_job_image` (`<starcall_container_bin>
   exec [--nv] --bind ... <image> /bin/sh -c "$(cat "$0")" "$0"`, guarded by an environment
-  variable Apptainer passes through), then runs the job as usual.
+  variable Apptainer passes through), then runs the job as usual. Inside the
+  image the job has the image's own `PATH`, not its submitter's, so the
+  `conda` that `--use-conda` rules (`run_cellprofiler`'s `cp4` env) need
+  comes from the image's `PATH` too.
 - **Binds are baked in.** The jobscript binds, at unchanged paths, the
   resolved `phenotyping_dir`/`segmentation_dir`/`sequencing_dir`,
   `starcall_workflow_dir`, the snakemake cache dir, `starcall_job_binds`
@@ -420,12 +445,14 @@ How the pieces fit:
   profile's `default-resources`/`set-resources` alike. So a job SGE killed
   for memory comes back asking for 2x, then 4x. Any failure is retried, not
   just OOM, so keep N small.
-- **Status checks run in the container too.** So does a `cluster-status:`
-  command, so whatever it reads must be bound as well. SGE's `qacct`, for
-  one, reads `$SGE_ROOT/$SGE_CELL/common/accounting`, which is often a
-  symlink to somewhere outside the client install. Unbound, `qacct` prints
-  `no jobs running since startup` on stdout, and a status script that
-  doesn't check for that reports every finished job as failed.
+- **No `cluster-status` needed.** A child job's jobscript ends by touching
+  a `jobfinished` or `jobfailed` marker, which is how snakemake learns its
+  fate, starcall's own SGE launcher included. A job the scheduler kills
+  outright (`h_rt`, or one that never gets as far as its snakemake) writes
+  neither, and the submitter waits on it until its own `h_rt`. A
+  `cluster-status:` command would catch that, but it runs inside the
+  container as well, so whatever it reads (SGE's `qacct` and its
+  accounting file, for one) must be bound there.
 - **Orphans.** snakemake runs your profile's `cluster-cancel` on a
   graceful shutdown; a SIGKILLed submitter can leave child jobs queued, to
   sweep by hand with your scheduler's tools.
@@ -490,8 +517,9 @@ process EMBED_CELLS {
   the exception).
 - **`publishDir ..., mode: 'copy'`** into `pipeline_dir`: real copies, so
   results don't depend on `work/` surviving. `BUILD_CELL_IMAGES` publishes
-  only `cell_table.parquet`/`tiles.parquet`; its scratch files
-  (`snakemake_config.yaml`, `tiles_manifest.csv`, `resolved_dirs.env`, the
+  only `cell_table.parquet`/`shards.parquet`; its scratch files
+  (`snakemake_config.yaml`, `tiles_manifest.csv`, `shards_manifest.csv`,
+  `resolved_dirs.env`, the
   jobscript) stay in its work directory.
 - **`threadEnv(task.cpus)`** (fisseq-common's `functions.nf`) exports
   `POLARS_MAX_THREADS`/`OMP_NUM_THREADS`/`OPENBLAS_NUM_THREADS`/... inside
@@ -503,9 +531,10 @@ process EMBED_CELLS {
 `BUILD_CELL_IMAGES` is the one exception to "one `python -m` call": three
 phases, the middle one a nested `snakemake` (which itself runs `python -m
 fisseq_embeddings_pipeline.tile_shard` once per tile, as
-`make_cell_shard`). See
-[`build_cell_images_prepare`](cli/build_cell_images_prepare.md) and
-[Cell Shards](cli/tile_shard.md).
+`make_cell_shard`, and `python -m fisseq_embeddings_pipeline.well_shards`
+once per well, as `make_well_shards`). See
+[`build_cell_images_prepare`](cli/build_cell_images_prepare.md),
+[Cell Shards](cli/tile_shard.md) and [Well Shards](cli/well_shards.md).
 
 ### `-resume`
 
@@ -525,10 +554,10 @@ The paths are `fisseq_common.layout.EmbeddingsPipelineLayout`'s. Everything from
 ```text
 <pipeline_dir>/
   cell_images/<batch>/
-    cell_table.parquet                    # the ONE self-sufficient cell table -- genotype + (if cp_features) CellProfiler columns already joined in
-    tiles.parquet                         # one row per tile: well, tile, shard_tar -- the tile's shard, a real path under phenotyping_dir
+    cell_table.parquet                    # the ONE self-sufficient cell table: key + QC meta_* columns + meta_variant_class (+ CellProfiler columns if cp_features)
+    shards.parquet                        # one row per shard: well, shard_tar -- a real path under phenotyping_dir
   cell_metadata/<batch>/
-    metadata.parquet                      # QC_FILTER's input, and the meta_* EMBED_CELLS joins on
+    metadata.parquet                      # QC_FILTER's input: meta_batch + the table's key and QC columns
   qc_filter/<batch>/
     filtered_cells.parquet                # QC-passed cells (+ pseudo-variant rows, if enabled)
     barcode_counts.parquet
@@ -573,14 +602,15 @@ appear when at least one `params.experiments` entry sets `cp_features:
 true` (see [CellProfiler-feature track](#cellprofiler-feature-track)
 above).
 
-The WebDataset shards -- one per tile,
-`<segmentation_type>_{raw|corrected}_shard_<window>.tar`, all cells,
-unfiltered -- stay under starcall's `phenotyping_dir`, next to that tile's
-other outputs, not here: `EMBED_CELLS` reads them in place via
-`tiles.parquet`, and snakemake's own mtime check reuses them on a rerun.
-The whole-tile `raw_pt.tif`/`corrected_pt.tif` they're cut from is a
-`temp()` output upstream and no longer a target, so snakemake deletes it
-once the shard is cut -- see [Architecture](architecture.md) decision 17.
+The WebDataset shards -- per well,
+`<well>_grid<N>/<segmentation_type>_{raw|corrected}_shards_<window>_<shard_size|all>/well_<n>_shard_<k>.tar.gz`,
+`shard_size` cells each, all cells, unfiltered -- stay under starcall's
+`phenotyping_dir`, next to that well's tiles, not here: `EMBED_CELLS`
+reads them in place via `shards.parquet`, and snakemake's own mtime check
+reuses them on a rerun. The per-tile shards they're packed from, and the
+whole-tile `raw_pt.tif`/`corrected_pt.tif` those are cut from, are
+`temp()` outputs and not targets, so snakemake deletes them once the well
+is packed -- see [Architecture](architecture.md) decision 17.
 
 See the [Stage Reference](cli/tile_shard.md) pages and
 [Shared stages](../common/stages.md) for each file's exact column set.

@@ -1,25 +1,18 @@
 """BUILD_CP_FEATURES.
 
-Input conversion for the CellProfiler-feature track: reads
-BUILD_CELL_IMAGES' already-joined ``cell_table.parquet`` (the
-``build_cell_images`` rule) and selects its ``cp_*``-prefixed CellProfiler
-feature columns, into one per-experiment ``cp_features.parquet`` -- the
-CellProfiler-feature analog of EMBED_CELLS' ``embeddings.parquet``, and
-the input to FILTER_CP_FEATURES (filter_cp_features.py).
+Input conversion for the CellProfiler-feature track: reads BUILD_CELL_IMAGES'
+``cell_table.parquet`` and keeps its CellProfiler feature columns (every
+column without a ``meta_`` prefix, under CellProfiler's own names), into one
+per-experiment ``cp_features.parquet`` -- the CellProfiler-feature analog of
+EMBED_CELLS' ``embeddings.parquet``, and the input to FILTER_CP_FEATURES.
+Its ``meta_*`` columns are the same seven BUILD_CELL_METADATA writes
+(``utils.cell_table.cell_metadata_exprs``), ``meta_batch`` included.
 
-Unlike its previous version, this module no longer touches
-starcall-workflow's tree at all (no ``phenotyping_dir``, no per-tile
-CellProfiler CSV read, no tile discovery): BUILD_CELL_IMAGES is now the
-ONLY place in the pipeline that reads CellProfiler's raw output, joining
-each tile's CellProfiler CSV to its cell table by row position (the same
-convention this module used to apply itself -- CellProfiler's own
-``ObjectNumber`` numbering is standardly derived from ascending mask-label
-order, i.e. row position, not any shared index value) and renaming every
-CellProfiler column ``cp_<name>`` before folding it into
-``cell_table.parquet``. This module simply strips that prefix back off on
-the way out, so ``cp_features.parquet``'s own column names are unchanged
-from before this refactor (bare CellProfiler names, matching
-``FEATURE_SELECTOR``'s ``exclude("^meta_.*$")`` convention downstream).
+This module never touches starcall-workflow's tree: BUILD_CELL_IMAGES is
+the only place in the pipeline that reads CellProfiler's raw output,
+joining each tile's CellProfiler CSV to its cells by row position
+(CellProfiler's own ``ObjectNumber`` numbering follows ascending mask-label
+order, i.e. row position, not any shared index value).
 """
 
 import dataclasses
@@ -37,8 +30,6 @@ from fisseq_common.utils.log import setup_logging
 from .config import AppConfig
 from .utils.cell_table import CELL_METADATA_SCHEMA, cell_metadata_exprs
 
-_CP_COL_PREFIX = "cp_"
-
 
 @dataclasses.dataclass
 class CpFeaturesConfig(AppConfig):
@@ -52,35 +43,17 @@ class CpFeaturesConfig(AppConfig):
     Attributes
     ----------
     cell_images_dir : str
-        BUILD_CELL_IMAGES' per-experiment output directory (the
-        ``build_cell_images`` rule) -- holds ``cell_table.parquet``, which
-        already carries this experiment's CellProfiler feature columns
-        (``cp_*``-prefixed) alongside its cell metadata/genotype columns.
-        Replaces the old ``phenotyping_dir``/``wells``/``grid_size``/
-        ``segmentation_type``/``use_corrected``/``cellprofiler_cycle``/
-        ``cellprofiler_pipeline`` fields -- all now starcall-workflow-
-        discovery concerns BUILD_CELL_IMAGES owns.
+        BUILD_CELL_IMAGES' per-experiment output directory -- holds
+        ``cell_table.parquet``, which carries this experiment's CellProfiler
+        feature columns alongside its ``meta_*`` columns.
     batch_stem : str
         This experiment's identifier, written into every row as
         meta_batch -- one BUILD_CP_FEATURES run covers exactly one
         experiment, matching BUILD_CELL_METADATA's convention.
-    barcode_col_name : str
-        Name of the barcode column in cell_table.parquet. Defaults to
-        ``"upBarcode"`` -- same default as ``CellMetadataConfig``, since
-        this reads the same table.
-    aa_changes_col_name : str
-        Name of the amino-acid changes column in cell_table.parquet.
-        Defaults to ``"aaChanges"``.
-    edit_distance_col_name : str
-        Name of the edit distance column in cell_table.parquet. Defaults
-        to ``"editDistance"``.
     """
 
     cell_images_dir: str = MISSING
     batch_stem: str = MISSING
-    barcode_col_name: str = "upBarcode"
-    aa_changes_col_name: str = "aaChanges"
-    edit_distance_col_name: str = "editDistance"
 
 
 def build_cp_features(cfg: CpFeaturesConfig) -> pl.DataFrame:
@@ -91,17 +64,15 @@ def build_cp_features(cfg: CpFeaturesConfig) -> pl.DataFrame:
     Parameters
     ----------
     cfg : CpFeaturesConfig
-        Supplies ``cell_images_dir``, column-name overrides, and
-        ``batch_stem``.
+        Supplies ``cell_images_dir`` and ``batch_stem``.
 
     Returns
     -------
     pl.DataFrame
         One row per cell: ``meta_batch``, ``meta_well``, ``meta_tile``,
         ``meta_cell_index``, ``meta_barcode``, ``meta_aa_changes``,
-        ``meta_edit_distance``, plus every CellProfiler feature column
-        bare/unprefixed (the ``cp_`` prefix BUILD_CELL_IMAGES added is
-        stripped back off here).
+        ``meta_edit_distance``, plus every CellProfiler feature column,
+        in the table's order.
     """
     cell_table_path = pathlib.Path(cfg.cell_images_dir) / "cell_table.parquet"
     table = pl.read_parquet(cell_table_path)
@@ -110,27 +81,15 @@ def build_cp_features(cfg: CpFeaturesConfig) -> pl.DataFrame:
         logging.info("cell_table.parquet at %s has no rows", cell_table_path)
         return pl.DataFrame(schema=CELL_METADATA_SCHEMA)
 
-    cp_columns = [c for c in table.columns if c.startswith(_CP_COL_PREFIX)]
-    if not cp_columns:
+    if not table.select(~cs.starts_with("meta_")).columns:
         logging.warning(
-            "No cp_*-prefixed CellProfiler feature columns found in %s -- "
+            "No CellProfiler feature columns found in %s -- "
             "was this experiment's cp_features flag actually enabled when "
             "BUILD_CELL_IMAGES ran?",
             cell_table_path,
         )
 
-    result = table.select(
-        *cell_metadata_exprs(
-            cfg.batch_stem,
-            cfg.barcode_col_name,
-            cfg.aa_changes_col_name,
-            cfg.edit_distance_col_name,
-        ),
-        cs.starts_with(_CP_COL_PREFIX).name.map(
-            lambda name: name[len(_CP_COL_PREFIX) :]
-        ),
-    )
-    return result
+    return table.select(*cell_metadata_exprs(cfg.batch_stem), ~cs.starts_with("meta_"))
 
 
 _cs = ConfigStore.instance()

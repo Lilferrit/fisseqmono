@@ -1,8 +1,8 @@
 """Tests for BUILD_CP_FEATURES.
 
 Covers build_cp_features() -- a flat read + column-select against
-BUILD_CELL_IMAGES' cell_table.parquet (cp_*-prefixed CellProfiler columns
-stripped back to their bare names), empty-table handling, and the Hydra
+BUILD_CELL_IMAGES' cell_table.parquet (its meta_* columns plus meta_batch,
+and every CellProfiler column), empty-table handling, and the Hydra
 main() CLI end-to-end. No tile/image/CSV handling at this layer any more --
 that all now lives in BUILD_CELL_IMAGES
 (src/fisseq_embeddings_pipeline/build_cell_images_table.py), covered by
@@ -57,20 +57,23 @@ def _row(
     edit_distance: int,
     **cp_features,
 ) -> dict:
+    """One row of BUILD_CELL_IMAGES' cell_table.parquet: its meta_*
+    columns, then CellProfiler columns under their own names."""
     row = {
-        "well": well,
-        "tile": tile,
-        "tile_cell_index": tile_cell_index,
-        "upBarcode": barcode,
-        "aaChanges": aa_changes,
-        "editDistance": edit_distance,
+        "meta_well": well,
+        "meta_tile": tile,
+        "meta_cell_index": tile_cell_index,
+        "meta_barcode": barcode,
+        "meta_aa_changes": aa_changes,
+        "meta_edit_distance": edit_distance,
+        "meta_variant_class": "Synonymous",
     }
-    row.update({f"cp_{k}": v for k, v in cp_features.items()})
+    row.update(cp_features)
     return row
 
 
 # ---------------------------------------------------------------------------
-# build_cp_features() -- flat select + cp_ prefix stripping
+# build_cp_features() -- flat select
 # ---------------------------------------------------------------------------
 
 
@@ -96,8 +99,9 @@ def test_build_cp_features_selects_and_renames_columns(tmp_path: Path):
     assert result["meta_aa_changes"].to_list() == ["A1A", "A1B", "WT"]
     assert result[META_EDIT_DISTANCE_COL].to_list() == [0, 1, -1]
     assert result["Cells_AreaShape_Area"].to_list() == [100.0, 200.0, 300.0]
-    # cp_-prefixed name must not leak through.
-    assert "cp_Cells_AreaShape_Area" not in result.columns
+    # The variant class is the table's, not a feature, and stays out.
+    assert "meta_variant_class" not in result.columns
+    assert result.columns[-1] == "Cells_AreaShape_Area"
 
 
 def test_build_cp_features_multiple_tiles_and_wells(tmp_path: Path):
@@ -146,7 +150,7 @@ def test_build_cp_features_warns_when_no_cp_columns_present(
         result = build_cp_features(cfg)
 
     assert result.height == 1
-    assert "No cp_" in caplog.text
+    assert "No CellProfiler feature columns" in caplog.text
 
 
 # ---------------------------------------------------------------------------

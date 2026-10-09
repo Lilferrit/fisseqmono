@@ -36,8 +36,8 @@ These starcall-workflow-facing fields all belong to `BUILD_CELL_IMAGES`,
 the one stage that touches `starcall-workflow`'s tree -- see
 [`BUILD_CELL_IMAGES`' section of the Architecture doc](architecture.md#cell-images-build_cell_images-output-from-starcall-workflow)
 for every field it accepts, including `window` (the crop size each tile's
-shard is cut at -- see [Cell Shards](cli/tile_shard.md)). The remaining
-`*_col_name` fields go to `BUILD_CELL_METADATA` and `BUILD_CP_FEATURES`.
+shard is cut at -- see [Cell Shards](cli/tile_shard.md)) and the
+`*_col_name` fields naming the reads tables' genotype columns.
 
 ## 2. Get a Cell-DINO checkpoint
 

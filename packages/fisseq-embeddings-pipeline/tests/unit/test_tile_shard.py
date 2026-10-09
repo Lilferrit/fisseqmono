@@ -31,6 +31,7 @@ def _cfg(tile_dir: Path, **overrides) -> TileShardConfig:
         image_tif=str(tile_dir / "raw_pt.tif"),
         mask_tif=str(tile_dir / "cells_mask.tif"),
         segmentation_csv=str(tile_dir / "cells.csv"),
+        reads_csv=str(tile_dir / "cells_reads.csv"),
         well="well1",
         tile="tile0x0y",
         window=WINDOW,
@@ -115,8 +116,9 @@ def _write_tile(
     tile_dir: Path,
     cells: list[tuple[int, tuple[int, int, int, int]]],
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Write starcall-shaped per-tile inputs: raw_pt.tif, cells_mask.tif and
-    cells.csv. ``cells`` is ``[(tile_cell_index, bbox), ...]`` in on-disk
+    """Write starcall-shaped per-tile inputs: raw_pt.tif, cells_mask.tif,
+    cells.csv and cells_reads.csv (cell ``cid`` has barcode ``bc{cid}``,
+    variant ``A{cid}V``, edit distance 0). ``cells`` is ``[(tile_cell_index, bbox), ...]`` in on-disk
     row order; row i's mask label is i + 1, filled over its own bbox.
     Returns the ``(C, H, W)`` image and the mask."""
     tile_dir.mkdir(parents=True, exist_ok=True)
@@ -143,7 +145,19 @@ def _write_tile(
         },
         index=pd.Index([cid for cid, _ in cells]),
     ).to_csv(tile_dir / "cells.csv")
+    _write_reads(tile_dir, [cid for cid, _ in cells])
     return image.reshape(NUM_CHANNELS, TILE_SIZE, TILE_SIZE), mask
+
+
+def _write_reads(tile_dir: Path, cell_ids: list[int]) -> None:
+    pd.DataFrame(
+        {
+            "editDistance": [0] * len(cell_ids),
+            "upBarcode": [f"bc{cid}" for cid in cell_ids],
+            "aaChanges": [f"A{cid}V" for cid in cell_ids],
+        },
+        index=pd.Index(cell_ids),
+    ).to_csv(tile_dir / "cells_reads.csv")
 
 
 def _samples(shard: Path) -> dict:
@@ -172,11 +186,15 @@ def test_write_tile_shard_round_trips_crops_masks_and_location(tmp_path: Path):
         np.testing.assert_array_equal(sample["mask.npy"], want_mask)
         assert sample["crop.npy"].shape == (NUM_CHANNELS, WINDOW, WINDOW)
         assert sample["mask.npy"].any()
-        # Location only: genotype and meta_batch are joined on at embed time.
+        # The cell's key, QC fields and class; never meta_batch.
         assert sample["meta.json"] == {
             "meta_well": "well1",
             "meta_tile": "tile0x0y",
             "meta_cell_index": cid,
+            "meta_barcode": f"bc{cid}",
+            "meta_aa_changes": f"A{cid}V",
+            "meta_edit_distance": 0,
+            "meta_variant_class": "Single Missense",
         }
 
 
@@ -208,6 +226,7 @@ def test_write_tile_shard_empty_tile_writes_valid_empty_tar(tmp_path: Path):
     pd.DataFrame(
         columns=["orig_index", "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2"]
     ).to_csv(tmp_path / "cells.csv")
+    _write_reads(tmp_path, [])
     cfg = _cfg(tmp_path, image_tif=str(tmp_path / "missing.tif"))
 
     assert write_tile_shard(cfg) == 0
@@ -247,6 +266,7 @@ def test_main_runs_end_to_end_via_cli(tmp_path: Path):
             f"image_tif={tile_dir / 'raw_pt.tif'}",
             f"mask_tif={tile_dir / 'cells_mask.tif'}",
             f"segmentation_csv={tile_dir / 'cells.csv'}",
+            f"reads_csv={tile_dir / 'cells_reads.csv'}",
             "well=well1",
             "tile=tile0x0y",
             f"window={WINDOW}",
@@ -265,6 +285,7 @@ def test_main_runs_end_to_end_via_cli(tmp_path: Path):
         "cells.csv",
         "cells_mask.tif",
         "cells_raw_shard_8.tar",
+        "cells_reads.csv",
         "raw_pt.tif",
     ]
     assert not (tmp_path / "outputs").exists()

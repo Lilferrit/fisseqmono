@@ -22,8 +22,9 @@ High-level shape:
 ```text
 Per experiment (runs independently)
   starcall-workflow ─► Cell Images ─┬─► Cell Shards ──► Cell Embeddings (EMBED_CELLS) ─┐
-    (raw tree)       (incl. per-tile │     (per tile)       ▲ (meta_* joined on)        │
-                      Cell Shards)   └─► Cell Metadata ──────┴──► QC_FILTER ────────────┤
+    (raw tree)       (incl. per-tile │  (per tile; meta.json                            │
+                      Cell Shards)   │   carries meta_*)                                │
+                                     └─► Cell Metadata ─────────► QC_FILTER ────────────┤
                                                                                          ▼
                                                                                     NORMALIZE
                                                                      (QC-passed keys + WT-fitted z-score)
@@ -45,12 +46,14 @@ in the fisseqborn package, from these published outputs; see decision 8.
 see [Data contracts](#cell-images-build_cell_images-output-from-starcall-workflow)
 below. "Cell Info Table" no longer appears as its own node: the genotype/
 metadata columns it used to name are now part of `BUILD_CELL_IMAGES`'
-`cell_table.parquet`, not a separate input. "Cell Shards" -- one
-WebDataset shard per tile -- isn't a Nextflow stage of its own either: it's
-`make_cell_shard`, a rule this repo adds on top of starcall's own Snakefile,
-run inside `BUILD_CELL_IMAGES`' nested snakemake (decisions 17 and 24).
-`EMBED_CELLS` joins Cell Metadata's `meta_*` columns back onto each
-embedded cell.
+`cell_table.parquet`, not a separate input. "Cell Shards" -- gzipped
+WebDataset shards, `shard_size` cells each, per well -- isn't a Nextflow
+stage of its own either: it's `make_cell_shard` and `make_well_shards`,
+rules this repo adds on top of starcall's own Snakefile, run inside
+`BUILD_CELL_IMAGES`' nested snakemake (decisions 17 and 24).
+`EMBED_CELLS` takes each cell's `meta_*` columns from its shard sample's
+`meta.json`, built from the same per-tile tables as `cell_table.parquet`,
+so it doesn't depend on Cell Metadata.
 
 ### CellProfiler-feature track (optional second track)
 
@@ -80,15 +83,15 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
 
 | Diagram node | This pipeline's stage | Code |
 | --- | --- | --- |
-| Cell Images | `BUILD_CELL_IMAGES` | the ONLY stage that touches `starcall-workflow`'s tree (`phenotyping_dir`/`segmentation_dir`/`sequencing_dir`) or runs its snakemake -- **`origin/devel`**, cloned into the image at a pinned commit and run unmodified through `snakemake/Snakefile`. Requests each tile's shard, cell table and reads table, joins the segmentation-side cell table to the sequencing-side genotype table into one self-sufficient `cell_table.parquet`, and records where each tile's shard is in `tiles.parquet` -- see [Data contracts](#cell-images-build_cell_images-output-from-starcall-workflow) |
-| Cell Shards | `make_cell_shard` (a snakemake rule inside `BUILD_CELL_IMAGES`, body `tile_shard.py`) | crops every cell of one tile (bbox midpoint, `window` px, zero-padded) straight out of starcall's whole-tile image into that tile's WebDataset shard -- `tile_shard.crop_cell`, see decisions 17 and 24 |
-| Cell Metadata | `BUILD_CELL_METADATA` | `cell_metadata.py`: `cell_table.parquet`'s seven `meta_*` columns |
+| Cell Images | `BUILD_CELL_IMAGES` | the ONLY stage that touches `starcall-workflow`'s tree (`phenotyping_dir`/`segmentation_dir`/`sequencing_dir`) or runs its snakemake -- **`origin/devel`**, cloned into the image at a pinned commit and run unmodified through `snakemake/Snakefile`. Requests each well's shards and each tile's cell table and reads table, joins the segmentation-side cell table to the sequencing-side genotype table into one self-sufficient `cell_table.parquet`, and records where each shard is in `shards.parquet` -- see [Data contracts](#cell-images-build_cell_images-output-from-starcall-workflow) |
+| Cell Shards | `make_cell_shard` and `make_well_shards` (snakemake rules inside `BUILD_CELL_IMAGES`, bodies `tile_shard.py` and `well_shards.py`) | crops every cell of one tile (bbox midpoint, `window` px, zero-padded) straight out of starcall's whole-tile image into a temporary tile shard -- `tile_shard.crop_cell` -- then packs each well's tile shards into `well_{n}_shard_{k}.tar.gz`, `shard_size` cells each; see decisions 17 and 24 |
+| Cell Metadata | `BUILD_CELL_METADATA` | `cell_metadata.py`: `meta_batch` plus `cell_table.parquet`'s six key and QC `meta_*` columns |
 | Cell Embeddings | `EMBED_CELLS` | `embed.py`, wrapping Meta's `dinov2` Cell-DINO |
 | QC_FILTER | `QC_FILTER` (shared) | `fisseq_common.stages.qcfilter` |
 | NORMALIZE | `NORMALIZE` (shared) | `fisseq_common.stages.filter`: QC-passed keys + a normalizer fit on the wildtype cells |
 | OVWT_BATCHWISE | `OVWT_BATCHWISE` (shared) | `fisseq_common.stages.ovwt` |
 | Bootstrap feature selection | `AGGREGATE_FEATURE_TYPE_BATCHWISE`, `AGGREGATE_FEATURE_TYPE_PASSTHROUGH`, `GENERATE_SPLIT_BATCHWISE`, `AGGREGATE_HALF_BATCHWISE`, `CORRELATE_FEATURES_BATCHWISE`, `BLOCKLIST_BATCHWISE`, `COMBINE_BLOCKLISTS_BATCHWISE`, `FINALIZE_FEATURE_SELECT_BATCHWISE` (shared) | `fisseq_common.stages.{aggregate,generatesplit,correlatefeatures,blocklist,combineblocklists,finalize}` |
-| CellProfiler Feature Dataset | `BUILD_CP_FEATURES` | `cp_features.py`: selects `cp_*`-prefixed CellProfiler columns straight out of `cell_table.parquet` (that stage already folded in each tile's CellProfiler CSV, by row position) |
+| CellProfiler Feature Dataset | `BUILD_CP_FEATURES` | `cp_features.py`: the same seven `meta_*` columns plus every non-`meta_` column of `cell_table.parquet` -- the CellProfiler columns, under their own names (that stage already folded in each tile's CellProfiler CSV, by row position) |
 | CellProfiler track | `NORMALIZE_CP_FEATURES`, `AGGREGATE_FEATURE_TYPE_CP_FEATURES`, `OVWT_BATCHWISE_CP_FEATURES` (shared) | the same modules, `feature_selector=features` |
 
 ## Architecture decisions
@@ -182,23 +185,31 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
     (`upBarcode`/`aaChanges`/`editDistance`) that only ever exist in a
     *different* directory tree (`sequencing_dir`'s
     `{segmentation_type}_reads{params}.csv`, via `rule merge_final_tables`).
-    `BUILD_CELL_IMAGES` now owns all of this: it forces each tile's shard
+    `BUILD_CELL_IMAGES` now owns all of this: it forces each well's shards
     (see decision 17) and both per-tile tables (plus, for `cp_features:
     true` experiments, the CellProfiler CSV) to exist, joins the tables
-    into one `cell_table.parquet`, and publishes that alongside
-    `tiles.parquet`. Everything downstream consumes that output
+    into one `cell_table.parquet` in the data pipeline's shape (`meta_*`
+    key, QC and variant-class columns, then any CellProfiler columns),
+    and publishes that alongside
+    `shards.parquet`. Everything downstream consumes that output
     exclusively -- see
     [Data contracts](#cell-images-build_cell_images-output-from-starcall-workflow).
     The genotype join is by **index value**, not row position (the
     opposite of the CellProfiler join, below) -- verified that
     `combine_cell_reads`/`merge_final_tables` preserve the segmentation
     table's own index into the reads table unchanged, per-tile.
+    The reads table's genotype columns (named per experiment:
+    `barcode_col_name`/`aa_changes_col_name`/`edit_distance_col_name`)
+    are renamed to `meta_barcode`/`meta_aa_changes`/`meta_edit_distance`
+    there, so nothing downstream needs the overrides.
     CellProfiler's own CSV is still joined by row position, same
     convention as before, just relocated into `BUILD_CELL_IMAGES`'
-    `build_cell_images_table.py` and prefixed `cp_*` on the way in
-    (stripped back off by `BUILD_CP_FEATURES` on the way out).
+    `build_cell_images_table.py`, its columns kept under CellProfiler's
+    own names. Nothing else of the starcall tables (`bbox_*`, `mask8`,
+    other aux-table columns) reaches the table.
 17. **Each tile's cells are cropped straight into a WebDataset shard, by a
-    per-tile snakemake rule of this repo's own.** starcall-workflow's own
+    per-tile snakemake rule of this repo's own, and packed into per-well
+    shards by another.** starcall-workflow's own
     `rule make_cell_images` (phenotyping.smk) is broken against its own
     cell table: it centres each crop on `cell_table['xpos']`/`['ypos']`,
     columns that do not exist in the real per-tile segmentation CSV (only
@@ -210,28 +221,40 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
     includes starcall's Snakefile and adds `rule make_cell_shard`: per
     tile, it reads the whole-tile phenotype image (`{raw|corrected}_pt.tif`
     -- `use_corrected`, mirroring upstream's own `get_phenotyping_pt`), the
-    segmentation mask (`<segmentation_type>_mask.tif`) and the
-    segmentation table, and writes
-    `<segmentation_type>_{raw|corrected}_shard_<window>.tar` next to them.
+    segmentation mask (`<segmentation_type>_mask.tif`), the
+    segmentation table and the sequencing-side reads table (for each
+    sample's `meta.json`, decision 24), and writes
+    `<segmentation_type>_{raw|corrected}_shard_<window>.tar` next to them,
+    a `temp()` output.
     Its body is `tile_shard.py` (a `shell:` rule running this pipeline's
     own Python, not a `run:` block in the `ops` interpreter), which cuts
     every cell's `window` x `window` crop with `tile_shard.crop_cell`:
     centred on the bbox midpoint, zero-padded at tile edges, with the mask
     crop `mask == crop_index + 1` (starcall's own row-i-is-label-i+1
-    convention), as uint8. `BUILD_CELL_IMAGES` requests every tile's shard
-    (plus its cell and reads tables) as targets and records the shard
-    paths in a `tiles.parquet` sidecar (one row per tile, so a tile-level
-    fact isn't repeated on every cell row); `EMBED_CELLS` reads them in
-    place. `crop_index` comes from
+    convention), as uint8. `rule make_well_shards` (`well_shards.py`) then
+    copies a well's tile shards, in tile order, sample by sample and
+    undecoded, into gzipped shards of `shard_size` cells each,
+    `well_{n}_shard_{k:06}.tar.gz` (`shard_size: null`, the default: one
+    shard per well), in one directory per well,
+    `{well}_grid{N}/<segmentation_type>_{raw|corrected}_shards_<window>_<shard_size|all>/`.
+    How many shards a well has depends on its cell count, so that
+    directory is the rule's (`directory()`) output, and `shard_size` is in
+    its name like `window`, so changing it repacks rather than reusing
+    stale shards. `BUILD_CELL_IMAGES` requests every well's shard
+    directory (plus every tile's cell and reads tables) as targets and
+    records each shard's path in a `shards.parquet` sidecar (one row per
+    shard); `EMBED_CELLS` reads them in place. `crop_index` comes from
     `build_cell_images_table.read_segmentation_table`, the same reader
-    `cell_table.parquet` is built with.
+    `cell_table.parquet` is built with, and `meta.json` from
+    `tile_cell_meta`, the same function that builds the table's
+    `meta_*` columns.
 
     This replaced a `BUILD_DATASET` Nextflow stage that read every tile's
     image and mask back off disk, one tile after another in a single task,
     after the nested run finished. Because the crop is now an ordinary
     snakemake job, it fans out one job per tile under a `starcall_profile`,
-    and snakemake's mtime check caches each shard -- a tile already cut
-    isn't cut again. (Before that, crops were a patched
+    and snakemake's mtime check caches each well's shards -- a well already
+    packed isn't cut again. (Before that, crops were a patched
     `make_cell_images_bbox` rule injected into starcall's Snakefile via
     `ruleorder:`, writing intermediate per-tile crop-stack TIFFs; same
     arithmetic as `crop_cell`.)
@@ -241,16 +264,19 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
     -- snakemake never deletes one -- so it persisted under
     `phenotyping_dir`, roughly one extra copy of the experiment's stitched
     phenotype images. Now only `make_cell_shard` consumes it, so snakemake
-    deletes it once the shard is cut (confirmed in a snakemake 7.32.4
+    deletes it once the tile shard is cut (confirmed in a snakemake 7.32.4
     dry run: "Would remove temporary output .../raw_pt.tif"). The tile
     mask is `temp()` only when `rule stitch_tile_segmentation` produces
     it; `rule relabel_segmentation` and `rule
     stitch_tile_from_well_segmentation` write it as a plain output, so
     depending on which rule builds it for an experiment it may stay. (The
     old docs here claimed both image and mask were `temp()`; for the mask
-    that was only true of the one rule.) The shards themselves are about one
-    crop-sized copy of every cell, and stay under `phenotyping_dir`; they
-    are never copied into `pipeline_dir`.
+    that was only true of the one rule.) The tile shards are `temp()` too,
+    deleted once their well is packed, so what stays is the well shards:
+    about one gzipped crop-sized copy of every cell, under
+    `phenotyping_dir`, never copied into `pipeline_dir`. Changing
+    `shard_size` (or `window`, or `use_corrected`) therefore recuts every
+    tile, regenerating its temp image and mask.
 
     The nested run asks for one target, the task's `tiles_manifest.csv`.
     `snakemake/Snakefile`'s `fisseq_tiles_manifest` rule lists every tile
@@ -262,6 +288,24 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
     `phenotyping_grid_size`); this replaced a Python enumerate phase that
     wrote a `targets.txt` of every tile file and globbed `phenotyping_dir`
     to guess the grid size.
+
+    The shards are built in a pass of their own first, with the target
+    `fisseq_shards` (only every well's shard directory), and the manifest
+    after it. A tile shard's inputs are starcall's `temp()` whole-tile
+    image and mask, so missing shards make snakemake regenerate them. Snakemake reruns every
+    job in the DAG downstream of a job it runs ("Input files updated by
+    another job"), whatever `--rerun-triggers` says. With the CellProfiler
+    and reads tables in the same DAG, every tile's CellProfiler chain
+    reran, though `Cells.csv` was on disk (the 2026-10-08 cluster run). In
+    a pass with only the shards, nothing downstream of the image and mask
+    is in the DAG. By the manifest pass they have been deleted again, which
+    snakemake accepts for a `temp()` input whose consumers' outputs exist,
+    so only tables that are really missing get built. (Such a tile
+    regenerates the image, and so recuts its tile shard, and its well is
+    packed again.) The same holds one level down: the tile shards are
+    `temp()`, gone once packed, and a well whose shards exist doesn't
+    need them (checked on a snakemake 7.32.4 toy workflow of the same
+    shape: with the shards there, neither pass has anything to do).
 18. **The nested starcall run is driven by a user-supplied snakemake
     profile, with no scheduler-specific code in this repo.**
     `BUILD_CELL_IMAGES` runs starcall's own Snakefile (through
@@ -307,14 +351,15 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
     consuming the same QC output but neither depending on the other. This
     matches `fisseq-data-pipeline`'s own shape, where `INPUT` -> `QC_FILTER`
     is likewise the shared trunk and QC the fan-out point.
-    The projection can't be folded into `QC_FILTER` itself:
-    `qcfilter.py`'s `filter_columns` renames the barcode/edit-distance/
-    amino-acid-changes columns but then keeps only `meta_`-prefixed (and
-    CellProfiler-looking) columns, so the cell table's unprefixed
-    `well`/`tile`/`tile_cell_index` would be dropped and the pipeline's
-    `join_keys` would have nothing to join on. It's shared with
-    `BUILD_CP_FEATURES` via `utils/cell_table.py` instead, so the two
-    stages can't drift on those keys.
+    The projection can't be folded into `QC_FILTER` itself: the cell
+    table has no `meta_batch`, the first of the pipeline's `join_keys`,
+    and `qcfilter.py`'s `filter_columns` keeps CellProfiler-looking
+    columns alongside the `meta_*` ones, so a `cp_features: true`
+    experiment's CellProfiler columns would be carried into
+    `filtered_cells.parquet`. The projection
+    (`utils.cell_table.cell_metadata_exprs`) is shared with
+    `BUILD_CP_FEATURES` and `EMBED_CELLS` instead, so the three stages
+    can't drift on those columns.
 
     Second consequence, and a deliberate behavior change: missing
     genotype values are now `null`, not the string `"nan"`. The old
@@ -325,10 +370,11 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
     `embeddings.parquet`). `cp_features.py`'s polars projection always
     produced `null` for the same cells, so the two tracks silently
     disagreed. Every stage now takes its `meta_*` columns from
-    `utils/cell_table.py`'s projection (`EMBED_CELLS` by joining
-    `BUILD_CELL_METADATA`'s output back on, decision 24), so a cell's
-    `meta_*` values are identical wherever they appear, and `null` -- the
-    correct representation -- is what they are.
+    `utils/cell_table.py`'s projection of rows built by one function,
+    `build_cell_images_table.tile_cell_meta` (`EMBED_CELLS` from each
+    sample's `meta.json`, decision 24), so a cell's `meta_*` values are
+    identical wherever they appear, and `null` -- the correct
+    representation -- is what they are.
     Nothing joins on these columns (`join_keys` is batch/well/tile/
     cell_index), so this changes no join behavior; it only affects how
     unmatched cells are labeled, and those are cells QC exists to drop.
@@ -346,11 +392,14 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
     (`test_cp_track_survives_embedding_failure`).
 
     The column-name overrides (`barcode_col_name`/`aa_changes_col_name`/
-    `edit_distance_col_name`) reach both cell-table readers,
-    `BUILD_CELL_METADATA` and `BUILD_CP_FEATURES`, as the same plan string
-    (`cell_table_args`). Until `BUILD_DATASET` was removed they went to it
-    and `BUILD_CP_FEATURES` but never to `BUILD_CELL_METADATA`, so an
-    experiment overriding them got QC run on the defaults.
+    `edit_distance_col_name`) go to `BUILD_CELL_IMAGES` alone, which
+    renames those columns to `meta_*` in both the table and the shards
+    (the nested snakemake's `fisseq_*_col` config keys, read back by
+    phase 3). Until `BUILD_DATASET` was removed they went to it and
+    `BUILD_CP_FEATURES` but never to `BUILD_CELL_METADATA`, so an
+    experiment overriding them got QC run on the defaults; for a while
+    after, they went to both cell-table readers as the plan's
+    `cell_table_args`, which is now empty.
 
 20. **The nested snakemake's submitter stays inside the container.**
     snakemake bakes its own `sys.executable` into every jobscript it
@@ -399,8 +448,8 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
     `get_aggregate_meta_data`'s `*_counts` lists by value. A rerun at the same `random_seed`
     reproduces the same splits, blocklist and scores.
 24. **starcall-workflow is pinned to one commit at image build time, run
-    through a wrapper Snakefile; a cell shard's `meta.json` carries only
-    the cell's location.** The root `Dockerfile` clones upstream
+    through a wrapper Snakefile; a cell shard's `meta.json` carries
+    everything but `meta_batch`.** The root `Dockerfile` clones upstream
     (`--recursive`, for its own `packages/starcall`/`packages/constitch`
     submodules) and checks out `ARG STARCALL_WORKFLOW_COMMIT`, a commit on
     its `devel` branch, into `/opt/fisseq-embeddings-pipeline/starcall-workflow/`.
@@ -432,21 +481,35 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
     STARCALL_WORKFLOW_COMMIT=<sha>` to try one), rebuilding the image, and
     running `tests/integration --container`.
 
-    The shard's `meta.json` holds only `meta_well`/`meta_tile`/
-    `meta_cell_index`. The genotype columns live in a different starcall
-    tree (`sequencing_dir`) under per-experiment column names, and
-    `meta_batch` is a pipeline-level name. Baking either into a file
-    snakemake caches by mtime would leave it stale whenever they change
-    (snakemake wouldn't know to recut it), and would copy what
-    `BUILD_CELL_METADATA`'s `metadata.parquet` already holds (decision
-    10). `EMBED_CELLS` instead takes that `metadata.parquet` and
-    left-joins it on by location (`embed.attach_metadata`), raising if any
-    embedded cell is unmatched, so `embeddings.parquet` keeps exactly its
-    old schema: the seven `CELL_METADATA_SCHEMA` columns, then `emb_*`.
+    The shard's `meta.json` holds the cell's `CELL_META_SCHEMA` row: its
+    key (`meta_well`/`meta_tile`/`meta_cell_index`), the QC fields
+    (`meta_barcode`/`meta_aa_changes`/`meta_edit_distance`) and
+    `meta_variant_class`. `make_cell_shard` takes the tile's reads table
+    as an input for it and builds the row with
+    `build_cell_images_table.tile_cell_meta`, the same function, on the
+    same CSVs, as `cell_table.parquet`'s leading columns, so the two can't
+    disagree; they join on (`meta_well`, `meta_tile`, `meta_cell_index`).
+    `EMBED_CELLS` therefore reads no table of `BUILD_CELL_METADATA`'s and
+    starts as soon as `BUILD_CELL_IMAGES` finishes; `embeddings.parquet`
+    keeps exactly its old schema: the seven `CELL_METADATA_SCHEMA`
+    columns, then `emb_*`.
+
+    Only `meta_batch` is withheld. The shards are cached in starcall's
+    tree by snakemake's mtime check, and `batch_stem` is a run-level
+    name: baked into a cached file it would go stale whenever it changes,
+    since snakemake wouldn't know to recut it. `EMBED_CELLS` adds it from
+    its own `batch_stem`. The genotype column names have the same
+    weakness, accepted: they're `make_cell_shard` params, and snakemake
+    reruns on mtime, not params, so changing an experiment's
+    `*_col_name` override doesn't recut its existing shards (delete the
+    well's shard directory to force it). Adding the reads table as an
+    input doesn't make the shards pass rerun the reads chain: a dry run
+    against starcall's real Snakefile showed the temp `raw_pt.tif`/
+    `cells_mask.tif` aren't among its ancestors.
 
     The trade-off is more moving parts in exchange for less redundant work:
-    a commit to keep pinned and bump, a Snakefile of this repo's
-    own layered on upstream's, and a metadata join at embed time. In
+    a commit to keep pinned and bump, and a Snakefile of this repo's
+    own layered on upstream's. In
     return, cropping fans out one job per tile under a `starcall_profile`
     instead of one serial pass in one task, snakemake mtime-caches every
     shard, the whole-tile image is cleaned up as the `temp()` file it is
@@ -492,21 +555,24 @@ packages/fisseq-embeddings-pipeline/
                                    # snakemake config, cluster-mode jobscript)
     tile_shard.py                 # BUILD_CELL_IMAGES phase 2's make_cell_shard
                                    # rule body: one tile's WebDataset shard
+    well_shards.py                # ... and make_well_shards': one well's tile
+                                   # shards packed into gzipped shard_size shards
     build_cell_images_table.py    # BUILD_CELL_IMAGES phase 3 (cell_table.parquet
-                                   # + tiles.parquet)
+                                   # + shards.parquet)
     embed.py                      # EMBED_CELLS -- Cell-DINO wrapper
     cp_features.py                # BUILD_CP_FEATURES
     vendor/dinov2/                # minimal vendored dinov2 subset
     utils/
-      cell_table.py               # shared cell_table.parquet -> meta_* projection
-                                   # (BUILD_CELL_METADATA + BUILD_CP_FEATURES)
+      cell_table.py               # the meta_* schemas and the shared projection
+                                   # (BUILD_CELL_METADATA, BUILD_CP_FEATURES, EMBED_CELLS)
   tests/
     unit/
     integration/                  # end-to-end `nextflow run` + output assertions
 ```
 
 New dependency versus `fisseq-data-pipeline`'s stack: **`webdataset`**
-(`tile_shard.py` writes shards, `EMBED_CELLS` reads them), plus whatever
+(`tile_shard.py` writes shards, `EMBED_CELLS` reads them; `well_shards.py`
+repacks them with the standard library's `tarfile`), plus whatever
 `torch` pulls in for the GPU stage.
 
 ## Shared and vendored code
@@ -537,7 +603,7 @@ the `Dockerfile`'s `STARCALL_WORKFLOW_COMMIT` (decision 24).
 every configured well, it forces real `starcall-workflow` outputs to
 exist (via one `snakemake <targets>` invocation per experiment, against
 `snakemake/Snakefile` -- starcall's own Snakefile at the image's pinned
-commit, unmodified, plus `make_cell_shard` -- and the real,
+commit, unmodified, plus `make_cell_shard`/`make_well_shards` -- and the real,
 unredirected tree, so snakemake's own mtime caching reuses whatever's
 already built) and reads them:
 
@@ -549,14 +615,18 @@ already built) and reads them:
   `.../{segmentation_type}_mask.tif`, `(H, W)`; label `i+1` is the cell
   table's `i`-th row, 0-based.
 - **`rule make_cell_shard`** (this repo's, `snakemake/Snakefile`) -- the
-  tile's WebDataset shard, cut from the two above,
-  `.../{segmentation_type}_{raw|corrected}_shard_{window}.tar`; see
-  [Cell Shards](#cell-shards-make_cell_shard) below.
+  tile's WebDataset shard, cut from the two above (its `meta.json` from
+  the segmentation and reads tables below),
+  `.../{segmentation_type}_{raw|corrected}_shard_{window}.tar` (`temp()`).
+- **`rule make_well_shards`** (this repo's) -- the well's WebDataset
+  shards, packed from its tiles' shards,
+  `phenotyping_dir/{well}_grid{N}/{segmentation_type}_{raw|corrected}_shards_{window}_{shard_size|all}/well_{n}_shard_{k:06}.tar.gz`;
+  see [Cell Shards](#cell-shards-make_cell_shard-make_well_shards) below.
 
-  Only the shard is requested as a target, not the image or mask, so the
-  `temp()` whole-tile image is deleted once the shard is cut -- see
-  decision 17. The shard's path is recorded, not copied, in
-  `tiles.parquet`.
+  Only the well's shard directory is requested as a target, not the tile
+  shards, image or mask, so the `temp()` ones are deleted once the well
+  is packed -- see decision 17. Each shard's path is recorded, not
+  copied, in `shards.parquet`.
 - **`rule split_grid_table`/`drop_duplicate_cells`** -- the tile's
   segmentation-side cell table:
   `phenotyping_dir/{well}_grid{N}/tile{x}x{y}y/{segmentation_type}.csv`,
@@ -580,20 +650,28 @@ already built) and reads them:
 to the sequencing table **by index value** (both are the same
 `RangeIndex`, restarting at 1 per tile -- verified via
 `combine_cell_reads`/`merge_final_tables`'s source; see architecture
-decision 16), and, if `cp_features`, the CellProfiler CSV **by row
-position** (renamed `cp_<name>`). Every tile's joined table is
-concatenated (`diagonal_relaxed` -- schema legitimately varies per
-experiment) into one `cell_table.parquet` per experiment, published
-alongside `tiles.parquet`:
+decision 16), keeping the reads table's three genotype columns renamed to
+`meta_*` and adding `meta_variant_class` (`tile_cell_meta`), and, if
+`cp_features`, the CellProfiler CSV **by row position**, under
+CellProfiler's own column names (`build_tile_table`, which raises on a
+row-count mismatch). The genotype column names come from the nested run's
+`snakemake_config.yaml` (`fisseq_*_col`), the same ones the shards are cut
+with. Every tile's table is concatenated (`diagonal_relaxed` -- the
+CellProfiler columns aren't fixed) into one `cell_table.parquet` per
+experiment, published alongside `shards.parquet`:
 
 ```text
 {pipeline_dir}/cell_images/{batch_stem}/
-├── cell_table.parquet   one row per cell; bbox_x1/y1/x2/y2, crop_index, genotype (+ cp_*) columns
-└── tiles.parquet        one row per tile: well, tile, shard_tar (a real path under phenotyping_dir)
+├── cell_table.parquet   one row per cell; meta_well, meta_tile, meta_cell_index, meta_barcode,
+│                        meta_aa_changes, meta_edit_distance, meta_variant_class (+ CellProfiler columns)
+└── shards.parquet       one row per shard, in order: well, shard_tar (a real path under phenotyping_dir)
 ```
 
+No `meta_batch` (the stages reading it add it) and none of the raw
+starcall columns (`bbox_*`, `orig_index`, `mask8`, the unrenamed genotype
+or other aux-table columns, `crop_index`).
 `BUILD_CELL_METADATA`/`BUILD_CP_FEATURES` read only `cell_table.parquet`,
-and `EMBED_CELLS` only `tiles.parquet` (plus the shards it points at) --
+and `EMBED_CELLS` only `shards.parquet` (plus the shards it points at) --
 none of them needs `phenotyping_dir`/`wells`/`grid_size`/
 `segmentation_type`/`use_corrected`.
 
@@ -608,7 +686,7 @@ pipeline never reads that file -- `BUILD_CELL_IMAGES` joins strictly
 per-tile, where the index is genuinely unique -- but it's a landmine for
 anyone reaching for `.cells_full.csv` directly elsewhere.
 
-### Cell Shards (`make_cell_shard`)
+### Cell Shards (`make_cell_shard`, `make_well_shards`)
 
 Per tile: one **WebDataset** `.tar` (one sample per cell), written by the
 nested run's `make_cell_shard` rule (`tile_shard.py`), which reads the
@@ -619,19 +697,28 @@ where it runs off the tile, with the mask crop `mask == crop_index + 1` as
 uint8 (neighbouring cells inside the window are masked out). Each sample is
 keyed `{well}_{tile}_{tile_cell_index}` and carries `crop.npy`
 (`(C, window, window)`), `mask.npy` (`(window, window)`) and `meta.json`
-(`meta_well`, `meta_tile`, `meta_cell_index` only -- every other `meta_*`
-column is joined on by `EMBED_CELLS` from `BUILD_CELL_METADATA`'s
-`metadata.parquet`; decision 24). A tile with no cells still gets a valid,
+(the cell's `CELL_META_SCHEMA` row -- the same seven `meta_*` columns
+`cell_table.parquet` leads with, from the same `tile_cell_meta`; no
+`meta_batch`, which `EMBED_CELLS` adds; decision 24). A tile with no cells still gets a valid,
 empty tar, and its image and mask are never opened.
+
+Per well: `make_well_shards` (`well_shards.py`) copies the well's tile
+shards, tile by tile in grid order, into gzipped `.tar.gz` shards of
+`shard_size` cells each (the last holds the remainder; a sample never
+straddles two), `well_{n}_shard_{k:06}.tar.gz` (`n` is the well's number,
+`well3` -> `3`). The tar members are copied byte for byte, so samples are
+exactly what `make_cell_shard` wrote. With `shard_size: null` a well is
+one shard; a well with no cells still gets one empty shard. The tile
+shards are `temp()` and go once the well is packed.
 
 ### CellProfiler feature columns (`BUILD_CP_FEATURES` input)
 
 `BUILD_CP_FEATURES` no longer reads any CellProfiler CSV, or
-`starcall-workflow`'s tree, directly -- it selects `cp_*`-prefixed columns
-straight out of `BUILD_CELL_IMAGES`' `cell_table.parquet` (stripping the
-prefix back off on the way out, so `cp_features.parquet`'s own column
-names are unchanged: one column per CellProfiler measurement, no `meta_*`
-prefix). The row-position join between each tile's cell table and its
+`starcall-workflow`'s tree, directly -- it takes every non-`meta_` column
+straight out of `BUILD_CELL_IMAGES`' `cell_table.parquet`, which carries
+the CellProfiler columns under their own names, so `cp_features.parquet`'s
+column names are unchanged: one column per CellProfiler measurement, no
+`meta_*` prefix. The row-position join between each tile's cell table and its
 CellProfiler CSV -- CellProfiler's own `ObjectNumber` numbering has no
 shared index with the segmentation table's `orig_index`/`RangeIndex` --
 now happens once, inside `BUILD_CELL_IMAGES`' `build_cell_images_table.py`,

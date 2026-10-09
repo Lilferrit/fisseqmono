@@ -6,18 +6,19 @@ BUILD_CELL_IMAGES' three phases (the `build_cell_images` rule), run
 after the rule's own nested `snakemake` invocation (phase 2, the one
 step that still needs the separate `ops` conda env -- see the root
 `Dockerfile`) has materialized every tile's segmentation/reads/CellProfiler
-CSVs.
+CSVs and every well's WebDataset shards.
 
 Reads `manifest` (written in phase 2 by `snakemake/Snakefile`'s
-`fisseq_tiles_manifest` rule),
-joins each tile's segmentation-side `{segtype}.csv` to sequencing_dir's
-`{segtype}_reads{params}.csv` (by index value -- both are provably the same
-RangeIndex per tile, see `combine_cell_reads`/`merge_final_tables` below)
-and, if `cp_features`, the tile's CellProfiler CSV (by row position,
-renamed `cp_<name>`), into one `output` (`cell_table.parquet`) covering the
-whole experiment -- the ONE complete, self-sufficient cell table
-BUILD_CELL_METADATA/BUILD_CP_FEATURES need; neither reads starcall-workflow's
-tree directly.
+`fisseq_tiles_manifest` rule) and writes `output` (`cell_table.parquet`),
+the experiment's cell table in the data pipeline's shape: one row per cell,
+the `meta_*` columns of :func:`tile_cell_meta` (the cell's key, the three
+QC fields and the variant class -- exactly what each shard sample's
+`meta.json` carries) and, if `cp_features`, the tile's CellProfiler
+columns under their own names. BUILD_CELL_METADATA/BUILD_CP_FEATURES read
+only this table, never starcall-workflow's tree.
+
+The genotype column names come from `snakemake_config` (the nested run's
+`--configfile`), so the table and the shards are built with the same ones.
 
 Reads CSVs via pandas (matching starcall-workflow's own
 ``to_csv()``/``read_csv(index_col=0)`` convention), but writes the final
@@ -46,12 +47,26 @@ from typing import Any, Dict, List, Optional
 import hydra
 import pandas as pd
 import polars as pl
+import yaml
 from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig, OmegaConf
 
+from fisseq_common.schema import (
+    META_BARCODE_COL,
+    META_EDIT_DISTANCE_COL,
+    META_VARIANT_CLASS,
+)
 from fisseq_common.utils.log import setup_logging
+from fisseq_common.variant import variant_type_expr
 
 from .config import AppConfig
+from .utils.cell_table import (
+    CELL_META_SCHEMA,
+    META_AA_CHANGES_COL,
+    META_CELL_INDEX_COL,
+    META_TILE_COL,
+    META_WELL_COL,
+)
 
 
 @dataclasses.dataclass
@@ -72,15 +87,46 @@ class BuildCellImagesTableConfig(AppConfig):
     output : str
         Output parquet filename (relative to `output_dir`). Defaults to
         ``"cell_table.parquet"``.
-    tiles_output : str
-        Output parquet filename (relative to `output_dir`) for the per-tile
-        image table -- see :func:`build_tiles_table`. Defaults to
-        ``"tiles.parquet"``.
+    shards_manifest : str
+        Shard manifest CSV, written by the same rule (relative to
+        `output_dir`). Defaults to ``"shards_manifest.csv"``.
+    shards_output : str
+        Output parquet filename (relative to `output_dir`) for the shard
+        table -- see :func:`build_shards_table`. Defaults to
+        ``"shards.parquet"``.
+    snakemake_config : str
+        The nested snakemake's ``--configfile`` (relative to `output_dir`),
+        written by build_cell_images_prepare; its ``fisseq_*_col`` keys
+        name the reads tables' genotype columns. Defaults to
+        ``"snakemake_config.yaml"``.
     """
 
     manifest: str = "tiles_manifest.csv"
+    shards_manifest: str = "shards_manifest.csv"
     output: str = "cell_table.parquet"
-    tiles_output: str = "tiles.parquet"
+    shards_output: str = "shards.parquet"
+    snakemake_config: str = "snakemake_config.yaml"
+
+
+@dataclasses.dataclass(frozen=True)
+class GenotypeColumns:
+    """Which columns of a tile's reads table are the barcode, amino-acid
+    changes and edit distance -- starcall's aux tables name them per
+    experiment. Each experiment's ``barcode_col_name``/
+    ``aa_changes_col_name``/``edit_distance_col_name``."""
+
+    barcode: str = "upBarcode"
+    aa_changes: str = "aaChanges"
+    edit_distance: str = "editDistance"
+
+    @classmethod
+    def from_snakemake_config(cls, config: Dict[str, Any]) -> "GenotypeColumns":
+        """The ``fisseq_*_col`` keys build_cell_images_prepare writes."""
+        return cls(
+            barcode=config["fisseq_barcode_col"],
+            aa_changes=config["fisseq_aa_changes_col"],
+            edit_distance=config["fisseq_edit_distance_col"],
+        )
 
 
 def _read_indexed_csv(path: str) -> pd.DataFrame:
@@ -112,52 +158,49 @@ def read_segmentation_table(segmentation_csv: str) -> pd.DataFrame:
     return seg
 
 
-def build_tile_table(
+def tile_cell_meta(
     segmentation_csv: str,
     reads_csv: str,
-    cellprofiler_csv: Optional[str],
     well: str,
     tile: str,
-) -> pd.DataFrame:
-    """Combine one tile's segmentation + sequencing (+ CellProfiler) tables.
+    columns: GenotypeColumns,
+) -> pl.DataFrame:
+    """One tile's :data:`CELL_META_SCHEMA` rows, one per cell.
+
+    The one place a cell's metadata is built: ``cell_table.parquet``'s
+    leading columns (:func:`build_tile_table`) and every shard sample's
+    ``meta.json`` (``tile_shard.write_tile_shard``) both come from here.
 
     Parameters
     ----------
     segmentation_csv : str
-        This tile's ``{segmentation_type}.csv`` (phenotyping_dir-rooted,
-        the same file ``make_cell_shard`` crops from). Provides
-        ``bbox_x1/y1/x2/y2``, ``orig_index``, ``mask8``, and this tile's
-        own row index (``tile_cell_index``, written as
-        ``meta_cell_index`` -- see :func:`read_segmentation_table`).
+        The tile's ``{segmentation_type}.csv`` (phenotyping_dir). Its own
+        row index is the cell's ``meta_cell_index`` (see
+        :func:`read_segmentation_table`).
     reads_csv : str
-        This tile's ``{segmentation_type}_reads{params}.csv``
-        (sequencing_dir). Provides ``editDistance`` and whatever
-        aux-table genotype columns (barcode/aaChanges-equivalents; names
-        vary per experiment) got joined in upstream.
-    cellprofiler_csv : Optional[str]
-        This tile's ``cellprofiler{cycle}_{pipeline}.csv``
-        (phenotyping_dir), or ``None``/empty if this experiment doesn't
-        have ``cp_features`` enabled. Every column is renamed ``cp_<name>``
-        so ``cp_features.py`` can select the whole feature space via a
-        ``cs.starts_with("cp_")`` selector.
+        The tile's ``{segmentation_type}_reads{params}.csv``
+        (sequencing_dir), joined on by index value: starcall's
+        ``combine_cell_reads``/``merge_final_tables`` keep the segmentation
+        table's index unchanged.
     well, tile : str
-        This tile's identifiers, added as columns.
+        The tile's identifiers.
+    columns : GenotypeColumns
+        Which reads-table columns are the barcode, amino-acid changes and
+        edit distance; names vary per experiment.
 
     Returns
     -------
-    pd.DataFrame
-        One row per cell, in the segmentation CSV's own on-disk row order
-        -- this order is load-bearing: ``crop_index`` (0-based) is derived
-        from it (see :func:`read_segmentation_table`).
+    pl.DataFrame
+        :data:`CELL_META_SCHEMA`, in the segmentation CSV's on-disk row
+        order -- load-bearing: row ``i`` is mask label ``i + 1``.
+        ``meta_variant_class`` is ``fisseq_common.variant``'s class of
+        ``meta_aa_changes`` (null where it is).
 
     Raises
     ------
     ValueError
-        If the segmentation and reads tables' ``tile_cell_index`` sets
-        don't match exactly (index-value join -- see
-        `the `build_cell_images` rule`'s module docstring), or if
-        ``cellprofiler_csv`` is given and its row count doesn't match the
-        segmentation table's (row-position join).
+        If the two tables' cell index sets differ, or the reads table
+        lacks one of ``columns``.
     """
     seg = read_segmentation_table(segmentation_csv)
 
@@ -173,39 +216,80 @@ def build_tile_table(
             f"reads table {reads_csv!r} have different tile_cell_index "
             f"sets (segmentation-only: {sorted(seg_keys - reads_keys)}, "
             f"reads-only: {sorted(reads_keys - seg_keys)}) -- expected an "
-            "exact match (see the `build_cell_images` rule's module docstring on "
-            "the index-value join this relies on)."
+            "exact match (the reads table keeps the segmentation table's "
+            "own index)."
         )
+    wanted = [columns.barcode, columns.aa_changes, columns.edit_distance]
+    missing = [c for c in wanted if c not in reads.columns]
+    if missing:
+        raise ValueError(
+            f"{well}/{tile}: reads table {reads_csv!r} has no column(s) "
+            f"{missing}; it has {list(reads.columns)}. Set barcode_col_name/"
+            "aa_changes_col_name/edit_distance_col_name for this experiment."
+        )
+    if len(seg) == 0:
+        return pl.DataFrame(schema=CELL_META_SCHEMA)
 
-    table = seg.merge(
-        reads, on="tile_cell_index", how="inner", suffixes=("", "_reads_dup")
+    merged = seg[["tile_cell_index"]].merge(
+        reads[["tile_cell_index", *wanted]], on="tile_cell_index", how="left"
     )
-    dup_cols = [c for c in table.columns if c.endswith("_reads_dup")]
-    if dup_cols:
-        table = table.drop(columns=dup_cols)
-
-    if cellprofiler_csv:
-        cp = _read_indexed_csv(cellprofiler_csv)
-        if len(cp.index) != len(seg.index):
-            raise ValueError(
-                f"{well}/{tile}: segmentation table {segmentation_csv!r} has "
-                f"{len(seg.index)} row(s) but CellProfiler output "
-                f"{cellprofiler_csv!r} has {len(cp.index)} row(s) -- the "
-                "row-position join this relies on requires equal row "
-                "counts (see the `build_cell_images` rule's module docstring)."
-            )
-        cp = cp.reset_index(drop=True)
-        cp.columns = [f"cp_{c}" for c in cp.columns]
-        table = table.reset_index(drop=True)
-        table = pd.concat([table, cp], axis=1)
-
-    table["well"] = well
-    table["tile"] = tile
-    return table
+    return (
+        pl.from_pandas(merged)
+        .select(
+            pl.lit(well).alias(META_WELL_COL),
+            pl.lit(tile).alias(META_TILE_COL),
+            pl.col("tile_cell_index").cast(pl.Int64).alias(META_CELL_INDEX_COL),
+            pl.col(columns.barcode).cast(pl.String).alias(META_BARCODE_COL),
+            pl.col(columns.aa_changes).cast(pl.String).alias(META_AA_CHANGES_COL),
+            pl.col(columns.edit_distance).cast(pl.Int64).alias(META_EDIT_DISTANCE_COL),
+        )
+        .with_columns(variant_type_expr(META_AA_CHANGES_COL).alias(META_VARIANT_CLASS))
+        .cast(CELL_META_SCHEMA)
+    )
 
 
-def build_cell_table(tiles: List[Dict[str, Any]]) -> pl.DataFrame:
-    """Combine every tile's table (see ``build_tile_table``) into one
+def build_tile_table(
+    segmentation_csv: str,
+    reads_csv: str,
+    cellprofiler_csv: Optional[str],
+    well: str,
+    tile: str,
+    columns: GenotypeColumns,
+) -> pl.DataFrame:
+    """One tile's rows of ``cell_table.parquet``.
+
+    :func:`tile_cell_meta`'s columns, then -- if ``cellprofiler_csv`` is
+    given -- every column of the tile's CellProfiler CSV under its own
+    CellProfiler name, joined by row position (CellProfiler numbers its
+    objects in mask-label order, which is the segmentation table's row
+    order; it shares no index with it).
+
+    Raises
+    ------
+    ValueError
+        As :func:`tile_cell_meta`, or if the CellProfiler CSV's row count
+        differs from the segmentation table's.
+    """
+    meta = tile_cell_meta(segmentation_csv, reads_csv, well, tile, columns)
+    if not cellprofiler_csv:
+        return meta
+    cp = _read_indexed_csv(cellprofiler_csv)
+    if len(cp.index) != meta.height:
+        raise ValueError(
+            f"{well}/{tile}: segmentation table {segmentation_csv!r} has "
+            f"{meta.height} row(s) but CellProfiler output "
+            f"{cellprofiler_csv!r} has {len(cp.index)} row(s) -- the "
+            "row-position join this relies on requires equal row counts."
+        )
+    if meta.height == 0:
+        return meta
+    return meta.hstack(pl.from_pandas(cp.reset_index(drop=True)))
+
+
+def build_cell_table(
+    tiles: List[Dict[str, Any]], columns: GenotypeColumns
+) -> pl.DataFrame:
+    """Every tile's rows (see :func:`build_tile_table`) as one
     per-experiment ``cell_table.parquet``-shaped frame.
 
     Parameters
@@ -214,54 +298,54 @@ def build_cell_table(tiles: List[Dict[str, Any]]) -> pl.DataFrame:
         Each dict: ``well``, ``tile``, ``segmentation_csv``, ``reads_csv``,
         ``cellprofiler_csv`` (empty string/``None`` if ``cp_features`` is
         off for this experiment).
+    columns : GenotypeColumns
+        The reads tables' genotype column names.
 
     Returns
     -------
     pl.DataFrame
-        Concatenated ``how="diagonal_relaxed"`` across tiles -- schema
-        legitimately varies per experiment (aux-table/CellProfiler columns
-        aren't fixed; see `the `build_cell_images` rule`'s module docstring).
-        Empty (no columns) if ``tiles`` is empty.
+        Concatenated ``how="diagonal_relaxed"`` across tiles (CellProfiler
+        columns aren't fixed). Just :data:`CELL_META_SCHEMA` if ``tiles`` is
+        empty.
     """
-    frames = []
-    for tile_info in tiles:
-        pdf = build_tile_table(
+    frames = [
+        build_tile_table(
             segmentation_csv=tile_info["segmentation_csv"],
             reads_csv=tile_info["reads_csv"],
             cellprofiler_csv=tile_info.get("cellprofiler_csv") or None,
             well=tile_info["well"],
             tile=tile_info["tile"],
+            columns=columns,
         )
-        frames.append(pl.from_pandas(pdf))
+        for tile_info in tiles
+    ]
     if not frames:
-        return pl.DataFrame()
+        return pl.DataFrame(schema=CELL_META_SCHEMA)
     return pl.concat(frames, how="diagonal_relaxed")
 
 
-TILES_SCHEMA: Dict[str, pl.DataType] = {
+SHARDS_SCHEMA: Dict[str, pl.DataType] = {
     "well": pl.String,
-    "tile": pl.String,
     "shard_tar": pl.String,
 }
 
 
-def build_tiles_table(tiles: List[Dict[str, Any]]) -> pl.DataFrame:
-    """One row per tile: where the nested snakemake's ``make_cell_shard``
-    rule (``snakemake/Snakefile``) left that tile's WebDataset shard,
-    under phenotyping_dir.
+def build_shards_table(shards: List[Dict[str, Any]]) -> pl.DataFrame:
+    """One row per WebDataset shard, in order: where the nested snakemake's
+    ``make_well_shards`` rule (``snakemake/Snakefile``) left it, under
+    phenotyping_dir, and its well.
 
     EMBED_CELLS reads its shards from this list. It's a sidecar rather
-    than a ``cell_table.parquet`` column so a tile-level fact isn't
-    repeated on every one of that tile's cell rows, and so
-    ``cell_table.parquet`` stays purely per-cell.
+    than a ``cell_table.parquet`` column so ``cell_table.parquet`` stays
+    purely per-cell.
     """
     return pl.DataFrame(
-        [{key: tile_info[key] for key in TILES_SCHEMA} for tile_info in tiles],
-        schema=TILES_SCHEMA,
+        [{key: shard[key] for key in SHARDS_SCHEMA} for shard in shards],
+        schema=SHARDS_SCHEMA,
     )
 
 
-def _read_tiles_manifest(path: str) -> List[Dict[str, str]]:
+def _read_manifest(path: str) -> List[Dict[str, str]]:
     with open(path, newline="") as f:
         return [dict(row) for row in csv.DictReader(f)]
 
@@ -284,8 +368,10 @@ def main(cfg: DictConfig) -> None:
         python -m fisseq_embeddings_pipeline.build_cell_images_table \\
             output_dir=./out \\
             manifest=tiles_manifest.csv \\
+            shards_manifest=shards_manifest.csv \\
             output=cell_table.parquet \\
-            tiles_output=tiles.parquet
+            shards_output=shards.parquet \\
+            snakemake_config=snakemake_config.yaml
     """
     table_cfg: BuildCellImagesTableConfig = OmegaConf.to_object(cfg)
 
@@ -295,18 +381,22 @@ def main(cfg: DictConfig) -> None:
     setup_logging(table_cfg, "build_cell_images_table")
 
     manifest_path = output_dir / table_cfg.manifest
-    tiles = _read_tiles_manifest(str(manifest_path))
-    table = build_cell_table(tiles)
+    tiles = _read_manifest(str(manifest_path))
+    with open(output_dir / table_cfg.snakemake_config) as f:
+        columns = GenotypeColumns.from_snakemake_config(yaml.safe_load(f))
+    table = build_cell_table(tiles, columns)
 
     output_path = output_dir / table_cfg.output
     table.write_parquet(output_path)
-    build_tiles_table(tiles).write_parquet(output_dir / table_cfg.tiles_output)
+    shards = _read_manifest(str(output_dir / table_cfg.shards_manifest))
+    build_shards_table(shards).write_parquet(output_dir / table_cfg.shards_output)
 
     logging.info(
-        "Wrote %s (%d cell(s) across %d tile(s))",
+        "Wrote %s (%d cell(s) across %d tile(s), in %d shard(s))",
         output_path,
         table.height,
         len(tiles),
+        len(shards),
     )
 
 

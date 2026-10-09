@@ -14,20 +14,23 @@ build a hard dependency of the CellProfiler track too, since
 `NORMALIZE_CP_FEATURES` consumes the same QC output. See
 [Nextflow Workflow: Track independence](../nextflow.md#track-independence).
 
-`EMBED_CELLS` reads this same `metadata.parquet` too: a cell shard's
-`meta.json` carries only the cell's location, and every other `meta_*`
-column is joined on from here (see [Cell Embeddings](embed.md)) -- so a
-cell's `meta_*` values are identical in QC's input and in
-`embeddings.parquet`.
+`cell_table.parquet` already carries canonical `meta_*` names
+(`BUILD_CELL_IMAGES` renames the reads tables' genotype columns), so the
+projection only adds `meta_batch` -- a run-level name neither the table nor
+the shards carry -- and leaves out `meta_variant_class`, which `QC_FILTER`
+and every stage after it derive from `meta_aa_changes` themselves.
+`EMBED_CELLS` builds the same seven columns from each shard sample's
+`meta.json`, which `BUILD_CELL_IMAGES` writes from the same per-tile CSVs by
+the same function (`build_cell_images_table.tile_cell_meta`), so a cell's
+`meta_*` values are identical in QC's input and in `embeddings.parquet`.
+The projection (`utils.cell_table.cell_metadata_exprs`) is shared with
+`BUILD_CP_FEATURES` and `EMBED_CELLS`, so the three can't drift.
 
-`QC_FILTER` ([shared](../../common/stages.md#qcfilter)) can't simply read
-`cell_table.parquet` itself: its `filter_columns` does rename the barcode/edit-distance/amino-acid-changes
-columns to their canonical `meta_*` names, but its closing `select` keeps
-only `meta_`-prefixed (and CellProfiler-looking) columns -- so the cell
-table's unprefixed `well`/`tile`/`tile_cell_index` would be dropped,
-leaving `NORMALIZE`/`NORMALIZE_CP_FEATURES` with no join key. This
-stage mints those four. The projection is shared with
-`BUILD_CP_FEATURES` via `utils/cell_table.py` so the two can't drift.
+`QC_FILTER` ([shared](../../common/stages.md#qcfilter)) doesn't read
+`cell_table.parquet` directly: the table has no `meta_batch`, the first of
+the pipeline's `join_keys`, and for a `cp_features: true` experiment its
+CellProfiler columns look like the feature columns `filter_columns` keeps,
+so they'd be carried into `filtered_cells.parquet`.
 
 Structurally this is the analog of `fisseq-data-pipeline`'s own `INPUT`
 stage: the cheap read-and-normalize step producing the one per-batch
@@ -41,14 +44,11 @@ Extends the [common config fields](#common-config-fields) below.
 | ----- | ------- | ----------- |
 | `cell_table` | **required** | Path to `BUILD_CELL_IMAGES`' `cell_table.parquet`. The file itself, not its directory -- the process takes `BUILD_CELL_IMAGES`' `cell_table.parquet` output as a staged `path` input, so no host path needs binding. |
 | `batch_stem` | **required** | This experiment's identifier, written into every row as `meta_batch`. |
-| `barcode_col_name` | `"upBarcode"` | Column name for cell barcodes in `cell_table.parquet`. |
-| `aa_changes_col_name` | `"aaChanges"` | Column name for amino-acid change labels in `cell_table.parquet`. |
-| `edit_distance_col_name` | `"editDistance"` | Column name for edit distances in `cell_table.parquet`. |
 
-The three `*_col_name` fields reach this stage from an `experiments:`
-entry the same way they reach `BUILD_CP_FEATURES` (the plan's
-`cell_table_args`), so both tracks read the cell table with the same
-column names.
+The reads tables' genotype column names (`barcode_col_name`/
+`aa_changes_col_name`/`edit_distance_col_name`) are `BUILD_CELL_IMAGES`
+settings now: it renames those columns to `meta_*` in both
+`cell_table.parquet` and the shards, so this stage reads fixed names.
 
 ## Output file
 
@@ -56,7 +56,9 @@ Written to `output_dir`:
 
 - `metadata.parquet` -- one row per cell, exactly seven columns:
   `meta_batch`, `meta_well`, `meta_tile`, `meta_cell_index`,
-  `meta_barcode`, `meta_aa_changes`, `meta_edit_distance`.
+  `meta_barcode`, `meta_aa_changes`, `meta_edit_distance`
+  (`CELL_METADATA_SCHEMA`). An empty table gives an empty frame with that
+  schema.
 
 Note this covers *every* row of `cell_table.parquet`, where the removed
 `BUILD_DATASET` stage's own `metadata.parquet` only ever held cells that

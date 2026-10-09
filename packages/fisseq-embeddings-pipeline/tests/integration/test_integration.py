@@ -30,18 +30,20 @@ BUILD_CELL_IMAGES' nested starcall `snakemake` is a stub prepended onto
 PATH (under `-profile local`, `process.ext.snakemake_bin` is bare
 `snakemake`). The synthetic fixture pre-populates a starcall-shaped
 phenotyping_dir/sequencing_dir tree the way a real run would have left it
--- per-tile cell/reads tables plus each tile's WebDataset shard, cut by
-`tile_shard.write_tile_shard` (the same code the real `make_cell_shard`
-rule runs) -- and the stub records its argv and does the one thing left
-for a real run to do: snakemake/Snakefile's `fisseq_tiles_manifest` rule,
-through the real `fisseq_targets.py`. So tile listing, the table build,
-the crop and the embedding all run for real; only snakemake itself is
+-- per-tile cell/reads tables plus each well's WebDataset shards, cut by
+`tile_shard.write_tile_shard` and packed by `well_shards.write_well_shards`
+(the same code the real `make_cell_shard`/`make_well_shards` rules run) --
+and the stub records its argv and does the one thing left for a real run
+to do: snakemake/Snakefile's `fisseq_tiles_manifest` rule, through the real
+`fisseq_targets.py`. So tile listing, the table build, the crop, the
+packing and the embedding all run for real; only snakemake itself is
 faked. The real rule, through real snakemake, is the
 `--container` suite's job.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import stat
@@ -56,15 +58,20 @@ import polars as pl
 import pytest
 import tifffile
 import torch
+import webdataset as wds
 import yaml
 
 from fisseq_common.stages.config import EMBEDDINGS_JOIN_KEYS as JOIN_KEYS
 from fisseq_common.stages.config import row_keys
 from fisseq_embeddings_pipeline.tile_shard import TileShardConfig, write_tile_shard
-from fisseq_embeddings_pipeline.utils.cell_table import CELL_METADATA_SCHEMA
+from fisseq_embeddings_pipeline.utils.cell_table import (
+    CELL_META_SCHEMA,
+    CELL_METADATA_SCHEMA,
+)
 from fisseq_embeddings_pipeline.vendor.dinov2.models.vision_transformer import (
     vit_small,
 )
+from fisseq_embeddings_pipeline.well_shards import write_well_shards
 
 _PROJECT_ROOT = Path(__file__).parents[2]
 
@@ -126,10 +133,11 @@ def _nf_params(params: dict) -> list[str]:
 _STUB_SNAKEMAKE_SCRIPT = """#!/usr/bin/env python
 # Stub snakemake for integration testing. The fixture pre-populates every
 # starcall-shaped tile file a real run would leave behind, so all that's
-# left of the real run is snakemake/Snakefile's fisseq_tiles_manifest rule:
-# list the tiles (with the real fisseq_targets.py, next to --snakefile),
-# check each file is there, write the manifest. See this test module's own
-# docstring.
+# left of the real run is snakemake/Snakefile's two targets: list the tiles
+# and shard directories (with the real fisseq_targets.py, next to
+# --snakefile), check each is there, and for fisseq_tiles_manifest write the
+# two manifests. See this test
+# module's own docstring.
 import os
 import sys
 import yaml
@@ -140,8 +148,8 @@ print("stub snakemake invoked: " + " ".join(argv), file=sys.stderr)
 # Record the full argv so a test can assert on the command line
 # BUILD_CELL_IMAGES actually built -- local vs profile mode is decided
 # entirely by those flags, and nothing else in this suite can see them. One
-# line per invocation, appended: each batch invokes it twice (--unlock,
-# then the real run).
+# line per invocation, appended: each batch invokes it three times
+# (--unlock, then the fisseq_shards and manifest passes).
 log = os.environ.get("SNAKEMAKE_STUB_ARGV_LOG")
 if log:
     with open(log, "a") as f:
@@ -170,32 +178,54 @@ spec = importlib.util.spec_from_file_location(
 )
 targets = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(targets)
-rows = targets.tile_rows(
+wells = config.get("fisseq_wells") or project["wells"]
+grid_size = int(
+    config.get("fisseq_grid_size") or project.get("phenotyping_grid_size", 1)
+)
+shard_dirs = targets.well_shard_dirs(
     phenotyping_dir=config["phenotyping_dir"],
-    sequencing_dir=config["sequencing_dir"],
-    wells=config.get("fisseq_wells") or project["wells"],
-    grid_size=int(
-        config.get("fisseq_grid_size") or project.get("phenotyping_grid_size", 1)
-    ),
+    wells=wells,
+    grid_size=grid_size,
     segmentation_type=config["fisseq_segmentation_type"],
     image=config["fisseq_image"],
     window=config["fisseq_window"],
+    shard_size=config["fisseq_shard_size"],
+)
+rows = targets.tile_rows(
+    phenotyping_dir=config["phenotyping_dir"],
+    sequencing_dir=config["sequencing_dir"],
+    wells=wells,
+    grid_size=grid_size,
+    segmentation_type=config["fisseq_segmentation_type"],
     sequencing_reads_params=config["fisseq_sequencing_reads_params"],
     cp_features=config["fisseq_cp_features"],
     cellprofiler_cycle=config["fisseq_cellprofiler_cycle"],
     cellprofiler_pipeline=config["fisseq_cellprofiler_pipeline"],
 )
-missing = [p for p in targets.row_targets(rows) if not os.path.exists(p)]
+requested = argv[argv.index("--") + 1 :]
+if requested == ["fisseq_shards"]:
+    needed = targets.shard_targets(shard_dirs)
+else:
+    assert requested == [config["fisseq_manifest"]], requested
+    needed = targets.row_targets(rows) + targets.shard_targets(shard_dirs)
+missing = [p for p in needed if not os.path.exists(p)]
 if missing:
     sys.exit("stub snakemake: no rule to make " + ", ".join(missing))
-
-requested = argv[argv.index("--") + 1 :]
-assert requested == [config["fisseq_manifest"]], requested
+if requested == ["fisseq_shards"]:
+    sys.exit(0)
 import csv
-with open(config["fisseq_manifest"], "w", newline="") as f:
-    writer = csv.DictWriter(f, fieldnames=targets.MANIFEST_FIELDNAMES)
-    writer.writeheader()
-    writer.writerows(rows)
+for path, fieldnames, manifest_rows in (
+    (config["fisseq_manifest"], targets.MANIFEST_FIELDNAMES, rows),
+    (
+        config["fisseq_shards_manifest"],
+        targets.SHARDS_MANIFEST_FIELDNAMES,
+        targets.shard_rows(shard_dirs),
+    ),
+):
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(manifest_rows)
 """
 
 
@@ -260,7 +290,9 @@ def _write_starcall_tile(
     separate -- matching the real starcall-workflow data flow this
     pipeline now correctly follows (see build_cell_images_table.py's
     index-value join). The tile's shard is cut from a synthetic whole-tile
-    image and mask the way make_cell_shard would."""
+    image and mask the way make_cell_shard would, then packed into the
+    well's one shard (the default, shard_size null) the way
+    make_well_shards would -- so a well of this fixture has one tile."""
     grid_dir = f"{well}_grid{grid_size}"
     pheno_tile_dir = phenotyping_dir / grid_dir / tile
     seq_tile_dir = sequencing_dir / grid_dir / tile
@@ -290,9 +322,10 @@ def _write_starcall_tile(
     )
     reads_table.to_csv(seq_tile_dir / "cells_reads.csv")
 
-    # What make_cell_shard leaves behind: the shard, cut from the
-    # whole-tile image and mask -- which, being temp() upstream, snakemake
-    # then deletes. So those two are written to a scratch dir, not the tile.
+    # What make_well_shards leaves behind: the well's shards, packed from
+    # tile shards cut from the whole-tile image and mask -- all temp(), so
+    # snakemake then deletes them. So those go to a scratch dir, not the
+    # tile.
     scratch = phenotyping_dir.parent / ".tile_inputs" / grid_dir / tile
     scratch.mkdir(parents=True, exist_ok=True)
     tifffile.imwrite(
@@ -307,11 +340,18 @@ def _write_starcall_tile(
             image_tif=str(scratch / "raw_pt.tif"),
             mask_tif=str(scratch / "cells_mask.tif"),
             segmentation_csv=str(pheno_tile_dir / "cells.csv"),
+            reads_csv=str(seq_tile_dir / "cells_reads.csv"),
             well=well,
             tile=tile,
             window=_WINDOW,
-            output_tar=str(pheno_tile_dir / f"cells_raw_shard_{_WINDOW}.tar"),
+            output_tar=str(scratch / f"cells_raw_shard_{_WINDOW}.tar"),
         )
+    )
+    write_well_shards(
+        [str(scratch / f"cells_raw_shard_{_WINDOW}.tar")],
+        well,
+        None,
+        str(phenotyping_dir / grid_dir / f"cells_raw_shards_{_WINDOW}_all"),
     )
 
     if write_cellprofiler_csv:
@@ -543,26 +583,23 @@ def test_pipeline_exits_cleanly(pipeline_outputs):
 
 
 def test_cell_images_produced(pipeline_outputs):
-    """BUILD_CELL_IMAGES' own output -- the one complete, self-sufficient
-    cell table everything downstream reads, plus the per-tile shard table."""
+    """BUILD_CELL_IMAGES' own output -- the cell table in the data
+    pipeline's shape (meta_* columns, then CellProfiler's own), plus the
+    shard table."""
     exp_dir, _ = pipeline_outputs
     cell_images_dir = exp_dir / "cell_images" / "batch1"
     cell_table = pl.read_parquet(cell_images_dir / "cell_table.parquet")
     n_cells = sum(n_b * n_c for _, n_b, n_c in _VARIANTS.values())
     assert cell_table.height == n_cells
-    assert {"editDistance", "upBarcode", "aaChanges", "bbox_x1", "crop_index"}.issubset(
-        cell_table.columns
+    assert cell_table.columns == [*CELL_META_SCHEMA, "Cells_AreaShape_Area"]
+    # Nothing is copied or linked out of starcall's tree: shards.parquet
+    # just names each well's shards, which EMBED_CELLS reads in place.
+    shards = pl.read_parquet(cell_images_dir / "shards.parquet")
+    assert shards.to_dicts() == [{"well": "well1", "shard_tar": shards["shard_tar"][0]}]
+    assert shards["shard_tar"][0].endswith(
+        f"well1_grid1/cells_raw_shards_{_WINDOW}_all/well_1_shard_000000.tar.gz"
     )
-    assert any(c.startswith("cp_") for c in cell_table.columns)
-    # Nothing is copied or linked out of starcall's tree: tiles.parquet
-    # just names each tile's shard, which EMBED_CELLS reads in place.
-    tiles = pl.read_parquet(cell_images_dir / "tiles.parquet")
-    assert tiles.height == 1
-    tile = tiles.row(0, named=True)
-    assert tile["shard_tar"].endswith(
-        f"well1_grid1/tile00x00y/cells_raw_shard_{_WINDOW}.tar"
-    )
-    assert Path(tile["shard_tar"]).exists()
+    assert Path(shards["shard_tar"][0]).exists()
     assert not list(cell_images_dir.glob("*_grid*"))
 
 
@@ -620,8 +657,11 @@ def test_nested_snakemake_runs_starcalls_own_snakefile_locally(pipeline_outputs)
 
     assert any("--unlock" in argv for argv in invocations), invocations
     main_runs = _main_invocations(exp_dir)
-    assert len(main_runs) == 1, main_runs
-    argv = main_runs[0]
+    # The shards alone first, then the manifest (see
+    # test_shards_pass_runs_before_the_manifest_pass).
+    assert len(main_runs) == 2, main_runs
+    assert main_runs[0].split(" -- ", 1)[0] == main_runs[1].split(" -- ", 1)[0]
+    argv = main_runs[1]
     assert f"--snakefile {_PROJECT_ROOT}/snakemake/Snakefile" in argv, argv
     assert f"--directory {swd}" in argv, argv
     # _write_synthetic_experiment pins snakemake_cores to 1.
@@ -641,6 +681,19 @@ def test_nested_snakemake_runs_starcalls_own_snakefile_locally(pipeline_outputs)
     _options, targets = argv.split(" -- ", 1)
     assert targets.split() == [targets.strip()], targets
     assert targets.strip().endswith("/tiles_manifest.csv"), targets
+
+
+def test_shards_pass_runs_before_the_manifest_pass(pipeline_outputs):
+    """BUILD_CELL_IMAGES asks for fisseq_shards on its own before the
+    manifest. A missing shard makes snakemake regenerate starcall's temp()
+    whole-tile image and mask, and in a DAG holding the CellProfiler and
+    reads tables too, every job downstream of those reruns, outputs on disk
+    or not (the 2026-10-08 cluster run redid CellProfiler on every tile).
+    Built alone, the shards keep those jobs out of the DAG."""
+    exp_dir, _ = pipeline_outputs
+    shards_run, manifest_run = _main_invocations(exp_dir)
+    assert shards_run.split(" -- ", 1)[1].split() == ["fisseq_shards"], shards_run
+    assert manifest_run.split(" -- ", 1)[1].strip().endswith("/tiles_manifest.csv")
 
 
 def test_starcall_profile_switches_to_profile_mode(tmp_path_factory):
@@ -674,8 +727,9 @@ def test_starcall_profile_switches_to_profile_mode(tmp_path_factory):
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
-    [argv] = _main_invocations(exp_dir)
+    shards_run, argv = _main_invocations(exp_dir)
     options = argv.split(" -- ", 1)[0]
+    assert shards_run.split(" -- ", 1)[0] == options, shards_run
     assert f"--profile {profile_dir}" in options, argv
     assert "--jobscript " in options and "starcall_jobscript.sh" in options, argv
     assert "--cores" not in options, argv
@@ -760,10 +814,28 @@ def test_cp_track_survives_embedding_failure(tmp_path_factory):
     ).exists()
 
 
+def test_shard_meta_json_matches_the_cell_table(pipeline_outputs):
+    """Every sample's meta.json is its cell's row of cell_table.parquet's
+    meta_* columns: the two are built by the same function from the same
+    CSVs, and join on (meta_well, meta_tile, meta_cell_index)."""
+    exp_dir, _ = pipeline_outputs
+    cell_images_dir = exp_dir / "cell_images" / "batch1"
+    cell_table = pl.read_parquet(cell_images_dir / "cell_table.parquet")
+    (shard,) = pl.read_parquet(cell_images_dir / "shards.parquet")["shard_tar"]
+    metas = [
+        json.loads(sample["meta.json"])
+        for sample in wds.WebDataset(shard, shardshuffle=False)
+    ]
+    assert len(metas) == cell_table.height
+    assert all(list(meta) == list(CELL_META_SCHEMA) for meta in metas)
+    assert pl.DataFrame(metas, schema=CELL_META_SCHEMA).equals(
+        cell_table.select(list(CELL_META_SCHEMA))
+    )
+
+
 def test_embeddings_produced_with_joined_metadata(pipeline_outputs):
     """Every cell in the shards is embedded, with the same seven meta_*
-    columns QC saw -- joined on from BUILD_CELL_METADATA, since a shard's
-    meta.json carries only the cell's location."""
+    columns QC saw -- from each sample's meta.json, plus meta_batch."""
     exp_dir, _ = pipeline_outputs
     metadata = pl.read_parquet(
         exp_dir / "cell_metadata" / "batch1" / "metadata.parquet"
@@ -1491,7 +1563,7 @@ def _assert_cells_embedded(pipeline_dir: Path, result: subprocess.CompletedProce
         pipeline_dir / "cell_images" / "lmna_t3" / "cell_table.parquet"
     )
     assert cell_table.height > 0
-    assert {"editDistance", "bbox_x1", "crop_index"}.issubset(cell_table.columns)
+    assert cell_table.columns[: len(CELL_META_SCHEMA)] == list(CELL_META_SCHEMA)
 
     embeddings = pl.read_parquet(
         pipeline_dir / "embeddings" / "lmna_t3" / "embeddings.parquet"
@@ -1504,18 +1576,52 @@ def _assert_cells_embedded(pipeline_dir: Path, result: subprocess.CompletedProce
 
 
 @pytest.mark.container
+def test_image_path_has_conda_after_the_venv(real_starcall_image):
+    """A starcall child job re-enters the image with the image's own PATH,
+    and --use-conda rules (run_cellprofiler's cp4 env) shell out to a bare
+    `conda` there. Neither real-starcall run below has a conda: rule, so
+    this is what catches conda falling off the image PATH. Bare `python`
+    must still be the venv's."""
+    result = subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            real_starcall_image,
+            "/bin/sh",
+            "-c",
+            "command -v conda && command -v python",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=300,
+    )
+    assert result.stdout.split() == [
+        "/opt/conda/bin/conda",
+        "/opt/fisseqmono/.venv/bin/python",
+    ]
+
+
+@pytest.mark.container
 def test_real_starcall_local(real_starcall_local_run):
-    """Real starcall, local mode: every starcall rule, and make_cell_shard,
-    runs inside BUILD_CELL_IMAGES' own container, through snakemake/Snakefile
-    (the image's pinned starcall Snakefile plus our rule), from raw input
-    (an explicit grid_size needs no pre-existing tile directories)."""
+    """Real starcall, local mode: every starcall rule, and make_cell_shard
+    and make_well_shards, run inside BUILD_CELL_IMAGES' own container,
+    through snakemake/Snakefile (the image's pinned starcall Snakefile plus
+    our rules), from raw input (an explicit grid_size needs no pre-existing
+    tile directories)."""
     swd, _, pipeline_dir, result = real_starcall_local_run
     _assert_cells_embedded(pipeline_dir, result)
 
-    tile_dir = swd / "phenotyping" / f"{_MINI_WELL}_grid1" / _MINI_TILE
-    assert (tile_dir / f"cells_raw_shard_{_WINDOW}.tar").exists()
-    # temp() upstream and no longer a target, so snakemake deleted it once
-    # the shard was cut -- see docs/architecture.md decision 17.
+    grid_dir = swd / "phenotyping" / f"{_MINI_WELL}_grid1"
+    shard_dir = grid_dir / f"cells_raw_shards_{_WINDOW}_all"
+    assert [p.name for p in shard_dir.iterdir()] == [
+        f"well_{_MINI_WELL.removeprefix('well')}_shard_000000.tar.gz"
+    ]
+    # temp() and no longer a target, so snakemake deleted each once the
+    # shards were packed -- see docs/architecture.md decision 17.
+    tile_dir = grid_dir / _MINI_TILE
+    assert not (tile_dir / f"cells_raw_shard_{_WINDOW}.tar").exists()
     assert not (tile_dir / "raw_pt.tif").exists()
 
 
@@ -1560,12 +1666,15 @@ def test_real_starcall_profile_mode(
     swd, checkpoint_path, local_dir, _ = real_starcall_local_run
     if not (local_dir / "cell_images" / "lmna_t3" / "cell_table.parquet").exists():
         pytest.skip("the local-mode run failed -- see test_real_starcall_local")
-    # Remove the per-tile outputs and let mtime-based rerun rebuild them
-    # (and only them) through the "cluster" -- make_cell_shard included.
-    tile_dir = swd / "phenotyping" / f"{_MINI_WELL}_grid1" / _MINI_TILE
-    shard = tile_dir / f"cells_raw_shard_{_WINDOW}.tar"
-    for name in ("cells.csv", "cells_mask.tif", shard.name):
+    # Remove the per-tile outputs and the well's shards, and let
+    # mtime-based rerun rebuild them (and only them) through the "cluster"
+    # -- make_cell_shard and make_well_shards included.
+    grid_dir = swd / "phenotyping" / f"{_MINI_WELL}_grid1"
+    tile_dir = grid_dir / _MINI_TILE
+    shard_dir = grid_dir / f"cells_raw_shards_{_WINDOW}_all"
+    for name in ("cells.csv", "cells_mask.tif"):
         (tile_dir / name).unlink(missing_ok=True)
+    shutil.rmtree(shard_dir, ignore_errors=True)
 
     fake_runtime = swd / "fake_apptainer"
     fake_runtime.write_text(_FAKE_RUNTIME)
@@ -1594,7 +1703,7 @@ def test_real_starcall_profile_mode(
         timeout=1200,
     )
     _assert_cells_embedded(pipeline_dir, result)
-    assert shard.exists()
+    assert len(list(shard_dir.glob("*.tar.gz"))) == 1
     assert not (tile_dir / "raw_pt.tif").exists()
 
     log = swd / "fake_runtime.log"

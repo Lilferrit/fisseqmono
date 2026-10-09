@@ -9,23 +9,25 @@ as a snakemake target, so cropping fans out one job per tile under a
 check -- see ``docs/architecture.md`` decision 17.
 
 Reads the tile's whole-tile phenotype image (``raw_pt.tif``/
-``corrected_pt.tif``), segmentation mask (``{segmentation_type}_mask.tif``)
-and segmentation cell table (``{segmentation_type}.csv``), crops every cell
-out with :func:`crop_cell`, and writes one tar of per-cell samples
-(``crop.npy``, ``mask.npy``, ``meta.json``).
+``corrected_pt.tif``), segmentation mask (``{segmentation_type}_mask.tif``),
+segmentation cell table (``{segmentation_type}.csv``) and reads table
+(``{segmentation_type}_reads{params}.csv``), crops every cell out with
+:func:`crop_cell`, and writes one tar of per-cell samples (``crop.npy``,
+``mask.npy``, ``meta.json``).
 
 This module owns cropping because starcall-workflow's own ``rule
 make_cell_images`` (phenotyping.smk) is broken against its own cell table:
 it centres crops on ``xpos``/``ypos`` columns the real schema doesn't have
 (only ``bbox_x1/y1/x2/y2``).
 
-``meta.json`` carries only the cell's location (``meta_well``/``meta_tile``/
-``meta_cell_index``). Genotype columns live in a different starcall tree
-(``sequencing_dir``) under per-experiment column names, and ``meta_batch``
-is a pipeline-level name -- baking either into a file snakemake caches
-would leave it stale whenever they change, and would copy what
-BUILD_CELL_METADATA's ``metadata.parquet`` already holds. EMBED_CELLS joins
-that table back on instead.
+``meta.json`` is the cell's ``utils.cell_table.CELL_META_SCHEMA`` row, from
+``build_cell_images_table.tile_cell_meta`` -- the same function, on the
+same CSVs, that builds ``cell_table.parquet``'s leading columns: the cell's
+key within its experiment (``meta_well``/``meta_tile``/
+``meta_cell_index``), the QC fields (``meta_barcode``/``meta_aa_changes``/
+``meta_edit_distance``) and ``meta_variant_class``. Not ``meta_batch``: a
+pipeline-level name baked into a file snakemake caches would go stale when
+it changes. EMBED_CELLS adds it when it reads the shards.
 """
 
 import dataclasses
@@ -41,9 +43,12 @@ from omegaconf import MISSING, DictConfig, OmegaConf
 
 from fisseq_common.utils.log import setup_logging
 
-from .build_cell_images_table import read_segmentation_table
+from .build_cell_images_table import (
+    GenotypeColumns,
+    read_segmentation_table,
+    tile_cell_meta,
+)
 from .config import AppConfig
-from .utils.cell_table import META_CELL_INDEX_COL, META_TILE_COL, META_WELL_COL
 
 _BBOX_COLS = ("bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2")
 
@@ -66,6 +71,13 @@ class TileShardConfig(AppConfig):
     segmentation_csv : str
         The tile's ``{segmentation_type}.csv`` -- see
         ``build_cell_images_table.read_segmentation_table``.
+    reads_csv : str
+        The tile's ``{segmentation_type}_reads{params}.csv`` (sequencing_dir),
+        the source of each cell's genotype -- see
+        ``build_cell_images_table.tile_cell_meta``.
+    barcode_col_name, aa_changes_col_name, edit_distance_col_name : str
+        The reads table's genotype columns. Default to ``"upBarcode"``/
+        ``"aaChanges"``/``"editDistance"``.
     well, tile : str
         This tile's identifiers, written into each sample's key and
         ``meta.json``.
@@ -80,6 +92,10 @@ class TileShardConfig(AppConfig):
     image_tif: str = MISSING
     mask_tif: str = MISSING
     segmentation_csv: str = MISSING
+    reads_csv: str = MISSING
+    barcode_col_name: str = "upBarcode"
+    aa_changes_col_name: str = "aaChanges"
+    edit_distance_col_name: str = "editDistance"
     well: str = MISSING
     tile: str = MISSING
     window: int = MISSING
@@ -159,10 +175,10 @@ def write_tile_shard(cfg: TileShardConfig) -> int:
 
     Each sample is keyed ``{well}_{tile}_{tile_cell_index}`` and carries
     ``crop.npy`` (``(C, window, window)``), ``mask.npy``
-    (``(window, window)`` uint8) and ``meta.json`` (``meta_well``,
-    ``meta_tile``, ``meta_cell_index``). A tile with no cells still gets a
-    valid, empty tar -- snakemake needs its output to exist -- and its
-    image and mask are never opened.
+    (``(window, window)`` uint8) and ``meta.json`` (the cell's
+    ``CELL_META_SCHEMA`` row). A tile with no cells still gets a valid,
+    empty tar -- snakemake needs its output to exist -- and its image and
+    mask are never opened.
 
     Returns
     -------
@@ -170,6 +186,15 @@ def write_tile_shard(cfg: TileShardConfig) -> int:
         The number of cells written.
     """
     seg = read_segmentation_table(cfg.segmentation_csv)
+    meta = tile_cell_meta(
+        cfg.segmentation_csv,
+        cfg.reads_csv,
+        cfg.well,
+        cfg.tile,
+        GenotypeColumns(
+            cfg.barcode_col_name, cfg.aa_changes_col_name, cfg.edit_distance_col_name
+        ),
+    )
     output_tar = pathlib.Path(cfg.output_tar)
     output_tar.parent.mkdir(parents=True, exist_ok=True)
 
@@ -189,22 +214,20 @@ def write_tile_shard(cfg: TileShardConfig) -> int:
                 "-- they must cover the same tile."
             )
 
-        for row in seg.itertuples(index=False):
+        # Both are in the segmentation CSV's on-disk row order.
+        for row, cell_meta in zip(
+            seg.itertuples(index=False), meta.iter_rows(named=True)
+        ):
             bbox = tuple(int(getattr(row, c)) for c in _BBOX_COLS)
             crop, crop_mask = crop_cell(
                 image, mask, bbox, int(row.crop_index) + 1, cfg.window
             )
-            cell_index = int(row.tile_cell_index)
             sink.write(
                 {
-                    "__key__": f"{cfg.well}_{cfg.tile}_{cell_index}",
+                    "__key__": f"{cfg.well}_{cfg.tile}_{int(row.tile_cell_index)}",
                     "crop.npy": crop,
                     "mask.npy": crop_mask,
-                    "meta.json": {
-                        META_WELL_COL: cfg.well,
-                        META_TILE_COL: cfg.tile,
-                        META_CELL_INDEX_COL: cell_index,
-                    },
+                    "meta.json": cell_meta,
                 }
             )
     return len(seg)
@@ -228,6 +251,7 @@ def main(cfg: DictConfig) -> None:
             image_tif=phenotyping/well1_grid4/tile0x0y/raw_pt.tif \\
             mask_tif=phenotyping/well1_grid4/tile0x0y/cells_mask.tif \\
             segmentation_csv=phenotyping/well1_grid4/tile0x0y/cells.csv \\
+            reads_csv=sequencing/well1_grid4/tile0x0y/cells_reads.csv \\
             well=well1 tile=tile0x0y window=224 \\
             output_tar=phenotyping/well1_grid4/tile0x0y/cells_raw_shard_224.tar
     """

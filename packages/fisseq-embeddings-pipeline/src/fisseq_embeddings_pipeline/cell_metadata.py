@@ -1,45 +1,33 @@
 """BUILD_CELL_METADATA.
 
 Projects BUILD_CELL_IMAGES' ``cell_table.parquet`` down to the seven
-``meta_*`` columns QC_FILTER reads, as one per-experiment
-``metadata.parquet`` -- no images, no feature columns, no
+``meta_*`` columns QC_FILTER reads (``utils.cell_table.CELL_METADATA_SCHEMA``:
+``meta_batch``, added here, plus the table's own key and QC fields), as one
+per-experiment ``metadata.parquet`` -- no images, no feature columns, no
 starcall-workflow tree access.
 
-This stage exists to make QC_FILTER the pipeline's shared fan-out point
-instead of the image-reading cellDINO track. Before it, ``qcfilter.py``'s
-``cell_files`` input was the (since removed) BUILD_DATASET stage's own
-``metadata.parquet``, written inside its WebDataset shard-writing loop --
-which made the expensive dataset build a hard dependency of the
-CellProfiler track, whose ``FILTER_CP_FEATURES`` consumes the very same QC
-output. Both tracks now hang off QC independently, and QC itself depends
-only on the cell table. It also means QC thresholds can be retuned (and
-the whole QC report regenerated) without touching the shards at all.
-
-EMBED_CELLS reads this same ``metadata.parquet`` too: a shard's
-``meta.json`` carries only each cell's location (``tile_shard.py``), and
-``embed.attach_metadata`` joins the rest of its ``meta_*`` columns back on
-from here -- so a cell's ``meta_*`` values are identical in QC's input and
-in ``embeddings.parquet``.
+This stage exists to make QC_FILTER the pipeline's shared fan-out point,
+independent of the image-reading cellDINO track: QC depends only on the
+cell table, so QC thresholds can be retuned (and the whole QC report
+regenerated) without touching the shards at all.
 
 Structurally the analogue of ``fisseq-data-pipeline``'s own ``INPUT``
-stage (``src/fisseq_data_pipeline/input.py``, ``the `input` rule``):
-the cheap read-and-normalize step that turns whatever the upstream
-produced into the one per-batch parquet QC_FILTER consumes.
+stage: the cheap read-and-normalize step that turns what the upstream
+produced into the one per-batch parquet QC_FILTER consumes. The table
+already carries canonical ``meta_*`` names (BUILD_CELL_IMAGES renames the
+reads tables' genotype columns), so all this adds is ``meta_batch`` --
+which neither the table nor the shards carry, being a run-level name --
+and it leaves out ``meta_variant_class``, which QC and every stage after
+it derive from ``meta_aa_changes`` themselves.
 
-QC_FILTER can't simply read ``cell_table.parquet`` itself:
-``qcfilter.py``'s ``filter_columns`` does rename the barcode/edit-
-distance/amino-acid-changes columns to their canonical ``meta_*`` names,
-but its closing ``select`` keeps only ``meta_``-prefixed (and
-CellProfiler-looking) columns -- so the cell table's unprefixed ``well``/
-``tile``/``tile_cell_index`` would be dropped, leaving ``filter.py``'s
-``JOIN_KEYS`` with nothing to join on downstream. The projection this
-stage applies is shared with ``cp_features.py`` via
-``utils/cell_table.py`` so those key columns can't drift between the two.
+EMBED_CELLS builds the same seven columns from each shard sample's
+``meta.json``, written from the same per-tile CSVs by the same function
+(``build_cell_images_table.tile_cell_meta``), so a cell's ``meta_*``
+values are identical in QC's input and in ``embeddings.parquet``.
 
-Note this stage sees every row of ``cell_table.parquet``, whether or not
-that cell's tile made it into a shard. Every downstream consumer joins
-``filtered_cells.parquet`` back on ``JOIN_KEYS`` with an inner join, so
-any extra rows drop out where they don't apply.
+Note this stage sees every row of ``cell_table.parquet``. Every downstream
+consumer joins ``filtered_cells.parquet`` back on ``JOIN_KEYS`` with an
+inner join, so any extra rows drop out where they don't apply.
 """
 
 import dataclasses
@@ -71,31 +59,16 @@ class CellMetadataConfig(AppConfig):
     cell_table : str
         Path to BUILD_CELL_IMAGES' ``cell_table.parquet``. Unlike
         ``CpFeaturesConfig.cell_images_dir``, this is the file itself,
-        not the directory holding it: the ``build_cell_metadata`` rule
-        derives it from ``build_cell_images``' own directory output
-        (workflow/rules/cell_images.smk).
+        not the directory holding it: the BUILD_CELL_METADATA process
+        gets it straight from BUILD_CELL_IMAGES' output.
     batch_stem : str
         This experiment's identifier, written into every row as
         ``meta_batch`` -- one run covers exactly one experiment, matching
         BUILD_CP_FEATURES' convention.
-    barcode_col_name : str
-        Name of the barcode column in cell_table.parquet. Defaults to
-        ``"upBarcode"`` -- same default as ``CpFeaturesConfig``, since both
-        read the same table (and get the same per-experiment overrides --
-        ``config/experiments.py``'s ``cell_table_overrides``).
-    aa_changes_col_name : str
-        Name of the amino-acid changes column in cell_table.parquet.
-        Defaults to ``"aaChanges"``.
-    edit_distance_col_name : str
-        Name of the edit distance column in cell_table.parquet. Defaults
-        to ``"editDistance"``.
     """
 
     cell_table: str = MISSING
     batch_stem: str = MISSING
-    barcode_col_name: str = "upBarcode"
-    aa_changes_col_name: str = "aaChanges"
-    edit_distance_col_name: str = "editDistance"
 
 
 def build_cell_metadata(cfg: CellMetadataConfig) -> pl.DataFrame:
@@ -105,8 +78,7 @@ def build_cell_metadata(cfg: CellMetadataConfig) -> pl.DataFrame:
     Parameters
     ----------
     cfg : CellMetadataConfig
-        Supplies ``cell_table``, ``batch_stem``, and the three column-name
-        overrides.
+        Supplies ``cell_table`` and ``batch_stem``.
 
     Returns
     -------
@@ -124,14 +96,7 @@ def build_cell_metadata(cfg: CellMetadataConfig) -> pl.DataFrame:
         logging.info("cell table at %s has no rows", cell_table_path)
         return pl.DataFrame(schema=CELL_METADATA_SCHEMA)
 
-    return table.select(
-        *cell_metadata_exprs(
-            cfg.batch_stem,
-            cfg.barcode_col_name,
-            cfg.aa_changes_col_name,
-            cfg.edit_distance_col_name,
-        )
-    )
+    return table.select(*cell_metadata_exprs(cfg.batch_stem))
 
 
 _cs = ConfigStore.instance()

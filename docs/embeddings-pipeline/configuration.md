@@ -32,7 +32,8 @@ these stages:
 - **`BUILD_CELL_IMAGES`** (starcall-workflow-facing, always runs):
   `starcall_workflow_dir`, `phenotyping_dir`, `segmentation_dir`,
   `sequencing_dir`, `wells`, `grid_size`, `segmentation_type`,
-  `use_corrected`, `window`, `sequencing_reads_params`. This is the ONLY
+  `use_corrected`, `window`, `shard_size`, `sequencing_reads_params`,
+  `barcode_col_name`/`aa_changes_col_name`/`edit_distance_col_name`. This is the ONLY
   stage that touches `starcall-workflow`'s tree or runs its snakemake -- see
   [Architecture](architecture.md#cell-images-build_cell_images-output-from-starcall-workflow).
   `starcall_workflow_dir` is the nested snakemake's `--directory`: it
@@ -61,13 +62,23 @@ these stages:
   is the side length each cell is cropped at, centred on its bbox
   midpoint, by the per-tile `make_cell_shard` rule (see
   [Cell Shards](cli/tile_shard.md)); it's part of the shard's filename,
-  so changing it requests new shards.
+  so changing it requests new shards. `shard_size` is how many cells go in
+  each of a well's `well_{n}_shard_{k}.tar.gz` shards (`null`: one per
+  well; see [Well Shards](cli/well_shards.md)), and is likewise part of
+  the shard directory's name. The three `*_col_name` overrides name the
+  reads tables' genotype columns (default `upBarcode`/`aaChanges`/
+  `editDistance`; starcall's aux tables name them per experiment), which
+  `BUILD_CELL_IMAGES` renames to `meta_barcode`/`meta_aa_changes`/
+  `meta_edit_distance` in both `cell_table.parquet` and every shard
+  sample's `meta.json` -- so QC, the embeddings and the CellProfiler track
+  all name a cell's genotype the same way. They're passed to
+  `make_cell_shard` as params, not in the shard's name, so changing one
+  doesn't recut shards that already exist (see
+  [Cell Shards](cli/tile_shard.md#the-rule)).
 - **`BUILD_CELL_METADATA`** and **`BUILD_CP_FEATURES`** (the latter only
-  for `cp_features: true` entries): `barcode_col_name`/
-  `aa_changes_col_name`/`edit_distance_col_name`, routed to both (the
-  plan's `cell_table_args`) since both read the same
-  `cell_table.parquet` -- so QC, the embeddings and the CellProfiler
-  track all name a cell's genotype the same way. Their input
+  for `cp_features: true` entries): no per-experiment fields of their own
+  besides `batch_stem` (the plan's `cell_table_args` is empty, so a stray
+  key fails there). Their input
   (`cell_table`/`cell_images_dir`) is injected automatically from
   `BUILD_CELL_IMAGES`' own output -- never set it yourself. There's no separate list to keep in sync with
   `experiments:` -- an entry opts itself in by setting `cp_features: true`,
@@ -75,12 +86,12 @@ these stages:
   CellProfiler CSV -- see
   [Nextflow Workflow](nextflow.md#cellprofiler-feature-track).
 
-Three fields that are logically per-experiment but in practice are almost
+Four fields that are logically per-experiment but in practice are almost
 always the same across every experiment in a run -- `window`,
-`cellprofiler_pipeline`, `cellprofiler_cycle` -- each have their own
-pipeline-wide default below, used for any experiment entry that doesn't
-set its own value for that key; an entry's own value always wins over the
-global default. All three route to `BUILD_CELL_IMAGES` only.
+`shard_size`, `cellprofiler_pipeline`, `cellprofiler_cycle` -- each have
+their own pipeline-wide default below, used for any experiment entry that
+doesn't set its own value for that key; an entry's own value always wins
+over the global default. All four route to `BUILD_CELL_IMAGES` only.
 
 ### Fields
 
@@ -91,6 +102,7 @@ global default. All three route to `BUILD_CELL_IMAGES` only.
 | `cell_dino_checkpoint` | *(required)* | `EMBED_CELLS` |
 | `experiments` | `[]` (required non-empty) | `BUILD_CELL_IMAGES` and `BUILD_CELL_METADATA` (always), and `BUILD_CP_FEATURES` for any entry setting `cp_features: true` (list of per-experiment maps, each requiring `batch_stem`; see above) |
 | `window` | `224` | `BUILD_CELL_IMAGES` (the crop size each tile's shard is cut at; global default for any `experiments` entry that omits `window` -- an entry's own `window` wins. Must match `cell_dino_crop_size`) |
+| `shard_size` | `null` | `BUILD_CELL_IMAGES` (cells per WebDataset shard, counted per well: shards are `well_{n}_shard_{k}.tar.gz`; `null` = one shard per well. Global default for any `experiments` entry that omits `shard_size` -- an entry's own wins. Changing it repacks every well, recutting each tile; see [Well Shards](cli/well_shards.md)) |
 | `cellprofiler_pipeline` | `null` (required, here or per `cp_features: true` entry, once any experiment sets `cp_features: true`) | `BUILD_CELL_IMAGES` (global default for any `cp_features: true` entry that omits `cellprofiler_pipeline`) |
 | `cellprofiler_cycle` | `""` | `BUILD_CELL_IMAGES` (global default for any `cp_features: true` entry that omits `cellprofiler_cycle`) |
 | `snakemake_cores` | `4` | `BUILD_CELL_IMAGES` (`--cores` for its nested starcall `snakemake`). **Local mode only** -- not passed with `starcall_profile`, whose profile owns the job budget |

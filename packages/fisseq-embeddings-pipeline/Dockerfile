@@ -67,12 +67,14 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python
 # least often (only with the starcall-workflow pin or the `ops` env itself), and it uses
 # nothing from the uv layers, so neither a source commit nor a uv.lock/pyproject.toml change
 # (every release rewrites both) makes Docker redo it. Installed
-# to /opt/conda, deliberately NOT added to ENV PATH: bare `python`/
-# `python3` must always resolve to the uv-managed 3.13 venv (ENV PATH line
-# near the bottom), never ambiguously to this env's Python 3.10. Every
-# process that needs something from `ops` (just the one `snakemake ...`
-# line in BUILD_CELL_IMAGES) reaches it by absolute path,
-# /opt/conda/envs/ops/bin/<binary>, instead.
+# to /opt/conda. The `ops` env's bin is deliberately NOT on ENV PATH: bare
+# `python`/`python3` must always resolve to the uv-managed 3.13 venv (ENV
+# PATH line near the bottom), never ambiguously to this env's Python 3.10.
+# Every process that needs something from `ops` (just the one `snakemake
+# ...` line in BUILD_CELL_IMAGES) reaches it by absolute path,
+# /opt/conda/envs/ops/bin/<binary>, instead. Conda's own base bin
+# (/opt/conda/bin) IS on PATH, last: snakemake's --use-conda shells out to
+# a bare `conda`, in the nested run and in every starcall child job.
 # Architecture-detected, not hardcoded to x86_64 -- confirmed via a real
 # `docker build` that a hardcoded x86_64 installer run under arm64 (native
 # or emulated) fails opaquely ("rosetta error: failed to open elf"/a
@@ -248,7 +250,11 @@ RUN uv sync --frozen --no-dev --package fisseq-embeddings-pipeline --no-editable
 # would fail with ModuleNotFoundError/`python: command not found`. The
 # `ops` conda env above is deliberately never added here, for the same
 # "no ambiguous bare python" reason in reverse -- see that block's own
-# comment.
-ENV PATH="/opt/fisseqmono/.venv/bin:${PATH}"
+# comment. /opt/conda/bin goes LAST, for `conda` alone (--use-conda's
+# `conda: cp4` rules, e.g. run_cellprofiler): a starcall child job
+# re-enters this image with this PATH, not its submitter's, so conda has
+# to be here rather than prepended by BUILD_CELL_IMAGES. Last, so the
+# venv's `python` still wins over Miniforge's.
+ENV PATH="/opt/fisseqmono/.venv/bin:${PATH}:/opt/conda/bin"
 
 ENTRYPOINT []

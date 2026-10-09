@@ -33,18 +33,27 @@ src/fisseq_embeddings_pipeline/
   config/experiments.py           PLAN_EXPERIMENTS: params validation, per-experiment routing,
                                   RENAMED_PARAMS / removed-param warnings
   build_cell_images_prepare.py    BUILD_CELL_IMAGES phase 1 (data dirs, snakemake config, jobscript)
-  tile_shard.py                   make_cell_shard rule body (phase 2, inside the nested snakemake)
-  build_cell_images_table.py      BUILD_CELL_IMAGES phase 3 (cell_table.parquet, tiles.parquet)
+  tile_shard.py                   make_cell_shard rule body (phase 2, inside the nested snakemake);
+                                  each sample's meta.json is the cell's CELL_META_SCHEMA row
+  well_shards.py                  make_well_shards rule body: a well's temp() tile shards packed
+                                  into well_{n}_shard_{k}.tar.gz, shard_size cells each
+  build_cell_images_table.py      BUILD_CELL_IMAGES phase 3 (cell_table.parquet, shards.parquet);
+                                  tile_cell_meta builds both the table's meta_* columns and meta.json
   cell_metadata.py                BUILD_CELL_METADATA (QC_FILTER's input)
   embed.py                        EMBED_CELLS (Cell-DINO)
   cp_features.py                  BUILD_CP_FEATURES (CellProfiler track's cell table)
-  utils/cell_table.py             cell_table.parquet -> meta_* projection
+  utils/cell_table.py             CELL_META_SCHEMA (table + meta.json) and the meta_* projection
+                                  (CELL_METADATA_SCHEMA) BUILD_CELL_METADATA/BUILD_CP_FEATURES/
+                                  EMBED_CELLS write
   vendor/dinov2/                  vendored dinov2 subset
 modules/local/                    PLAN_EXPERIMENTS, BUILD_CELL_IMAGES, BUILD_CELL_METADATA,
                                   EMBED_CELLS, BUILD_CP_FEATURES
 conf/modules.config               ext.args / ext.seed / publishDir of the shared modules
 snakemake/Snakefile               BUILD_CELL_IMAGES' nested run (starcall + make_cell_shard +
-                                  fisseq_tiles_manifest, the one target; tiles from fisseq_targets.py;
+                                  make_well_shards; two passes: fisseq_shards alone, then
+                                  fisseq_tiles_manifest, so regenerating a shard's temp() inputs
+                                  doesn't rerun CellProfiler; tiles and shard dirs from
+                                  fisseq_targets.py;
                                   every rule's mem_mb doubled per attempt via fisseq_resources.py)
 ```
 
@@ -151,6 +160,13 @@ rebuild the image, and run `tests/integration --container`.
 - **Controls are the wildtype cells** (NORMALIZE), and every per-method aggregate is
   z-scored against the synonymous variants: an experiment needs at least two synonymous
   variants, or those columns come out null.
+- **A cell's `meta_*` values come from one function**:
+  `build_cell_images_table.tile_cell_meta` builds both `cell_table.parquet`'s leading
+  columns and every shard sample's `meta.json`, so `EMBED_CELLS` never reads
+  `metadata.parquet`. `meta_batch` is deliberately not in `meta.json` (the shards are cached
+  in starcall's tree; `batch_stem` is a run-level name): the stages add it. The genotype
+  column names (`*_col_name`) are `BUILD_CELL_IMAGES` settings and `make_cell_shard`
+  params, so changing one doesn't recut existing shards (snakemake reruns on mtime).
 - **The CP track has no feature selection**: no splits, blocklists or `output.parquet`
   under `feature_select_batchwise_cp_features/`, only `aggregates/`.
 - **Output changes are deliberate**: the root `tests/test_reference_outputs.py` compares
@@ -205,8 +221,9 @@ synthetic fixture, a
 output-file/column assertions. BUILD_CELL_IMAGES' nested `snakemake` is a
 stub on PATH that records its argv; the fixture pre-writes the
 starcall-shaped outputs it would have produced — per-tile cell/reads
-tables plus each tile's shard, cut by `tile_shard.write_tile_shard` (the
-same code `make_cell_shard` runs).
+tables plus each well's shards, cut by `tile_shard.write_tile_shard` and
+packed by `well_shards.write_well_shards` (the same code `make_cell_shard`
+and `make_well_shards` run).
 
 `EMBED_CELLS`' GPU/checkpoint dependency is handled in the integration
 fixture by building a tiny, from-scratch, randomly-initialized

@@ -12,8 +12,13 @@ first of `BUILD_CELL_IMAGES`' three phases (Nextflow process
 - `snakemake_config_out` (`snakemake_config.yaml`) -- phase 2's
   `--configfile`: the same three dirs (each with a trailing `/`; they
   override the project's own `config.yaml`), `fisseq_python` (the
-  interpreter `make_cell_shard` runs this package with) and the
-  `fisseq_*` settings of the `fisseq_tiles_manifest` rule (see below).
+  interpreter `make_cell_shard` and `make_well_shards` run this package
+  with) and the `fisseq_*` settings of the `fisseq_shards` and
+  `fisseq_tiles_manifest` rules (see below) -- among them
+  `fisseq_barcode_col`/`fisseq_aa_changes_col`/`fisseq_edit_distance_col`,
+  the reads tables' genotype column names, which `make_cell_shard` passes
+  to each tile's shard and phase 3 reads back from this same file, so the
+  shards' `meta.json` and `cell_table.parquet` rename the same columns.
 - `jobscript_out` (`starcall_jobscript.sh`) -- **only** when
   `starcall_job_image` is set, i.e. the run passes a `starcall_profile`:
   the `--jobscript` template every starcall child job runs through (see
@@ -25,21 +30,27 @@ that read `starcall-workflow`'s tree; see
 
 ## Tiles and grid size: the `fisseq_tiles_manifest` rule
 
-Phase 2 asks snakemake for one file, `tiles_manifest.csv` in the task
-directory. `snakemake/Snakefile`'s `fisseq_tiles_manifest` rule makes it:
-its input function (`snakemake/fisseq_targets.py`) lists, for every tile
-of every well, the WebDataset shard
-(`{segmentation_type}_{raw|corrected}_shard_{window}.tar`, cut by
-`make_cell_shard` -- see [Cell Shards](tile_shard.md)), the segmentation
-cell table (`{segmentation_type}.csv`) and the sequencing reads table
+Phase 2 runs snakemake twice: for `fisseq_shards` (every well's shards,
+alone -- see [Architecture](../architecture.md) decision 17 for why), then
+for `tiles_manifest.csv` in the task directory. `snakemake/Snakefile`'s
+`fisseq_tiles_manifest` rule makes it:
+its input function (`snakemake/fisseq_targets.py`) lists every well's
+shard directory
+(`{well}_grid{N}/{segmentation_type}_{raw|corrected}_shards_{window}_{shard_size|all}/`,
+packed by `make_well_shards` from the tile shards `make_cell_shard` cuts
+-- see [Well Shards](well_shards.md) and [Cell Shards](tile_shard.md)),
+and for every tile of every well the segmentation cell table
+(`{segmentation_type}.csv`) and the sequencing reads table
 (`{segmentation_type}_reads{params}.csv`), plus the CellProfiler CSV if
 `cp_features` is set. So snakemake builds the whole DAG from the grid, the
-way starcall's own grid-merging rules do. The rule then writes the
-manifest (`well,tile,segmentation_csv,reads_csv,cellprofiler_csv,
-shard_tar`) that phase 3 ([`build_cell_images_table`](build_cell_images_table.md))
-reads. The whole-tile image and mask a shard is cut from are deliberately
-*not* inputs: they are `temp()` upstream, so snakemake deletes them once
-the shard is cut -- see [Architecture](../architecture.md) decision 17.
+way starcall's own grid-merging rules do. The rule then writes the two
+manifests phase 3 ([`build_cell_images_table`](build_cell_images_table.md))
+reads: `tiles_manifest.csv` (`well,tile,segmentation_csv,reads_csv,
+cellprofiler_csv`) and `shards_manifest.csv` (`well,shard_tar`, one row
+per shard found in each well's directory). The tile shards, and the
+whole-tile image and mask they are cut from, are deliberately *not*
+inputs: they are `temp()`, so snakemake deletes them once the well is
+packed -- see [Architecture](../architecture.md) decision 17.
 
 Every tile of the `grid_size` x `grid_size` grid is listed, in
 starcall-workflow's own naming (`{well}_grid{grid_size}/tile{x:02}x{y:02}y`),
@@ -82,8 +93,12 @@ Extends the [common config fields](#common-config-fields) below.
 | `wells` | `null` | Wells to build cell images for; `null` takes starcall's own `wells`. |
 | `grid_size` | `null` | Tile grid size; `null` takes the project config's `phenotyping_grid_size`. |
 | `segmentation_type` | `"cells"` | Segmentation type name, threaded into every tile filename. |
-| `use_corrected` | `false` | Cut each shard from `corrected_pt.tif` instead of `raw_pt.tif` (mirroring starcall's own `get_phenotyping_pt`); names the shard `..._corrected_shard_...` rather than `..._raw_shard_...`. |
-| `window` | **required** | Crop size each cell is cut at, in the shard filename. Must match `cell_dino_crop_size`. Routed from the experiment's `window` (or the global default). |
+| `use_corrected` | `false` | Cut each shard from `corrected_pt.tif` instead of `raw_pt.tif` (mirroring starcall's own `get_phenotyping_pt`); names the shard directory `..._corrected_shards_...` rather than `..._raw_shards_...`. |
+| `window` | **required** | Crop size each cell is cut at, in the shard directory name. Must match `cell_dino_crop_size`. Routed from the experiment's `window` (or the global default). |
+| `shard_size` | `null` | Cells per WebDataset shard, each well's counted separately; in the shard directory name (`all` for `null`). `null` gives each well one shard. Routed from the experiment's `shard_size` (or the global default). |
+| `barcode_col_name` | `"upBarcode"` | The reads tables' barcode column (starcall's aux tables name it per experiment), renamed `meta_barcode` in the shards' `meta.json` and `cell_table.parquet`. Written as `fisseq_barcode_col`. |
+| `aa_changes_col_name` | `"aaChanges"` | Likewise the amino-acid-changes column, renamed `meta_aa_changes` (`fisseq_aa_changes_col`). |
+| `edit_distance_col_name` | `"editDistance"` | Likewise the edit-distance column, renamed `meta_edit_distance` (`fisseq_edit_distance_col`). |
 | `sequencing_reads_params` | `""` | Suffix threaded into the reads CSV filename (`{segmentation_type}_reads{sequencing_reads_params}.csv`). |
 | `cp_features` | `false` | Also build this experiment's CellProfiler CSV. |
 | `cellprofiler_cycle` | `""` | Threaded into the CellProfiler CSV filename when `cp_features` is set. |
@@ -92,7 +107,8 @@ Extends the [common config fields](#common-config-fields) below.
 | `starcall_container_bin` | `"apptainer"` | Runtime the jobscript re-enters the image with. |
 | `starcall_job_gpu` | `false` | Pass `--nv` in the jobscript. |
 | `jobscript_binds` | `[]` | Extra host paths to bind into each child job. |
-| `manifest_out` | `"tiles_manifest.csv"` | The manifest the `fisseq_tiles_manifest` rule writes (under `output_dir`; passed to snakemake as an absolute path). |
+| `manifest_out` | `"tiles_manifest.csv"` | The tile manifest the `fisseq_tiles_manifest` rule writes (under `output_dir`; passed to snakemake as an absolute path). |
+| `shards_manifest_out` | `"shards_manifest.csv"` | The shard manifest the same rule writes (likewise). |
 | `snakemake_config_out` | `"snakemake_config.yaml"` | Output filename (under `output_dir`). |
 | `jobscript_out` | `"starcall_jobscript.sh"` | Output filename (under `output_dir`). |
 | `resolved_dirs_out` | `"resolved_dirs.env"` | Output filename (under `output_dir`). |

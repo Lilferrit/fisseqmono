@@ -235,9 +235,9 @@ class EmbeddingsPipelineLayout(PipelineLayout):
         """BUILD_CELL_IMAGES' cell table."""
         return f"cell_images/{batch}/cell_table.parquet"
 
-    def tiles(self, batch: str) -> str:
-        """BUILD_CELL_IMAGES' per-tile shard index."""
-        return f"cell_images/{batch}/tiles.parquet"
+    def shards(self, batch: str) -> str:
+        """BUILD_CELL_IMAGES' WebDataset shard index."""
+        return f"cell_images/{batch}/shards.parquet"
 
     def metadata(self, batch: str) -> str:
         """BUILD_CELL_METADATA's per-cell ``meta_*`` table (QC_FILTER's input)."""

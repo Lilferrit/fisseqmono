@@ -1,11 +1,11 @@
 {
   "scenario": "embeddings_two",
-  "commit": "74a7a02d963f6362376a071243a7d0bb3262b382+dirty",
+  "commit": "60a1f66c39a72e92cc08ae57fb8dd4e58c05e0c9+dirty",
   "files": [
     "cell_images/batch1/cell_table.parquet",
-    "cell_images/batch1/tiles.parquet",
+    "cell_images/batch1/shards.parquet",
     "cell_images/batch2/cell_table.parquet",
-    "cell_images/batch2/tiles.parquet",
+    "cell_images/batch2/shards.parquet",
     "cell_metadata/batch1/metadata.parquet",
     "cell_metadata/batch2/metadata.parquet",
     "cp_features/batch1/cp_features.parquet",

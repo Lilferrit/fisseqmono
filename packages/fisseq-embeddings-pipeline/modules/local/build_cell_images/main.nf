@@ -5,16 +5,18 @@
 //      sequencing_dir (resolved_dirs.env) and writes the nested snakemake's
 //      --configfile (snakemake_config.yaml) -- plus, in cluster mode, the
 //      jobscript every starcall child job re-enters the image through.
-//   2. One snakemake run against the REAL data dirs (so its own mtime
-//      caching reuses whatever is already computed), of starcall-workflow's
-//      own Snakefile -- cloned into the image at a pinned commit, unmodified
-//      -- plus this repo's rules (snakemake/Snakefile,
-//      task.ext.fisseq_snakefile), asking for one file: tiles_manifest.csv.
-//      Its rule lists every tile's cell and reads tables and WebDataset
-//      shard as inputs, so snakemake builds the whole DAG from the grid.
+//   2. Snakemake against the REAL data dirs (so its own mtime caching
+//      reuses whatever is already computed), of starcall-workflow's own
+//      Snakefile -- cloned into the image at a pinned commit, unmodified --
+//      plus this repo's rules (snakemake/Snakefile,
+//      task.ext.fisseq_snakefile), in two passes: fisseq_shards (every
+//      well's WebDataset shards, alone, so regenerating their temp() inputs
+//      doesn't rerun CellProfiler), then tiles_manifest.csv, whose rule
+//      lists every tile's cell and reads tables and every well's shards as
+//      inputs, so snakemake builds the whole DAG from the grid.
 //      See docs/architecture.md decision 17.
 //   3. build_cell_images_table joins the per-tile CSVs into
-//      cell_table.parquet, plus tiles.parquet naming each tile's shard.
+//      cell_table.parquet, plus shards.parquet naming every shard.
 //
 // Local mode (no params.starcall_profile): every starcall rule runs inside
 // this one task, `--cores params.snakemake_cores`. Cluster mode: the nested
@@ -33,19 +35,18 @@ process BUILD_CELL_IMAGES {
     errorStrategy 'ignore'
     label 'process_medium'
     container "${params.container_image}"
-    publishDir { "${params.pipeline_dir}/cell_images/${plan.batch_stem}" }, mode: 'copy', pattern: '{cell_table,tiles}.parquet'
+    publishDir { "${params.pipeline_dir}/cell_images/${plan.batch_stem}" }, mode: 'copy', pattern: '{cell_table,shards}.parquet'
 
     input:
     val(plan)
 
     output:
-    tuple val(plan.batch_stem), path("cell_table.parquet"), path("tiles.parquet"), env("phenotyping_dir"), emit: cell_images
+    tuple val(plan.batch_stem), path("cell_table.parquet"), path("shards.parquet"), env("phenotyping_dir"), emit: cell_images
 
     script:
     def starcall_dir = plan.starcall_workflow_dir
     def cache_dir = params.snakemake_cache_dir ?: "${params.pipeline_dir}/.snakemake_cache"
-    def conda_prefix = task.ext.conda_bin_dir ? "PATH=\"${task.ext.conda_bin_dir}:\$PATH\" " : ''
-    def snakemake = "${conda_prefix}${task.ext.snakemake_bin}"
+    def snakemake = task.ext.snakemake_bin
     def cluster_mode = params.starcall_profile as boolean
     // A list from params.yaml, or a comma-separated string from the command
     // line; absent from an older params.yaml.
@@ -101,19 +102,32 @@ process BUILD_CELL_IMAGES {
         --configfile "\$PWD/snakemake_config.yaml" \\
         || true
 
-    # '--' stops --configfile from swallowing the target as a second
-    # config file.
-    ${snakemake} \\
-        --snakefile "${task.ext.fisseq_snakefile}" \\
-        --directory "${starcall_dir}" \\
-        ${submission} \\
-        ${retries} \\
-        --use-conda --conda-frontend conda \\
-        --rerun-triggers mtime \\
-        --rerun-incomplete \\
-        --configfile "\$PWD/snakemake_config.yaml" \\
-        -- \\
-        "\$PWD/tiles_manifest.csv"
+    # '--' stops --configfile (and --rerun-triggers) from swallowing the
+    # target.
+    nested_snakemake() {
+        ${snakemake} \\
+            --snakefile "${task.ext.fisseq_snakefile}" \\
+            --directory "${starcall_dir}" \\
+            ${submission} \\
+            ${retries} \\
+            --use-conda --conda-frontend conda \\
+            --rerun-triggers mtime \\
+            --rerun-incomplete \\
+            --configfile "\$PWD/snakemake_config.yaml" \\
+            -- \\
+            "\$1"
+    }
+
+    # Two passes, shards first. A well's shards are cut from its tiles'
+    # whole-tile images and masks, which starcall keeps as temp() files, so
+    # cutting missing shards regenerates them. In the same DAG, snakemake would then rerun every
+    # job downstream of those files too -- CellProfiler and the reads chain
+    # -- however complete their outputs ("Input files updated by another
+    # job"). The fisseq_shards pass has nothing else in its DAG, and by the
+    # manifest pass the temp files are gone again, so only tables that are
+    # really missing get built. See docs/architecture.md decision 17.
+    nested_snakemake fisseq_shards
+    nested_snakemake "\$PWD/tiles_manifest.csv"
 
     python -m fisseq_embeddings_pipeline.build_cell_images_table \\
         output_dir=. \\
