@@ -467,7 +467,7 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
     everything but `meta_batch`.** The root `Dockerfile` clones upstream
     (`--recursive`, for its own `packages/starcall`/`packages/constitch`
     submodules) and checks out `ARG STARCALL_WORKFLOW_COMMIT`, a commit on
-    its `devel` branch, into `/opt/fisseq-embeddings-pipeline/starcall-workflow/`.
+    its `devel` line of history (see [A note on branches](#a-note-on-branches)), into `/opt/fisseq-embeddings-pipeline/starcall-workflow/`.
     It is never patched: anything this pipeline adds to starcall's DAG
     goes in `snakemake/Snakefile`, which `include:`s
     `../starcall-workflow/workflow/Snakefile` and adds `make_cell_shard`
@@ -491,8 +491,13 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
     change:** `starcall_workflow_dir` now supplies only `--directory` (the
     experiment's `config.yaml` and data trees), not starcall's code, and
     an experiment directory no longer needs a starcall checkout in it.
+    One that has one (an old experiment made from a starcall clone, with
+    its `starcall`/`constitch` symlinks) doesn't shadow the image's
+    packages either: `snakemake/Snakefile` takes the working directory off
+    `sys.path` before starcall's first import, and fails if `starcall`
+    still resolves there.
     Bumping starcall is changing `STARCALL_WORKFLOW_COMMIT`'s default to a
-    newer devel commit (or `docker build --build-arg
+    newer commit (or `docker build --build-arg
     STARCALL_WORKFLOW_COMMIT=<sha>` to try one), rebuilding the image, and
     running `tests/integration --container`.
 
@@ -605,10 +610,23 @@ deliberate line change versus upstream.
 
 ### A note on branches
 
-This pipeline tracks `starcall-workflow`'s `origin/devel` branch, not
-`master`, which lays out its phenotyping outputs differently and has no
-`extract_embeddings` rule at all. The image is built at one commit of it,
-the `Dockerfile`'s `STARCALL_WORKFLOW_COMMIT` (decision 24).
+This pipeline tracks `starcall-workflow`'s `origin/devel` line of
+history, not `master`, which lays out its phenotyping outputs differently
+and has no `extract_embeddings` rule at all. The image is built at one
+commit, the `Dockerfile`'s `STARCALL_WORKFLOW_COMMIT` (decision 24):
+62414b0 on `origin/sense_analysis`, which branches off devel's tip
+(6e2dc8b, the previous pin). devel's tip crashes `find_dots` on tiles at
+the well's edge (a channel with zero variance becomes NaN, no dots are
+found, and `make_readset` fails with "cannot reshape array of size 0").
+At 62414b0, constitch stitches regions no input image covers as NaN, and
+dot calling ignores them. That changes dot calls on every tile with such
+a region, and `make_cell_shard`'s stitched image is now float32 with NaN
+there, which `tile_shard` turns back into the old uint16 with zeros. The
+commit also reads five new `segmentation` settings while parsing
+(`*_segmentation_filter_min_area`/`_min_bbox`,
+`use_cytoplasm_and_nuclei`); `snakemake/Snakefile` defaults them to that
+commit's own `config.yaml` values for experiments whose `config.yaml`
+predates them, and no longer marks most stitched tifs `temp()`.
 
 ### Cell Images (`BUILD_CELL_IMAGES` output, from `starcall-workflow`)
 
