@@ -7,9 +7,14 @@ import pytest
 from fisseqborn_testdata import PIPELINE_BATCHES
 
 import fisseqborn as fb
-from fisseqborn import _pipeline, _remote
+from fisseqborn import _cache, _pipeline, _remote
 
 HOST = "me@cluster"
+
+
+def _cached(cache, remote_dir) -> pathlib.Path:
+    """Where a cache keeps the files of ``HOST:remote_dir``."""
+    return pathlib.Path(cache, "remote", HOST, *pathlib.Path(remote_dir).parts[1:])
 
 
 class FakeSsh:
@@ -93,17 +98,18 @@ def test_parse(spec, expected):
 
 def test_profiles_download_only_what_they_read(fake, remote, pipeline_dir, tmp_path):
     dl = tmp_path / "dl"
-    profiles = fb.Profiles.from_pipeline(remote, types=["median"], download_dir=dl)
+    profiles = fb.Profiles.from_pipeline(remote, types=["median"], cache=dl)
     assert fake.rel(pipeline_dir) == _fs("aggregates/median.parquet")
     assert len(fake.listings) == 1
     # files mirror the run's layout and give the same profiles as a local load
+    mirror = _cached(dl, pipeline_dir)
     assert (
-        dl / "feature_select_batchwise" / "T1_R1" / "aggregates" / "median.parquet"
+        mirror / "feature_select_batchwise" / "T1_R1" / "aggregates" / "median.parquet"
     ).is_file()
     assert profiles.df.equals(
         fb.Profiles.from_pipeline(pipeline_dir, types=["median"]).df
     )
-    assert not list(dl.glob(".part-*"))
+    assert not list(mirror.glob(".part-*"))
 
     fake.copied.clear()
     fb.Profiles.from_pipeline(
@@ -111,7 +117,7 @@ def test_profiles_download_only_what_they_read(fake, remote, pipeline_dir, tmp_p
         types=["median"],
         passthrough=["KSnegLogP"],
         metadata=True,
-        download_dir=dl,
+        cache=dl,
     ).collect()
     # median is cached; only the newly requested files are copied
     assert fake.rel(pipeline_dir) == _fs(
@@ -122,20 +128,18 @@ def test_profiles_download_only_what_they_read(fake, remote, pipeline_dir, tmp_p
 def test_batches_and_exclude_filter_before_downloading(
     fake, remote, pipeline_dir, tmp_path
 ):
-    fb.Profiles.from_pipeline(remote, exclude="T1*", download_dir=tmp_path / "a")
+    fb.Profiles.from_pipeline(remote, exclude="T1*", cache=tmp_path / "a")
     assert fake.rel(pipeline_dir) == {
         "feature_select_batchwise/T2_R1/aggregates/median.parquet"
     }
     fake.copied.clear()
     ovwt = fb.OvwtScores.from_pipeline(
-        remote, batches=["T10_R1", "T2_R1"], exclude="T2_*", download_dir=tmp_path / "b"
+        remote, batches=["T10_R1", "T2_R1"], exclude="T2_*", cache=tmp_path / "b"
     )
     assert fake.rel(pipeline_dir) == {"ovwt_batchwise/T10_R1/results.parquet"}
     assert set(ovwt.df["meta_experiment"]) == {"T10_R1"}
     with pytest.raises(FileNotFoundError, match="T99"):
-        fb.OvwtScores.from_pipeline(
-            remote, batches=["T99"], download_dir=tmp_path / "c"
-        )
+        fb.OvwtScores.from_pipeline(remote, batches=["T99"], cache=tmp_path / "c")
 
 
 def test_refresh_and_temp_dir_reuse(fake, remote, pipeline_dir):
@@ -154,7 +158,7 @@ def test_refresh_and_temp_dir_reuse(fake, remote, pipeline_dir):
 def test_blocklists_list_once_and_download_only_blocklists(
     fake, remote, pipeline_dir, tmp_path
 ):
-    blocklists = fb.Blocklists.from_pipeline(remote, download_dir=tmp_path)
+    blocklists = fb.Blocklists.from_pipeline(remote, cache=tmp_path)
     assert fake.rel(pipeline_dir) == _fs(
         "blocklists/median.parquet", "blocklists/KS.parquet"
     )
@@ -164,7 +168,7 @@ def test_blocklists_list_once_and_download_only_blocklists(
 
 
 def test_write_global_from_remote(fake, remote, pipeline_dir, tmp_path):
-    written = fb.write_global(remote, tmp_path / "out", download_dir=tmp_path / "dl")
+    written = fb.write_global(remote, tmp_path / "out", cache=tmp_path / "dl")
     assert fake.rel(pipeline_dir) == _fs(
         "aggregates/median.parquet",
         "aggregates/KS.parquet",
@@ -176,40 +180,50 @@ def test_write_global_from_remote(fake, remote, pipeline_dir, tmp_path):
         assert pl.read_parquet(path).equals(pl.read_parquet(local[name]))
 
 
-def test_cli_download_dir(fake, remote, pipeline_dir, tmp_path):
+def test_cli_cache(fake, remote, pipeline_dir, tmp_path):
     from fisseqborn import global_aggregate
 
     global_aggregate.main(
-        [
-            remote,
-            "--out",
-            str(tmp_path / "out"),
-            "--download-dir",
-            str(tmp_path / "dl"),
-        ]
+        [remote, "--out", str(tmp_path / "out"), "--cache", str(tmp_path / "dl")]
     )
-    assert (tmp_path / "dl" / "ovwt_batchwise" / "T1_R1" / "results.parquet").is_file()
+    mirror = _cached(tmp_path / "dl", pipeline_dir)
+    assert (mirror / "ovwt_batchwise" / "T1_R1" / "results.parquet").is_file()
+    args = global_aggregate._parser().parse_args([remote, "--out", "o", "--cache"])
+    assert args.cache is True
+    assert global_aggregate._parser().parse_args([remote, "--out", "o"]).cache is False
+
+
+def test_cache_true_uses_user_cache_dir(
+    fake, remote, pipeline_dir, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        _cache.platformdirs, "user_cache_dir", lambda app: str(tmp_path / app)
+    )
+    fb.OvwtScores.from_pipeline(remote, cache=True)
+    mirror = _cached(tmp_path / "fisseqborn", pipeline_dir)
+    assert (mirror / "ovwt_batchwise" / "T1_R1" / "results.parquet").is_file()
+    assert not _remote._TEMP_DIRS
 
 
 def test_errors(fake, remote, pipeline_dir, tmp_path):
     dl = tmp_path / "dl"
     with pytest.raises(FileNotFoundError, match="KS2"):
-        fb.Profiles.from_pipeline(remote, types=["KS2"], download_dir=dl)
+        fb.Profiles.from_pipeline(remote, types=["KS2"], cache=dl)
     fake.fail = "Permission denied"
     with pytest.raises(RuntimeError, match="Permission denied"):
-        fb.OvwtScores.from_pipeline(remote, download_dir=dl)
+        fb.OvwtScores.from_pipeline(remote, cache=dl)
     assert not list(dl.rglob("*.parquet"))  # a failed copy leaves nothing behind
     with pytest.raises(FileNotFoundError, match="batch directories"):
-        fb.Profiles.from_pipeline(f"{HOST}:{tmp_path / 'nope'}", download_dir=dl)
-    with pytest.raises(ValueError, match="download_dir"):
-        fb.Profiles.from_pipeline(pipeline_dir, download_dir=dl)
+        fb.Profiles.from_pipeline(f"{HOST}:{tmp_path / 'nope'}", cache=dl)
+    with pytest.raises(ValueError, match="cache"):
+        fb.Profiles.from_pipeline(pipeline_dir, cache=dl)
 
 
 def test_dataset_read_remote_file(fake, pipeline_dir, tmp_path):
     path = pipeline_dir / "ovwt_batchwise" / "T1_R1" / "results.parquet"
-    ds = fb.Dataset.read(f"{HOST}:{path}", download_dir=tmp_path)
+    ds = fb.Dataset.read(f"{HOST}:{path}", cache=tmp_path)
     assert ds.df.equals(pl.read_parquet(path))
-    assert (tmp_path / "results.parquet").is_file()
+    assert (_cached(tmp_path, path.parent) / "results.parquet").is_file()
     with pytest.raises(ValueError, match="glob"):
         fb.Dataset.read(f"{HOST}:{path.parent}/*.parquet")
 
@@ -218,4 +232,4 @@ def test_source_is_shared(pipeline_dir):
     src = _pipeline.source(pipeline_dir)
     assert _pipeline.source(src) is src
     with pytest.raises(ValueError, match="Source"):
-        _pipeline.source(src, download_dir="x")
+        _pipeline.source(src, cache="x")

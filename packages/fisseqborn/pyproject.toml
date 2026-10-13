@@ -13,6 +13,7 @@ dependencies = [
     "matplotlib>=3.10",
     "numpy",
     "pandas",
+    "platformdirs>=4.11.4",
     "polars>=1.39",
     "pyarrow",
     "scikit-learn",

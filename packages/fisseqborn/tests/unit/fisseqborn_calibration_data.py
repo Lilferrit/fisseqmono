@@ -65,7 +65,7 @@ def dataset_frames(
     seed: int = 0, *, prior: float = 0.3, n_each: int = 60, n_gnomad: int = 250
 ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
     """A scored dataset (one row per ``meta_aa_changes``), a gnomAD browser export and a
-    ClinVar table for it.
+    variant-annotation ClinVar table for it.
 
     Variants ``A<i>V`` are missense; ``A<i>A`` synonymous. The first ``n_each`` missense
     variants are P/LP, the next ``n_each`` B/LB (in ClinVar and in the gnomAD export's
@@ -111,12 +111,31 @@ def dataset_frames(
             }
         )
     gnomad = pl.DataFrame(gnomad_rows)
-    clinvar = pl.DataFrame(
-        {
-            "variant": labelled,
-            "clinvar_clinical_significance": classes,
-            "clinvar_review_status": ["criteria provided, single submitter"]
-            * len(labelled),
-        }
+    clinvar = variant_annotation(
+        [f"NP_000268.1:p.Ala{v[1:-1]}Val" for v in labelled],
+        classes,
+        ["criteria provided, single submitter"] * len(labelled),
     )
     return data, gnomad, clinvar
+
+
+def variant_annotation(
+    hgvs_p: list[str],
+    significance: list[str | None],
+    review_status: list[str] | None = None,
+    *,
+    release: str = "202601",
+    **extra: list,
+) -> pl.DataFrame:
+    """Rows as bbi-lab/variant-annotation writes them after its ClinVar step (all strings,
+    ``clinvar.<release>.<field>`` columns)."""
+    n = len(hgvs_p)
+    columns = {
+        "mapped_hgvs_p": hgvs_p,
+        f"clinvar.{release}.variation_id": [str(1000 + i) for i in range(n)],
+        f"clinvar.{release}.clinical_significance": significance,
+    }
+    if review_status is not None:
+        columns[f"clinvar.{release}.review_status"] = review_status
+    columns.update({f"clinvar.{release}.{k}": v for k, v in extra.items()})
+    return pl.DataFrame(columns, schema={c: pl.String for c in columns})

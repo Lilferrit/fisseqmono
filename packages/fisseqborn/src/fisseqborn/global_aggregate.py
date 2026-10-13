@@ -61,7 +61,7 @@ from fisseq_common.schema import (
     VARIANCE_EXPLAINED_COL,
 )
 
-from . import _pipeline, _transforms
+from . import _cache, _pipeline, _transforms
 from .blocklist import Blocklists
 from .profiles import Profiles, batch_aggregates
 
@@ -126,7 +126,7 @@ def write_global(
     paired: Mapping[str, str] | None = None,
     pca: int | None = None,
     features: Literal["intersection"] | None = None,
-    download_dir: str | PathLike | None = None,
+    cache: "_cache.Cache" = False,
     refresh: bool = False,
     variant_col: str = "meta_aa_changes",
     batch_col: str = "meta_experiment",
@@ -166,8 +166,8 @@ def write_global(
     ``layout`` (``"data"``, ``"embeddings"`` or a `PipelineLayout`) is detected by
     default. ``exclude`` drops experiments by name (``fnmatch`` globs or compiled
     regexes). ``pipeline_dir`` can be remote (``"user@host:/path"``): only the files read
-    are copied with scp, into ``download_dir`` (default: a temporary directory), reusing
-    files already there unless ``refresh``. Returns the paths written, keyed
+    are copied with scp, into ``cache`` (``True`` for the user cache directory; default: a
+    temporary directory), reusing files already there unless ``refresh``. Returns the paths written, keyed
     ``"<dir>/<stem>"``.
 
     ``pca`` and ``features`` are accepted for compatibility and ignored: the PCA is always
@@ -187,7 +187,7 @@ def write_global(
     if missing not in ("ignore", "fail"):
         raise ValueError(f"missing must be 'ignore' or 'fail', got {missing!r}")
     out = pathlib.Path(out)
-    src = _pipeline.source(pipeline_dir, download_dir, refresh, layout)
+    src = _pipeline.source(pipeline_dir, cache, refresh, layout)
     written: dict[str, pathlib.Path] = {}
     for track in tracks(src.layout):
         track_src = src.with_layout(track.layout)
@@ -684,15 +684,19 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--pca", type=int, help=argparse.SUPPRESS)
     parser.add_argument(
-        "--download-dir",
+        "--cache",
+        nargs="?",
+        const=True,
+        default=False,
         type=pathlib.Path,
-        help="for a remote pipeline_dir (user@host:/path): where to copy its files "
-        "(default: a temporary directory)",
+        metavar="DIR",
+        help="for a remote pipeline_dir (user@host:/path): cache its files in DIR, or "
+        "without DIR in the user cache directory (default: a temporary directory)",
     )
     parser.add_argument(
         "--refresh",
         action="store_true",
-        help="re-download remote files already in --download-dir",
+        help="re-download remote files already in the cache",
     )
     return parser
 
@@ -732,7 +736,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         metadata=args.metadata,
         paired=paired,
         pca=args.pca,
-        download_dir=args.download_dir,
+        cache=args.cache,
         refresh=args.refresh,
     )
     for path in written.values():

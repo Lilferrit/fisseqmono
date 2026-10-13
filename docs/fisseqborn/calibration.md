@@ -1,6 +1,6 @@
 # Evidence calibration (ExCALIBR)
 
-`Dataset.calibrate` turns any per-variant score into ACMG/AMP evidence points, from −8
+`Dataset.excalibr` turns any per-variant score into ACMG/AMP evidence points, from −8
 (benign) to +8 (pathogenic), by comparing where pathogenic and benign control variants
 score. It is a native port of ExCALIBR (Zeiberg et al., *Gene-based calibration of
 high-throughput functional assays for clinical variant classification*,
@@ -14,8 +14,10 @@ import fisseqborn as fb
 cal = (fb.OvwtScores.from_pipeline(run)
          .correct("auroc_pooled")
          .per_variant("auroc_pooled_corrected")
-         .calibrate("auroc_pooled_corrected",
-                    gnomad="gnomAD_v4.1.2_ENSG00000160789.csv"))   # the gene's gnomAD export
+         .variant_type()
+         .gnomad(cache=True)                    # LMNA from the gnomAD API, cached
+         .clinvar("annotated.tsv", cache=True)  # variant-annotation output; or none to download
+         .excalibr("auroc_pooled_corrected"))
 
 cal.df             # + meta_excalibr_group, _groups, _lr, _posterior, _points, _oob
 cal.calibration    # the fitted Calibration
@@ -27,45 +29,68 @@ Any numeric column works, e.g. `meta_distinguishability_score` on `Profiles`.
 
 ## Inputs
 
-**One row per variant.** `calibrate` raises if a `meta_aa_changes` label appears more than
+**One row per variant.** `excalibr` raises if a `meta_aa_changes` label appears more than
 once. Pool first with `.per_variant()` on `OvwtScores` or `.median_across_batches()` on
 `Profiles`, or filter to one batch to calibrate it alone.
 
-**gnomAD (required).** The CSV export of the gene's page on the
-[gnomAD browser](https://gnomad.broadinstitute.org/), downloaded with the
-"Export variants to CSV" button. It is the population sample the prior comes from.
+**gnomAD (required): `Dataset.gnomad()`.** The population sample the prior comes from.
 
-- **Matching to `meta_aa_changes`.** `Protein Consequence` (`p.Arg123Trp`) is converted to
-  the one-letter label (`R123W`; `p.Arg123Ter` gives `R123*`).
+- **Source.** With no argument, the gene's variants (`gene="LMNA"`, `dataset="gnomad_r4"`)
+  are downloaded from the [gnomAD](https://gnomad.broadinstitute.org/) GraphQL API, one
+  request per gene. A CSV from the gene page's "Export variants to CSV" button (a path or a
+  frame) also works, and is the only source of the browser's ClinVar column (see below).
+- **Matching to `meta_aa_changes`.** The HGVS protein change on the canonical transcript
+  (`p.Arg123Trp`) is converted to the one-letter label (`R123W`; `p.Arg123Ter` gives
+  `R123*`).
     - Nucleotide variants with the same protein change are collapsed into one: allele counts
       are summed, and the variant counts if any of its nucleotide variants passes.
     - Rows without a single-codon protein change (intronic, UTR, frameshift) are dropped.
-- **Filters.** A variant counts only with `Filters - joint == PASS`.
-    - `splice_max=0.2` also drops variants with `spliceai_ds_max` above 0.2, the cutoff in
-      Zeiberg et al. v2. Use it for assays that cannot see splicing effects.
+- **Filters.** A variant counts only if it passes gnomAD's joint filters (`PASS`).
+    - `.gnomad(splice_max=0.2)` also drops variants with `spliceai_ds_max` above 0.2, the
+      cutoff in Zeiberg et al. v2. Use it for assays that cannot see splicing effects.
+- **Columns.** `meta_gnomad_in` (the gnomAD group), `meta_gnomad_allele_count`,
+  `_allele_number`, `_allele_frequency`, `_spliceai_ds_max`, and with a CSV
+  `meta_gnomad_clinvar_class`.
 
-**ClinVar (optional).** The table `Dataset.clinvar` reads: a `variant` column (`"A12V"`)
-and `clinvar_clinical_significance`.
+**ClinVar: `Dataset.clinvar()`.**
 
+- **Source.** The output of [variant-annotation](https://github.com/bbi-lab/variant-annotation)
+  after its ClinVar step: a TSV with `clinvar.<YYYYMM>.<field>` columns and the protein
+  change in `mapped_hgvs_p` (`protein_col=` for another column). The latest release in the
+  file is used unless `release="YYYYMM"` picks one. With no argument, the gene's ClinVar
+  variants are downloaded from the gnomAD API instead (whichever ClinVar release gnomAD
+  mirrors; it is recorded in `meta_clinvar_release`).
 - **Calls that count.** Pathogenic, Likely pathogenic and Pathogenic/Likely pathogenic
   count as P/LP; Benign, Likely benign and Benign/Likely benign count as B/LB. Uncertain,
   conflicting and not-provided calls are not controls.
-- **Review stars.** With a `clinvar_review_status` (ClinVar's text) or `clinvar_stars`
-  column, records under `min_stars=1` are dropped, as in the paper. Without one, the filter
-  is skipped, with a warning.
-- **Without a table** (`clinvar=None`), the gnomAD export's `ClinVar Germline
-  Classification` column is used. It only covers variants gnomAD observed and has no review
-  status, so a warning is logged.
+- **Review stars.** Records with fewer than `.clinvar(min_stars=1)` review stars are
+  dropped, as in the paper. Stars come from the `stars` field, else from the review status.
 - **Conflicts.** A protein change whose records include both a pathogenic and a benign call
   is left out of the controls.
+- **Columns.** `meta_clinvar_class` (`"pathogenic"`, `"benign"` or null, after the star
+  filter: what `excalibr` reads), the most severe record's fields (`meta_clinvar_clinical_significance`,
+  `_review_status`, `_stars`, `_variation_id`, `_release`, ...), `meta_clinvar_conditions`
+  (see below) and `meta_clinvar_annotation`.
+- **Conditions.** `meta_clinvar_conditions` lists the diseases of the record's germline
+  classification, fetched from NCBI E-utilities by variation ID (`conditions=False` skips
+  it). They come from NCBI's current ClinVar, which can be newer than the release of the
+  calls. Set `NCBI_API_KEY` to raise NCBI's rate limit of 3 requests per second.
+- **Without `.clinvar()`**, `excalibr` uses the gnomAD CSV's `ClinVar Germline
+  Classification` column. It only covers variants gnomAD observed and has no review
+  status, so a warning is logged.
+
+**Caching.** Both methods download on every call unless given `cache`: a directory, or
+`True` for the user cache directory (`~/Library/Caches/fisseqborn` on macOS,
+`~/.cache/fisseqborn` on Linux). `refresh=True` downloads again. `excalibr` records each
+method's source, release and filters in `calibration.settings["annotations"]`.
 
 ## Control groups
 
 | Group | From | Notes |
 |---|---|---|
-| P/LP | ClinVar table, else the gnomAD export's ClinVar column | |
-| B/LB | ClinVar table, else the gnomAD export's ClinVar column | |
-| gnomAD | gnomAD export, passing the filters | the unlabelled population sample |
+| P/LP | `.clinvar()`, else the gnomAD CSV's ClinVar column | |
+| B/LB | `.clinvar()`, else the gnomAD CSV's ClinVar column | |
+| gnomAD | `.gnomad()`, passing the filters | the unlabelled population sample |
 | Synonymous | `meta_is_control` rule: synonymous, no `:<tag>` | |
 
 - **Which variants can be controls.** Only single-codon substitutions; multi-codon (`|`)
@@ -158,13 +183,12 @@ against the gnomAD v4.1.2 LMNA export. The run used 100 bootstrap iterations, wh
 
 ```python
 profiles = fb.Profiles(pl.read_parquet("distinguishability.parquet"))  # one row per variant
-cal = profiles.calibrate("meta_distinguishability_score",
-                         gnomad=GNOMAD_CSV,        # gnomAD_v4.1.2_ENSG00000160789_*.csv
-                         clinvar=None,             # or CLINVAR_PATH
-                         n_bootstrap=100)
+cal = (profiles.gnomad(GNOMAD_CSV)               # gnomAD_v4.1.2_ENSG00000160789_*.csv
+               # .variant_type().clinvar(...)    # for the second run
+               .excalibr("meta_distinguishability_score", n_bootstrap=100))
 ```
 
-| | gnomAD ClinVar column (`clinvar=None`) | `clinvar/clinvar_converted.parquet` |
+| | gnomAD ClinVar column (no `.clinvar()`) | a ClinVar table without review status |
 |---|---|---|
 | Controls (P/LP, B/LB, gnomAD, synonymous) | 23, 155, 820, 533 | 166, 1 (dropped), 820, 533 |
 | Benign reference | B/LB and synonymous averaged | synonymous only |
@@ -199,7 +223,7 @@ variants in the first run get +4, although the full calibration stops at +3.
   are rarely reached. Read `warnings` before using the points.
 - **The gnomAD-only ClinVar fallback** sees only variants gnomAD observed, so it has fewer
   controls than ClinVar itself, and it cannot apply the one-star review filter the paper
-  uses. Pass a ClinVar table with review status when you can.
+  uses. Run `.clinvar()` when you can.
 - **Run time.** EM runs on the CPU, in parallel across bootstrap iterations.
     - 100 iterations on about 1,600 controls take 1–2 minutes on 8 cores, with 2 and 3
       components both fit.

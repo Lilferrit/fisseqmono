@@ -9,7 +9,8 @@ group's fitted mixture density, the median over bootstrap fits.
 ```python
 import fisseqborn as fb
 
-cal = profiles.calibrate("meta_distinguishability_score", gnomad=GNOMAD_CSV, clinvar=CLINVAR_PATH)
+cal = (profiles.variant_type().gnomad(cache=True).clinvar(CLINVAR_TSV, cache=True)
+               .excalibr("meta_distinguishability_score"))
 (fb.CalibrationPlot(cal, title="LMNA distinguishability")
    .refline(x=0.5)
    .save("vis/calibration.png"))
@@ -18,10 +19,10 @@ cal = profiles.calibrate("meta_distinguishability_score", gnomad=GNOMAD_CSV, cli
 ![LMNA calibration](../images/calibration-lmna-table.png)
 
 *LMNA LOBO distinguishability (`notebooks/2026-08-28/ovwtlobo`) against the gnomAD v4.1.2
-export and the converted ClinVar table. The table has one benign call, so B/LB is dropped
+export and a ClinVar table without review status. It has one benign call, so B/LB is dropped
 and not drawn.*
 
-- **Data.** Pass the dataset `calibrate` returned: it carries the `Calibration`, and its
+- **Data.** Pass the dataset `excalibr` returned: it carries the `Calibration`, and its
   `meta_excalibr_groups` column says which group each variant is in. For a plain DataFrame,
   pass `calibration=`.
 - **Score column.** `score` defaults to the column the calibration was fit on.

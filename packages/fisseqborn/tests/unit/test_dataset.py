@@ -1,8 +1,11 @@
+from datetime import date
+
 import polars as pl
 import pytest
+from fisseqborn_calibration_data import variant_annotation
 
 import fisseqborn as fb
-from fisseqborn import fisseq
+from fisseqborn import _clinvar_api, fisseq
 from fisseqborn._variants import classify_variant
 
 LABELS = [
@@ -96,29 +99,44 @@ def test_domain_custom_regions():
     assert df["region"].to_list() == ["first", None]
 
 
-def test_clinvar(tmp_path):
-    clinvar = pl.DataFrame(
-        {
-            "variant": ["A2V", "A2V", "A3V", "A4V", "A5V", "A5V", "A6V", "A7V", "A8V"],
-            "clinvar_clinical_significance": [
-                "Benign",
-                "Pathogenic",
-                "Uncertain significance",
-                "Likely pathogenic/Pathogenic",
-                "Uncertain significance",
-                "Likely pathogenic",
-                "Conflicting classifications of pathogenicity",
-                "Benign",
-                "Uncertain significance/Uncertain risk allele",
-            ],
-            "clinvar_name": ["a", "b", "c", "d", "e", "f", "g", "h", "i"],
-        }
-    )
-    path = tmp_path / "clinvar.parquet"
-    clinvar.write_parquet(path)
-    variants = ["A1A", "A2V", "A3V", "A4V", "A5V", "A6V", "A7V", "A8V"]
+def test_clinvar(tmp_path, monkeypatch):
+    clinvar = variant_annotation(
+        [f"NP_000268.1:p.Ala{v[1:-1]}Val" for v in
+         ["A2V", "A2V", "A3V", "A4V", "A5V", "A5V", "A6V", "A7V", "A8V"]],
+        [
+            "Benign",
+            "Pathogenic",
+            "Uncertain significance",
+            "Likely pathogenic/Pathogenic",
+            "Uncertain significance",
+            "Likely pathogenic",
+            "Conflicting classifications of pathogenicity",
+            "Benign",
+            "Uncertain significance/Uncertain risk allele",
+        ],
+        ["criteria provided, single submitter"] * 9,
+        allele_id=["a", "b", "c", "d", "e", "f", "g", "h", "i"],
+    )  # fmt: skip
+    path = tmp_path / "annotated.tsv"
+    clinvar.write_csv(path, separator="\t")
+    requested = []
+
+    def fetch(ids):
+        requested.append(ids)
+        return pl.DataFrame(
+            {
+                "clinvar_variation_id": ids,
+                "clinvar_conditions": [[f"disease {i}"] for i in ids],
+                "fetched": [date.today()] * len(ids),
+            },
+            schema=_clinvar_api.SCHEMA,
+        )
+
+    monkeypatch.setattr(_clinvar_api, "_fetch", fetch)
+    variants = ["A1A", "A2V", "A3V", "A4V", "A5V", "A6V", "A7V", "A8V", "A2V:tag"]
     ds = fb.Dataset(pl.DataFrame({"meta_aa_changes": variants})).variant_type()
-    df = ds.clinvar(path).df
+    out = ds.clinvar(path, cache=tmp_path / "cache")
+    df = out.df
     assert df["meta_clinvar_annotation"].to_list() == [
         "Synonymous",
         fisseq.PATHOGENIC,
@@ -128,28 +146,61 @@ def test_clinvar(tmp_path):
         "Single Missense",
         "Single Missense",
         fisseq.UNCERTAIN,
+        "Single Missense",  # tagged labels are not matched
     ]
-    assert df["meta_clinvar_name"].to_list() == [
-        None,
-        "b",
-        "c",
-        "d",
-        "f",
-        "g",
-        "h",
-        "i",
-    ]
+    assert df["meta_clinvar_allele_id"].to_list() == [
+        None, "b", "c", "d", "f", "g", "h", "i", None
+    ]  # fmt: skip
     assert df["meta_clinvar_clinical_significance"][6] == "Benign"
+    assert df["meta_clinvar_release"][1] == "2026-01"
+    assert df["meta_clinvar_conditions"][1].to_list() == ["disease 1001"]
+    # A2V has pathogenic and benign records: no ExCALIBR class
+    assert df["meta_clinvar_class"].to_list() == [
+        None, None, None, "pathogenic", "pathogenic", None, "benign", None, None
+    ]  # fmt: skip
     assert not any(c.startswith("__") for c in df.columns)
-    assert ds.clinvar(clinvar).df.equals(df)
+    assert out.annotations["clinvar"]["release"] == "2026-01"
+    assert ds.annotations == {}
+    # the conditions are cached; a frame source gives the same result
+    assert ds.clinvar(clinvar, cache=tmp_path / "cache").df.equals(df)
+    assert len(requested) == 1
+    assert "meta_clinvar_conditions" not in ds.clinvar(path, conditions=False).columns
+    # running it again replaces the columns
+    assert out.clinvar(path, conditions=False).df.height == len(variants)
 
 
 def test_clinvar_needs_variant_type():
     ds = fb.Dataset(pl.DataFrame({"meta_aa_changes": ["A1A"]}))
     with pytest.raises(ValueError, match="meta_variant_type"):
-        ds.clinvar(
-            pl.DataFrame({"variant": ["A1A"], "clinvar_clinical_significance": ["x"]})
-        )
+        ds.clinvar(variant_annotation(["p.Ala1Ala"], ["Benign"]), conditions=False)
+
+
+def test_gnomad():
+    gnomad = pl.DataFrame(
+        {
+            "Protein Consequence": ["p.Ala1Val", "p.Ala1Val", "p.Ala2Val", "p.Ala3Ala"],
+            "Filters - joint": ["PASS", "PASS", "AC0", "PASS"],
+            "Allele Count": ["2", "3", "0", "4"],
+            "Allele Number": ["1000", "1200", "1000", "1000"],
+            "ClinVar Germline Classification": ["Benign", "", "", ""],
+            "spliceai_ds_max": ["0.0", "0.3", "0.0", "0.5"],
+        }
+    )
+    variants = ["A1V", "A2V", "A3A", "A4V", "A1V:tag"]
+    ds = fb.Dataset(pl.DataFrame({"meta_aa_changes": variants})).gnomad(gnomad)
+    df = ds.df
+    assert df["meta_gnomad_in"].to_list() == [True, False, True, None, None]
+    assert df["meta_gnomad_allele_count"].to_list() == [5, 0, 4, None, None]
+    assert df["meta_gnomad_allele_frequency"][0] == pytest.approx(5 / 1200)
+    assert df["meta_gnomad_spliceai_ds_max"].to_list() == [0.3, 0.0, 0.5, None, None]
+    assert df["meta_gnomad_clinvar_class"].to_list() == [
+        "benign", None, None, None, None
+    ]  # fmt: skip
+    assert ds.annotations["gnomad"] == {"source": "table", "splice_max": None}
+    spliced = ds.gnomad(gnomad, splice_max=0.2).df
+    assert spliced["meta_gnomad_in"].to_list() == [True, False, False, None, None]
+    assert spliced["meta_gnomad_allele_count"].to_list() == [2, 0, 0, None, None]
+    assert spliced.columns == df.columns
 
 
 def test_polars_passthroughs(labels):

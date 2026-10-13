@@ -31,7 +31,7 @@ from fisseq_common.layout import (
     Track,
 )
 
-from . import _data, _remote
+from . import _cache, _data, _remote
 
 #: A layout, or the pipeline that wrote the run: ``"data"`` or ``"embeddings"``.
 LayoutSpec = PipelineLayout | str | None
@@ -235,24 +235,25 @@ class Source:
 
 def source(
     pipeline_dir: "str | PathLike | Source",
-    download_dir: str | PathLike | None = None,
+    cache: _cache.Cache = False,
     refresh: bool = False,
     layout: LayoutSpec = None,
     track: Track = "embeddings",
 ) -> Source:
     """A `Source` for a local run directory or an scp-style ``"[user@]host:path"`` spec.
 
-    Remote files go to ``download_dir`` (mirroring the run's layout), or without one to a
-    temporary directory reused for that run for the rest of the session. Files already
-    there are reused unless ``refresh``.
+    Remote files are cached under ``cache`` (``<cache>/remote/<host>/<path>``, mirroring
+    the run's layout; ``True`` for the user cache directory, see `fisseqborn._cache`), or
+    without one in a temporary directory reused for that run for the rest of the session.
+    Files already there are reused unless ``refresh``.
 
     ``layout`` is the run's `PipelineLayout`, or ``"data"`` / ``"embeddings"``; by default
     it is detected (see `resolve_layout`). ``track`` picks the embeddings pipeline's track
     (``"embeddings"`` or ``"cp_features"``).
     """
     if isinstance(pipeline_dir, Source):
-        if download_dir is not None:
-            raise ValueError("download_dir can't be combined with an existing Source")
+        if cache is not False:
+            raise ValueError("cache can't be combined with an existing Source")
         if layout is not None or track != "embeddings":
             raise ValueError(
                 "layout and track can't be combined with an existing Source"
@@ -260,18 +261,14 @@ def source(
         return pipeline_dir
     spec = _remote.parse(pipeline_dir)
     if spec is None:
-        if download_dir is not None:
+        if cache is not False:
             raise ValueError(
-                f"download_dir is only used for remote runs ('user@host:/path'), but "
+                f"cache is only used for remote runs ('user@host:/path'), but "
                 f"{pipeline_dir!s} is local"
             )
         return Source(pathlib.Path(pipeline_dir), layout=layout, track=track)
     host, root = spec
-    local = (
-        pathlib.Path(download_dir)
-        if download_dir is not None
-        else _remote.temp_dir(host, root)
-    )
+    local = _remote.local_dir(host, root, cache)
     return Source(
         local, _remote.Remote(host, root, local, refresh=refresh), layout, track
     )
