@@ -198,6 +198,28 @@ def test_write_tile_shard_round_trips_crops_masks_and_location(tmp_path: Path):
         }
 
 
+def test_write_tile_shard_float_nan_image_crops_as_uint16_zeros(tmp_path: Path):
+    """starcall stitches into float32 with NaN outside the well: the crops
+    are the uint16 ones, NaN pixels 0, as before it used NaN."""
+    bboxes = [(4, 4, 8, 8), (30, 30, 36, 36)]
+    image, mask = _write_tile(tmp_path, list(zip([10, 11], bboxes)))
+    expected = image.copy()
+    expected[:, 28:, :] = 0
+    stitched = image.astype(np.float32).reshape(1, NUM_CHANNELS, TILE_SIZE, TILE_SIZE)
+    stitched[..., 28:, :] = np.nan
+    tifffile.imwrite(tmp_path / "raw_pt.tif", stitched, photometric="minisblack")
+    cfg = _cfg(tmp_path)
+
+    assert write_tile_shard(cfg) == 2
+
+    samples = _samples(Path(cfg.output_tar))
+    for i, cid in enumerate([10, 11]):
+        crop = samples[f"well1_tile0x0y_{cid}"]["crop.npy"]
+        want_crop, _ = crop_cell(expected, mask, bboxes[i], i + 1, WINDOW)
+        assert crop.dtype == np.uint16
+        np.testing.assert_array_equal(crop, want_crop)
+
+
 def test_write_tile_shard_pairs_mask_label_with_row_position(tmp_path: Path):
     """The mask label is the cell's on-disk row position + 1, not its
     tile_cell_index -- a guard against pairing a cell with a neighbour's

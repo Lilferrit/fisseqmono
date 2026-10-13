@@ -76,7 +76,7 @@ QC-filtering twice. See [Architecture](architecture.md) and
 - [`fisseq-common`](../common/index.md) -- the shared stages, Nextflow modules and output
   layout.
 - [`fisseqborn`](../fisseqborn/index.md) -- plots and cross-experiment aggregation.
-- `starcall-workflow` -- the Snakemake pipeline whose `origin/devel` branch
-  produces this pipeline's raw input tree; `BUILD_CELL_IMAGES` is the only
+- `starcall-workflow` -- the Snakemake pipeline whose `origin/devel` line of history
+  (pinned to a commit on `sense_analysis`) produces this pipeline's raw input tree; `BUILD_CELL_IMAGES` is the only
   stage that reads it or runs it -- see
   [Architecture](architecture.md#data-contracts).

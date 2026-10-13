@@ -63,8 +63,8 @@ snakemake/Snakefile               BUILD_CELL_IMAGES' nested run (starcall + make
   CellProfiler-feature version of this same analysis, running the same shared stages.
 - `fisseq-common` (`packages/fisseq-common/`) — `fisseq_common.stages` (algorithm, Hydra
   config and entry point of every shared stage) and their Nextflow modules.
-- `starcall-workflow` — the Snakemake pipeline whose `origin/devel` branch
-  produces this pipeline's raw input. This
+- `starcall-workflow` — the Snakemake pipeline whose `origin/devel` line of history
+  (pinned to 62414b0 on `sense_analysis`, which branches off devel) produces this pipeline's raw input. This
   package's `Dockerfile` clones it at **one pinned commit**
   (`ARG STARCALL_WORKFLOW_COMMIT`): the code `BUILD_CELL_IMAGES`' nested
   snakemake actually runs, through `snakemake/Snakefile`, and what the
@@ -76,7 +76,8 @@ into the sandbox at `/workspaces/starcall-workflow`. It's mounted read-only on p
 don't write into it; if starcall needs a fix upstream, note that in your commit message.
 
 **`starcall-workflow` gotcha:** this pipeline tracks `starcall-workflow`'s
-`origin/devel` branch, not `master`. The authoritative version is the
+`origin/devel` line of history, not `master` (the pin is 62414b0 on `sense_analysis`,
+for its edge-tile fix — see the architecture doc's "A note on branches"). The authoritative version is the
 Dockerfile's `STARCALL_WORKFLOW_COMMIT` — read starcall's code at that
 commit (`git -C /workspaces/starcall-workflow show
 <commit>:workflow/rules/phenotyping.smk`). The bind-mounted sibling's own
@@ -90,7 +91,7 @@ anything this pipeline adds to starcall's DAG goes in
 `make_cell_images` is broken against its cell table, which is why the
 per-tile `make_cell_shard` rule there does the cropping itself
 (`tile_shard.py`; `docs/embeddings-pipeline/architecture.md` decision 17). Bumping the pin:
-change `STARCALL_WORKFLOW_COMMIT`'s default to the new devel commit,
+change `STARCALL_WORKFLOW_COMMIT`'s default to the new commit,
 rebuild the image, and run `tests/integration --container`.
 
 ## Repo conventions

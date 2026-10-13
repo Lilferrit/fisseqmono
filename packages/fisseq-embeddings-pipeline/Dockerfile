@@ -130,10 +130,14 @@ SHELL ["/opt/conda/bin/conda", "run", "--no-capture-output", "-n", "ops", "/bin/
 # looks, and deliberately not bundled with the cluster work.
 RUN pip install --no-cache-dir "snakemake==7.32.4"
 
-# starcall-workflow, cloned at build time at ONE pinned commit on its
-# origin/devel branch (NOT master, which has a differently-shaped
+# starcall-workflow, cloned at build time at ONE pinned commit: 62414b0 on
+# its origin/sense_analysis branch, which branches off origin/devel's tip
+# (6e2dc8b, the previous pin). NOT master, which has a differently-shaped
 # make_cell_images and no extract_embeddings rule at all; see
-# docs/architecture.md's "A note on branches"). The same checkout supplies
+# docs/architecture.md's "A note on branches". 62414b0 is the commit that
+# stops blank well-edge tiles from crashing find_dots (constitch stitches
+# non-image regions as NaN, and dot calling ignores them); devel's tip
+# dies on them with "cannot reshape array of size 0". The same checkout supplies
 # both the `ops` env's Python packages (requirements.txt plus the two
 # submodules' setup.py packages, installed below) and the Snakefile the
 # nested run executes: snakemake/Snakefile (copied in with the project
@@ -144,7 +148,7 @@ RUN pip install --no-cache-dir "snakemake==7.32.4"
 # docs/architecture.md decision 24. --recursive pulls packages/starcall
 # and packages/constitch.
 ARG STARCALL_WORKFLOW_GIT_URL=https://github.com/FowlerLab/starcall-workflow.git
-ARG STARCALL_WORKFLOW_COMMIT=6e2dc8bf8a96095e640e110550209bba50c23d07
+ARG STARCALL_WORKFLOW_COMMIT=62414b0b4a818c4ad8c5338c9881ce240272d2fc
 WORKDIR /opt/fisseq-embeddings-pipeline
 RUN git clone --recursive "${STARCALL_WORKFLOW_GIT_URL}" starcall-workflow \
     && git -C starcall-workflow checkout "${STARCALL_WORKFLOW_COMMIT}" \
