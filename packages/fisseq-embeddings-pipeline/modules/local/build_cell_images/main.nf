@@ -12,10 +12,9 @@
 //      task.ext.fisseq_snakefile), in two passes: fisseq_shards (every
 //      well's WebDataset shards, alone, so use_corrected regenerating its
 //      temp() corrected_tiles.tif doesn't rerun CellProfiler), then
-//      tiles_manifest.csv, whose rule
-//      lists every tile's cell and reads tables and every well's shards as
-//      inputs, so snakemake builds the whole DAG from the grid.
-//      See docs/architecture.md decision 17.
+//      tiles_manifest.csv, whose rule lists every tile's cell and reads
+//      tables and every well's shards as inputs, so snakemake builds the
+//      whole DAG from the grid. See docs/architecture.md decision 17.
 //   3. build_cell_images_table joins the per-tile CSVs into
 //      cell_table.parquet, plus shards.parquet naming every shard.
 //

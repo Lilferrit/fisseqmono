@@ -9,12 +9,11 @@ per-experiment `cp_features.parquet` -- the CellProfiler-feature analog of
 `meta_batch` included. A table with no CellProfiler columns (an experiment
 whose `cp_features` was off when `BUILD_CELL_IMAGES` ran) logs a warning.
 
-This stage no longer discovers tiles, reads any CSV, or touches
-`starcall-workflow`'s tree at all -- `BUILD_CELL_IMAGES` is the only stage
+This stage discovers no tiles, reads no CSV and never touches
+`starcall-workflow`'s tree -- `BUILD_CELL_IMAGES` is the only stage
 that does, and it already joined each tile's CellProfiler CSV into
 `cell_table.parquet` (by row position -- CellProfiler's own `ObjectNumber`
-numbering has no shared index with the segmentation table) before this
-stage ever runs. See
+numbering has no shared index with the segmentation table). See
 [Architecture](../architecture.md#cell-images-build_cell_images-output-from-starcall-workflow).
 
 ## Config fields
@@ -29,7 +28,7 @@ Extends the [common config fields](#common-config-fields) below.
 `phenotyping_dir`/`wells`/`grid_size`/`segmentation_type`/`use_corrected`/
 `cellprofiler_cycle`/`cellprofiler_pipeline`/`csv_schema_scan_rows`, and the
 genotype column names (`barcode_col_name`/`aa_changes_col_name`/
-`edit_distance_col_name`), are no longer fields on this stage -- they're `BUILD_CELL_IMAGES`-only now
+`edit_distance_col_name`), are not fields on this stage -- they're `BUILD_CELL_IMAGES`-only
 (starcall-workflow-discovery concerns, including which CellProfiler CSV to
 force and fold in, and which reads-table columns to rename to `meta_*`).
 

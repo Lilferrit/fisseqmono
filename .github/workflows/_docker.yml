@@ -4,14 +4,13 @@
 #
 #   - Registry: ghcr.io/<owner>/fisseqmono/<pipeline>, the names params.yaml's
 #     container_image uses. Namespacing under this repository means the first push creates
-#     each package already linked to it, so GITHUB_TOKEN can write to it. (The old
-#     ghcr.io/<owner>/<pipeline> packages belong to the pipelines' former repositories.)
+#     each package already linked to it, so GITHUB_TOKEN can write to it.
 #   - Tags, on every push to main: `:latest` and `:<short-sha>`. On a pushed `v*` tag: also
 #     `:<version>` (`v2.0.0` -> `2.0.0`).
 #   - Layer cache: BuildKit's registry cache at `<image>:buildcache` (mode=max, so every
 #     intermediate layer, not just the final image's), read and written by every build, main
-#     and tags alike. A runner starts empty, so without it each build redid every layer; with
-#     it a source-only change rebuilds only the source layers at the end of the Dockerfile.
+#     and tags alike. A runner starts empty; with it a source-only change rebuilds only the
+#     source layers at the end of the Dockerfile.
 #     Registry, not type=gha: the embeddings image is several GB, and GitHub evicts
 #     past 10 GB of Actions cache per repository.
 name: docker image

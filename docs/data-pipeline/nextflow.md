@@ -120,7 +120,7 @@ A few conventions in `workflows/fisseq.nf` worth knowing before editing it.
 **Filter channels, don't `if`.** Optional fan-out is expressed as an empty
 channel rather than a conditional. `channel.fromList(params.feature_select_passthrough_types)`
 is empty under the default `[]`, so `AGGREGATE_FEATURE_TYPE_PASSTHROUGH`
-simply runs zero tasks — no explicit gate needed. (The pipeline-wide run gates
+runs zero tasks — no explicit gate needed. (The pipeline-wide run gates
 `run_ovwt` / `run_feature_selection` are the exception: they wrap whole
 subgraphs in an `if`.)
 
@@ -158,5 +158,5 @@ CI runs it (`root.yml`) over both pipelines' `workflows/`, `modules/` and `conf/
 `packages/fisseq-common/nextflow`. Run it after any change to `workflows/*.nf`,
 `modules/local/*.nf`, the shared modules, `conf/modules.config` or `nextflow.config`.
 
-Note that DSL2 forbids bare statements at script scope: a top-level helper must
+DSL2 forbids bare statements at script scope: a top-level helper must
 be a `def someFunction() { ... }`, not a `def x = { ... }` closure binding.

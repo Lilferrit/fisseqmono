@@ -17,41 +17,23 @@ with ``meta_batch`` from ``batch_stem`` -- a run-level name the cached
 shards don't carry.
 
 `load_cell_dino()` builds the backbone via dinov2's architecture factory
-functions directly (`vision_transformer.vit_large(...)`, dict-dispatched by
-`cfg.arch`) and ports `dinov2.utils.utils.load_pretrained_weights()`'s real
-checkpoint-loading logic: index by checkpoint key ("teacher") if present,
-strip `module.`/`backbone.` prefixes, then a non-strict `load_state_dict`.
-The vendored model (`.vendor.dinov2`) is not installed as the `dinov2`
-package -- see `vendor/dinov2/VENDORED_FROM.md`.
+functions (dict-dispatched by `cfg.arch`) and ports
+`dinov2.utils.utils.load_pretrained_weights()`'s loading logic. The vendored
+model (`.vendor.dinov2`) is not installed as the `dinov2` package -- see
+`vendor/dinov2/VENDORED_FROM.md`.
 
 Real Cell-DINO checkpoints are not all shaped the same way, so
-`load_cell_dino()` doesn't hardcode a single architecture: it inspects the
-checkpoint's own state dict to recover `in_chans` (bag-of-channels,
-`in_chans=1`, vs. a fixed-channel-count backbone that ingests several
-stacked channels jointly), `img_size` (from `pos_embed`'s patch count --
-decoupled from `cfg.crop_size`, since `interpolate_pos_encoding`
-reconciles any difference at inference time), `block_chunks` (chunked vs.
-flat transformer-block keys), and whether LayerScale is present, rather
-than assuming one fixed shape. `embed_batch()` branches on the loaded
-model's actual `patch_embed.in_chans`: `1` gets the per-channel
-split-and-pool treatment (`cfg.channel_pool`), anything else is fed to the
-model jointly in one forward pass, requiring the crop's channel count to
-match exactly. See docs/architecture.md for a comparison of the two real
-checkpoints this was verified against.
+`load_cell_dino()` recovers `in_chans`, `img_size`, `block_chunks` and
+LayerScale presence from the checkpoint's own state dict instead of
+hardcoding one architecture. `embed_batch()` branches on the loaded model's
+`patch_embed.in_chans`: `1` (bag-of-channels) gets the per-channel
+split-and-pool treatment (`cfg.channel_pool`); anything else is fed to the
+model jointly, requiring the crop's channel count to match exactly. See
+docs/architecture.md for the two real checkpoints this was verified against.
 
-`EmbedCellsConfig.channels` selects and orders which of the crop's channel
-indices actually get fed to the model (a crop may carry more channels than
-the model should see, e.g. multiple imaging cycles); `apply_mask` controls
-whether the shared per-cell segmentation mask gets applied before
-embedding. Both are consulted inside `embed_batch()`, before the
-bag-of-channels-vs-joint branch above.
-
-`load_embedding_dataloader()` expands a non-brace `shard_pattern` (no
-`"dataset-{000000..000042}.tar"`-style brace expression) via `glob.glob()`
-itself before handing shard paths to `wds.WebDataset` -- the installed
-`webdataset` only expands brace patterns internally
-(`webdataset.shardlists.expand_urls`); a bare `*` glob would otherwise pass
-through as a literal, unmatched filename.
+`load_embedding_dataloader()` expands a non-brace `shard_pattern` via
+`glob.glob()` itself: the installed `webdataset` only expands brace
+patterns, so a bare `*` glob would pass through as a literal filename.
 """
 
 import dataclasses
@@ -83,9 +65,8 @@ from .vendor.dinov2.models.vision_transformer import (
     vit_small,
 )
 
-# Named architectures this pipeline supports -- matches dinov2's own
-# vits.__dict__[arch] dispatch pattern (dinov2/models/__init__.py's
-# build_model, not vendored -- see vendor/dinov2/VENDORED_FROM.md).
+# Named architectures this pipeline supports, mirroring dinov2's own
+# vits.__dict__[arch] dispatch (build_model is not vendored).
 _ARCHS: Dict[str, Callable[..., torch.nn.Module]] = {
     "vit_small": vit_small,
     "vit_base": vit_base,
@@ -93,8 +74,7 @@ _ARCHS: Dict[str, Callable[..., torch.nn.Module]] = {
     "vit_giant2": vit_giant2,
 }
 
-# The checkpoint key real Cell-DINO/dinov2 teacher checkpoints are stored
-# under (verified against dinov2.utils.utils.load_pretrained_weights).
+# Key real Cell-DINO/dinov2 teacher checkpoints are stored under.
 _CHECKPOINT_KEY = "teacher"
 
 
@@ -117,21 +97,17 @@ class EmbedCellsConfig(AppConfig):
     shard_pattern : str or None
         Path/brace pattern for a set of shards instead, e.g.
         ``"dataset-{000000..000042}.tar"``. A bare glob (``"dataset-*.tar"``)
-        also works -- ``load_embedding_dataloader`` expands it itself (see
-        the module docstring; real ``webdataset`` doesn't do this for you).
+        also works; ``load_embedding_dataloader`` expands it itself.
     batch_stem : str
         This experiment's identifier, written into every row as
         ``meta_batch`` (the shards' ``meta.json`` doesn't carry it).
     checkpoint_path : str
-        Path to the Cell-DINO checkpoint (``.pth``). The real, verified-
-        compatible checkpoint this repo has on disk is
-        ``weights/channel_adaptive_dino_vitl16_pretrain_cells-ef7c17ff.pth``
-        -- a bag-of-channels ``vit_large``/patch-16 checkpoint matching
-        this config's own defaults exactly (see docs/architecture.md's
-        "Real checkpoint" section). Not defaulted here, or in
-        ``params.yaml``: a checkpoint path is inherently deployment-specific
-        and ``weights/`` is gitignored, so a hardcoded default would
-        silently be wrong -- or simply absent -- in any other checkout.
+        Path to the Cell-DINO checkpoint (``.pth``), e.g.
+        ``weights/channel_adaptive_dino_vitl16_pretrain_cells-ef7c17ff.pth``,
+        a bag-of-channels ``vit_large``/patch-16 checkpoint matching this
+        config's defaults (see docs/architecture.md's "Real checkpoint"
+        section). Deliberately not defaulted here or in ``params.yaml``: the
+        path is deployment-specific and ``weights/`` is gitignored.
     arch : str
         Backbone architecture, one of ``vit_small``/``vit_base``/
         ``vit_large``/``vit_giant2``. Defaults to ``"vit_large"``
@@ -140,26 +116,21 @@ class EmbedCellsConfig(AppConfig):
         ViT patch size. Defaults to ``16``.
     crop_size : int
         Expected crop size -- must match the shards' ``window``.
-        Defaults to ``224``. See :func:`load_cell_dino`'s docstring: this
-        is only a fallback for model construction (used when the
-        checkpoint's own ``pos_embed`` can't be inspected), not something
-        that constrains what crop size can actually be embedded.
+        Defaults to ``224``. Only a fallback for model construction when
+        the checkpoint's ``pos_embed`` can't be inspected; it doesn't
+        constrain the crop size that can be embedded.
     channels : list[int]
         Which of the crop's channel indices to feed into the model, in
         this order -- lets a crop carry more channels (e.g. multiple
         imaging cycles, flattened cycle-major per tile_shard.py) than the
-        model should actually see, or reorders/subsets them. Defaults to
-        ``[0, 1, 2, 3]`` (the first imaging cycle's four phenotyping
-        channels, per starcall-workflow's own 4-channel
+        model should see. Defaults to ``[0, 1, 2, 3]`` (the first imaging
+        cycle's four phenotyping channels, starcall-workflow's own
         default -- see docs/configuration.md).
     apply_mask : bool
         Whether ``mask.npy``-based background zeroing is applied before
-        embedding -- to every selected channel, or to none of them. A
-        single flag rather than one per channel because there is only ever
-        one mask to apply: every cell in this pipeline's data model has
-        exactly one shared segmentation mask (each shard carries a
-        single ``mask.npy`` per cell, not one per channel, cut from
-        starcall's single-plane segmentation mask -- see
+        embedding -- to every selected channel, or to none. A single flag
+        because each cell has exactly one shared ``mask.npy``, cut from
+        starcall's single-plane segmentation mask (see
         ``tile_shard.crop_cell``). Defaults to ``True``.
     channel_pool : str
         How per-channel CLS embeddings are pooled into one per-cell
@@ -227,14 +198,12 @@ def shard_urls(cfg: EmbedCellsConfig) -> "str | List[str]":
 def load_embedding_dataloader(cfg: EmbedCellsConfig) -> "torch.utils.data.DataLoader":
     """Stream ``(key, crop, mask, meta)`` batches from this run's shards.
 
-    ``webdataset.WebDataset(...).decode().to_tuple(...)`` is the standard
-    reader side of the shards ``write_tile_shard()`` (tile_shard.py)
-    writes and ``write_well_shards()`` (well_shards.py) packs, gzipped,
-    per well; batching via ``.batched()``/``DataLoader(batch_size=None)``
-    keeps shard-order batches (webdataset's usual pattern) rather than a
-    random-access ``Dataset``, which a tar-shard format doesn't support
-    efficiently. ``mask.npy`` is always fetched -- whether it's applied is
-    decided in :func:`embed_batch` via ``cfg.apply_mask``, not here.
+    Reads the shards ``write_tile_shard()`` (tile_shard.py) writes and
+    ``write_well_shards()`` (well_shards.py) packs. Batches come in shard
+    order via ``.batched()``/``DataLoader(batch_size=None)``, since tar
+    shards don't support random access efficiently. ``mask.npy`` is always
+    fetched; :func:`embed_batch` decides via ``cfg.apply_mask`` whether to
+    apply it.
 
     Which shards are read is :func:`shard_urls`'s call.
 
@@ -265,19 +234,15 @@ def load_embedding_dataloader(cfg: EmbedCellsConfig) -> "torch.utils.data.DataLo
     )
 
 
-# Matches a chunked-block state-dict key, e.g. "blocks.1.3.norm1.weight"
-# (dinov2's block_chunks>0 layout -- see vendor's DinoVisionTransformer.
-# __init__: self.blocks is a ModuleList of BlockChunk, so the first digit
-# group is the chunk index and the second is the position *within* the
-# original (unchunked) block sequence).
+# Chunked-block state-dict key, e.g. "blocks.1.3.norm1.weight" (dinov2's
+# block_chunks>0 layout: chunk index, then position in the unchunked sequence).
 _CHUNKED_BLOCK_KEY = re.compile(r"^blocks\.(\d+)\.(\d+)\.")
 # Matches a flat (block_chunks=0) state-dict key, e.g. "blocks.3.norm1.weight".
 _FLAT_BLOCK_KEY = re.compile(r"^blocks\.(\d+)\.")
-# LayerScale (vendor/dinov2/layers/block.py) only registers these params
-# when a block was built with a truthy init_values -- their presence in a
-# checkpoint is how we know to pass a (placeholder, checkpoint-overwritten)
-# nonzero init_values ourselves, instead of silently dropping every
-# block's learned residual scale to nn.Identity().
+# LayerScale only registers these params when a block was built with a truthy
+# init_values; their presence tells us to pass a placeholder nonzero
+# init_values, rather than silently dropping every learned residual scale to
+# nn.Identity().
 _LAYERSCALE_KEY_SUFFIXES = (".ls1.gamma", ".ls2.gamma")
 
 
@@ -286,10 +251,8 @@ def _infer_patch_embed_shape(
 ) -> "tuple[int, Optional[int]]":
     """Recover ``(in_chans, patch_size)`` from ``patch_embed.proj.weight``'s
     shape (``(embed_dim, in_chans, patch_size, patch_size)``), the most
-    direct source of truth for what the checkpoint actually expects --
-    cheaper and more reliable than trusting a config field to have been
-    set correctly. Returns ``patch_size=None`` (skip the cross-check) if
-    the key is missing rather than guessing.
+    direct source of what the checkpoint expects. Returns
+    ``patch_size=None`` (skip the cross-check) if the key is missing.
     """
     weight = state.get("patch_embed.proj.weight")
     if weight is None:
@@ -303,13 +266,10 @@ def _infer_patch_embed_shape(
 
 def _infer_img_size(state: dict, patch_size: int, fallback_crop_size: int) -> int:
     """Recover the square ``img_size`` the checkpoint's ``pos_embed`` was
-    trained at from its patch-token count. This is *not* the same as
-    ``cfg.crop_size`` (the real per-experiment crop window) -- it only
-    needs to reproduce ``pos_embed``'s exact shape so ``load_state_dict``
-    doesn't raise; ``interpolate_pos_encoding`` (vendor/dinov2's own
-    forward path) reconciles any difference against the real input size at
-    inference time, so passing the checkpoint's native size here doesn't
-    constrain what crop size can actually be embedded later.
+    trained at from its patch-token count. Not ``cfg.crop_size``: it only
+    reproduces ``pos_embed``'s shape so ``load_state_dict`` doesn't raise;
+    ``interpolate_pos_encoding`` reconciles any difference with the real
+    input size at inference time.
     """
     pos_embed = state.get("pos_embed")
     if pos_embed is None:
@@ -331,11 +291,9 @@ def _infer_img_size(state: dict, patch_size: int, fallback_crop_size: int) -> in
 
 def _infer_block_chunks(state: dict) -> int:
     """Recover ``block_chunks`` from whether block keys are chunked
-    (``blocks.<chunk>.<pos>....``) or flat (``blocks.<pos>....``) -- the
-    distinct chunk-index count *is* ``block_chunks`` (see
-    ``DinoVisionTransformer.__init__``'s own chunking loop). Defaults to
-    ``1`` (matching that class's own default) if no block keys are found
-    at all, since that's the shape a from-scratch construction would take.
+    (``blocks.<chunk>.<pos>....``) or flat (``blocks.<pos>....``); the
+    chunk-index count is ``block_chunks``. Defaults to ``1`` (the class's
+    own default) if no block keys are found.
     """
     chunk_ids = {int(m.group(1)) for k in state if (m := _CHUNKED_BLOCK_KEY.match(k))}
     if chunk_ids:
@@ -347,36 +305,22 @@ def _infer_block_chunks(state: dict) -> int:
 def load_cell_dino(cfg: EmbedCellsConfig) -> torch.nn.Module:
     """Build a DINOv2 ViT matching the checkpoint's own architecture and load it.
 
-    Construction goes through the named architecture factory
-    (``vits.__dict__[cfg.arch]``-equivalent dict dispatch, see ``_ARCHS``)
-    rather than ``dinov2.eval.setup``/``build_model_from_cfg``, which needs
-    a full training-style cfg this pipeline doesn't have.
+    Built through the named architecture factory (see ``_ARCHS``), not
+    ``dinov2.eval.setup``/``build_model_from_cfg``, which need a
+    training-style cfg this pipeline doesn't have.
 
-    Everything ``_ARCHS[cfg.arch]`` can't fix (``embed_dim``/``depth``/
-    ``num_heads``/``mlp_ratio``) is inferred from the checkpoint's own
-    state dict instead of assumed -- ``in_chans`` (bag-of-channels
-    ``in_chans=1`` vs. a fixed-channel-count backbone), ``img_size`` (from
-    ``pos_embed``'s patch count), ``block_chunks`` (chunked vs. flat block
-    keys), and whether LayerScale is present -- rather than hardcoding one
-    fixed shape as the only supported case. See docs/architecture.md for a
-    comparison of the two real checkpoints this was verified against, one
-    of which is *not* bag-of-channels at all.
+    ``in_chans``, ``img_size``, ``block_chunks`` and LayerScale presence are
+    inferred from the checkpoint's state dict rather than assumed. See
+    docs/architecture.md for the two real checkpoints this was verified
+    against, one of which is not bag-of-channels.
 
-    Checkpoint loading otherwise still ports ``dinov2.utils.utils.
-    load_pretrained_weights``'s real logic: index into the checkpoint dict
-    by ``"teacher"`` if present, strip ``module.``/``backbone.`` prefixes
-    from every key (real checkpoints commonly carry these from the
-    training-time multicrop/DDP wrapper), then a **non-strict**
-    ``load_state_dict`` -- a backbone-only checkpoint legitimately won't
-    have ``head``/EMA-only keys (which show up as harmless
-    ``unexpected_keys``, only logged). ``missing_keys`` is different: since
-    this pipeline's own ``head`` is always ``nn.Identity()`` (no
-    parameters to ever be missing), any non-empty ``missing_keys`` here
-    means the constructed architecture didn't actually match the
-    checkpoint -- silently leaving real backbone weights at their random
-    initialization, exactly the kind of quiet correctness bug the
-    inference above exists to prevent -- so that case raises instead of
-    logging.
+    Loading ports ``dinov2.utils.utils.load_pretrained_weights``: index by
+    ``"teacher"`` if present, strip the ``module.``/``backbone.`` prefixes
+    the training-time multicrop/DDP wrapper adds, then a **non-strict**
+    ``load_state_dict``. ``unexpected_keys`` (head/EMA-only keys) are only
+    logged. ``missing_keys`` raise: this pipeline's ``head`` is always
+    ``nn.Identity()``, so any missing key means the architecture didn't
+    match and backbone weights would silently stay randomly initialized.
 
     Parameters
     ----------
@@ -463,44 +407,35 @@ def embed_batch(
     """
     Embed a batch of multi-channel cell crops.
 
-    First selects/reorders ``cfg.channels`` out of the crop's full channel
-    axis (a crop may carry more channels than the model should see -- e.g.
-    multiple imaging cycles, per tile_shard.py's cycle-major flattening), then
-    optionally applies the shared cell mask to all of them
-    (``cfg.apply_mask``), then branches on the loaded model's
-    *actual* ``patch_embed.in_chans`` (not a config flag) --
-    ``load_cell_dino()`` sets this from whatever the checkpoint's own
-    ``patch_embed.proj.weight`` says, since not every real Cell-DINO
-    checkpoint is bag-of-channels:
+    Selects/reorders ``cfg.channels`` out of the crop's channel axis (it
+    may carry more than the model should see, e.g. several imaging cycles,
+    cycle-major per tile_shard.py), optionally applies the shared cell mask
+    (``cfg.apply_mask``), then branches on the model's ``patch_embed.in_chans``
+    (set by ``load_cell_dino()`` from the checkpoint, not a config flag):
 
-    - ``in_chans == 1`` (bag-of-channels/channel-adaptive -- the mode
+    - ``in_chans == 1`` (bag-of-channels, as
       ``weights/channel_adaptive_dino_vitl16_pretrain_cells-ef7c17ff.pth``
-      actually is): the (now channel-selected) crop is split into ``C``
-      single-channel images, each run through the *same* shared-weight
-      backbone, and the resulting per-channel CLS tokens are pooled
+      is): the crop is split into ``C`` single-channel images run through the
+      same backbone, and the per-channel CLS tokens are pooled
       (``cfg.channel_pool``) into one embedding per cell.
-    - any other ``in_chans``: the checkpoint expects exactly that many
-      stacked channels jointly (one plain forward pass, no split, no
-      pooling) -- ``len(cfg.channels)`` must match exactly.
+    - any other ``in_chans``: the channels are stacked jointly in one
+      forward pass; ``len(cfg.channels)`` must match exactly.
 
     Parameters
     ----------
     model : torch.nn.Module
         As built by :func:`load_cell_dino` (or an equivalent, e.g. a
-        shrunk test model) -- its ``patch_embed.in_chans`` selects the mode
-        above.
+        shrunk test model); its ``patch_embed.in_chans`` selects the mode.
     crops : torch.Tensor
         Shape ``(B, C, crop_size, crop_size)`` -- ``C`` may exceed
         ``len(cfg.channels)``, since channel selection happens here, not
-        upstream. Any real dtype (typically ``uint16`` straight off the
-        dataloader) -- cast to ``float32`` before the forward pass.
+        upstream. Any real dtype (typically ``uint16``); cast to
+        ``float32`` before the forward pass.
     masks : torch.Tensor
         Shape ``(B, crop_size, crop_size)``, ``uint8`` label mask --
-        nonzero where a pixel belongs to the target cell. This pipeline's
-        data model has exactly one shared mask per cell (not one per
-        channel), so this same tensor is what ``cfg.apply_mask`` applies to
-        every selected channel. Only read at all when ``cfg.apply_mask`` is
-        ``True``.
+        nonzero where a pixel belongs to the target cell. One shared mask
+        per cell, applied to every selected channel. Only read when
+        ``cfg.apply_mask`` is ``True``.
     cfg : EmbedCellsConfig
         Supplies ``channels``, ``apply_mask``, and (bag-of-channels mode
         only) ``channel_pool``.
@@ -526,13 +461,11 @@ def embed_batch(
 
     device = next(model.parameters()).device
     crops = crops.to(device=device, dtype=torch.float32)
-    crops = crops[:, cfg.channels, :, :]  # select/reorder the configured channels
+    crops = crops[:, cfg.channels, :, :]
 
     if cfg.apply_mask:
         masks = masks.to(device=device)
-        # zero every pixel not belonging to this cell, on every selected
-        # channel -- one shared mask per cell, broadcast over the channel
-        # axis, since there is no per-channel mask to choose between
+        # one shared mask per cell, broadcast over the channel axis
         crops = crops * (masks > 0).unsqueeze(1)  # (B, 1, H, W)
 
     b, c, h, w = crops.shape
@@ -565,21 +498,11 @@ def main(cfg: DictConfig) -> None:
     """
     Hydra entry point: embed every cell in a Cell Dataset via Cell-DINO.
 
-    Steps
-    -----
-    1. Create ``output_dir``.
-    2. Build the dataloader (:func:`load_embedding_dataloader`) and model
-       (:func:`load_cell_dino`).
-    3. For each batch, embed via :func:`embed_batch` and accumulate one row
-       per cell: the shard's location fields plus zero-padded
-       ``emb_0000``..``emb_{D-1}`` columns (``EMBEDDING_SELECTOR``,
-       ``fisseq_common.schema``, matches these).
-    4. Keep each cell's ``meta.json`` fields as its ``meta_*`` columns
-       (``cell_metadata_exprs``, adding ``meta_batch``) and write
-       ``embeddings.parquet``.
+    Writes one row per cell to ``embeddings.parquet``: the ``meta_*``
+    columns (``cell_metadata_exprs``) plus zero-padded
+    ``emb_0000``..``emb_{D-1}`` columns, which ``EMBEDDING_SELECTOR``
+    (``fisseq_common.schema``) matches.
 
-    Configuration
-    -------------
     Override any field on the command line, e.g.::
 
         python -m fisseq_embeddings_pipeline.embed \\

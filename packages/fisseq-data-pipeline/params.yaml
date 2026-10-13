@@ -14,17 +14,12 @@ container_image: "ghcr.io/lilferrit/fisseqmono/fisseq-data-pipeline:latest"
 experiments: []
 
 # ── Experiments ─────────────────────────────────────────────────────────────
-# A list of maps, one per experiment. This replaces the old mandatory
-# <pipeline_dir>/configs/*.yaml directory -- there is no per-experiment config
-# file any more, and no per-experiment override of arbitrary pipeline
+# A list of maps, one per experiment; no per-experiment override of arbitrary pipeline
 # parameters. An entry may set ONLY these keys:
 #
 #   batch_stem              REQUIRED. Unique experiment id. Names every output
 #                           subdirectory (input/<batch_stem>.parquet,
-#                           qc_filter/<batch_stem>/, ...). Previously derived
-#                           from the config file's own name; there is no
-#                           filename to derive it from any more, so it must be
-#                           given explicitly and must be unique across the list.
+#                           qc_filter/<batch_stem>/, ...).
 #   input_paths             REQUIRED. List of raw CSV/parquet source files that
 #                           INPUT merges into this experiment's input parquet.
 #                           There is deliberately no pipeline-wide default --
@@ -56,8 +51,8 @@ experiments: []
 # THE seed. Every stochastic step in the pipeline derives from this single
 # value: QC pseudo-variant downsampling, the feature-selection bootstrap
 # splits and their per-half wildtype subsampling, OvWT's StratifiedKFold
-# shuffle / inner calibration split / XGBoost `seed`. There is deliberately no stage-local `random_state` anywhere -- see
-# AGENTS.md.
+# shuffle / inner calibration split / XGBoost `seed`. There is deliberately no stage-local
+# `random_state` anywhere -- see AGENTS.md.
 #
 # Stages that need to differ from each other still do, by deriving a fixed
 # offset from this seed rather than owning a seed of their own (e.g.
@@ -73,8 +68,7 @@ run_feature_selection: true  # the whole batchwise feature-selection chain
 
 # ── Label column, shared pipeline-wide ──────────────────────────────────────
 # Read by QC_FILTER, CORRELATE_FEATURES, FINALIZE_FEATURE_SELECT and
-# OVWT_BATCHWISE -- one override changes
-# the variant label column everywhere at once.
+# OVWT_BATCHWISE -- one override changes the variant label column everywhere at once.
 filter_label_column: "meta_aa_changes"
 
 # ── INPUT stage ─────────────────────────────────────────────────────────────
@@ -189,10 +183,8 @@ feature_select_min_correlation: 0.5
 # where chunk 1 is 1731 (AUROC took ~17 min at chunk 1 at the shape above). A
 # run using only mean/median/std/MAD can raise this to 128-256 freely.
 #
-# null disables chunking entirely -- every feature in one query, which is the
-# pre-chunking behaviour and therefore the shape that OOM-killed the 111925
-# run. It is an escape hatch for small inputs (or for reproducing the old
-# numbers), not a setting for a full-size batch.
+# null disables chunking entirely -- every feature in one query, the shape that OOM-killed
+# the 111925 run. An escape hatch for small inputs, not a setting for a full-size batch.
 #
 # NOTE: every AGGREGATE_* process declares `label 'process_medium'`, which
 # nextflow.config deliberately leaves unsized -- this default assumes a site

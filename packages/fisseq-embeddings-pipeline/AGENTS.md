@@ -1,12 +1,8 @@
 # AGENTS.md — fisseq-embeddings-pipeline
 
-> **This repo is implemented.** `docs/embeddings-pipeline/` (built with mkdocs, published to
-> GitHub Pages on every push to `main` — see **CI** below) is the
-> authoritative reference: architecture decisions, data contracts,
-> per-stage config/usage, Nextflow wiring, and output layout. Read it
-> before `SPEC.md`/`IMPLEMENTATION_CHECKLIST.md`, which no longer exist —
-> their content was folded into `docs/embeddings-pipeline/` once implementation caught up to
-> the design.
+> `docs/embeddings-pipeline/` (mkdocs, published to GitHub Pages on every push to `main`
+> — see **CI** below) is the authoritative reference: architecture decisions, data
+> contracts, per-stage config/usage, Nextflow wiring, and output layout.
 
 ---
 
@@ -105,13 +101,10 @@ rebuild the image, and run `tests/integration --container`.
 - **Every config extends `AppConfig`** (`fisseq_common.stages.config`, re-exported by
   `config/__init__.py`), which carries the one shared `random_seed` field every stochastic
   stage reads from — never add a stage-local `random_state`/seed field.
-- **polars, not pandas**, for all tabular data except where the pipeline
-  explicitly uses pandas (`build_cell_images_table.py`'s per-tile CSV
-  reads — matching `starcall-workflow`'s own CSV-reading convention there;
-  it still writes its final `cell_table.parquet` via polars, though, to
-  keep everything downstream of `BUILD_CELL_IMAGES` in the usual
-  convention; `tile_shard.py` reuses its `read_segmentation_table` rather
-  than reading the same CSV another way).
+- **polars, not pandas**, for all tabular data except `build_cell_images_table.py`'s
+  per-tile CSV reads (matching `starcall-workflow`'s own convention); it still writes
+  `cell_table.parquet` via polars. `tile_shard.py` reuses its `read_segmentation_table`
+  rather than reading the same CSV another way.
 - **`meta_*` column convention**: metadata columns are prefixed `meta_*`;
   `FEATURE_SELECTOR` (`cs.exclude("^meta_.*$")`) and `EMBEDDING_SELECTOR`
   (`cs.matches(r"^emb_\d+$")`) key off this — see
@@ -224,22 +217,17 @@ uv run pre-commit run --all-files
 
 `tests/unit/` has one test module per cellDINO-specific stage, plus
 `test_experiments.py` (params validation/routing) and `test_publish_layout.py`; the shared
-stages' unit tests are fisseq-common's. `tests/integration/test_integration.py` is a
-synthetic fixture, a
-`subprocess`-driven end-to-end `nextflow run -profile local`, and
-output-file/column assertions. BUILD_CELL_IMAGES' nested `snakemake` is a
-stub on PATH that records its argv; the fixture pre-writes the
-starcall-shaped outputs it would have produced — per-tile cell/reads
-tables plus each well's shards, cut by `tile_shard.write_tile_shard` and
-packed by `well_shards.write_well_shards` (the same code `make_cell_shard`
-and `make_well_shards` run).
+stages' unit tests are fisseq-common's. `tests/integration/test_integration.py` runs
+`nextflow run -profile local` end to end on a synthetic fixture via `subprocess` and
+asserts on output files and columns. BUILD_CELL_IMAGES' nested `snakemake` is a stub on
+PATH that records its argv; the fixture pre-writes the starcall-shaped outputs it would
+have produced — per-tile cell/reads tables plus each well's shards, cut by
+`tile_shard.write_tile_shard` and packed by `well_shards.write_well_shards` (the same code
+`make_cell_shard` and `make_well_shards` run).
 
-`EMBED_CELLS`' GPU/checkpoint dependency is handled in the integration
-fixture by building a tiny, from-scratch, randomly-initialized
-`vit_small` checkpoint (`_write_tiny_checkpoint`) and running
-`EMBED_CELLS` against it with `device=cpu`, rather than stubbing
-`load_cell_dino` out entirely. No GPU or real checkpoint is needed to run
-`tests/integration` anywhere, including CI.
+`EMBED_CELLS` runs in the integration fixture against a tiny, randomly-initialized
+`vit_small` checkpoint (`_write_tiny_checkpoint`) with `device=cpu`, rather than stubbing
+`load_cell_dino` out. No GPU or real checkpoint is needed, including in CI.
 
 `--container` is mutually exclusive with the synthetic suite (see
 `tests/integration/conftest.py`) and runs only the `container`-marked

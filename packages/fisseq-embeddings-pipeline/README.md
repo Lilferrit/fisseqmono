@@ -25,9 +25,9 @@ starcall-workflow -> Cell Images (per-tile WebDataset shards) -> Cell Embeddings
 Pooling across experiments (Global Variant Embeddings, global distinguish-ability scores) is
 done by `fisseqborn-global` in the fisseqborn package, from these per-experiment outputs.
 
-See **[the documentation site](https://lilferrit.github.io/fisseqmono/embeddings-pipeline/)**
-for the full design (architecture decisions, data contracts, per-stage
-usage, Nextflow orchestration, running on a cluster, output layout).
+Full design (architecture decisions, data contracts, per-stage usage,
+Nextflow orchestration, cluster runs, output layout): see
+**[the documentation site](https://lilferrit.github.io/fisseqmono/embeddings-pipeline/)**.
 
 ## Quick start
 

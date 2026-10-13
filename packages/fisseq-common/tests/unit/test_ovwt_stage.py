@@ -1,6 +1,5 @@
 """OVWT_BATCHWISE's entry point (``python -m fisseq_common.stages.ovwt``): it rebuilds the
-normalized cells from the filter stage's outputs and scores them. The command-line tests moved
-from the data pipeline's ``ovwt`` wrapper.
+normalized cells from the filter stage's outputs and scores them.
 
 Fixture sizing note: the inner 80/20 train/calibration split runs *inside* each outer fold, so
 a ``(barcode, is_wt)`` stratum wants comfortably more than ``n_folds`` members for the folds to

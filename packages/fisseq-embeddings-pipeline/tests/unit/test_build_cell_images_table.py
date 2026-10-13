@@ -186,7 +186,7 @@ def test_tile_cell_meta_names_a_missing_genotype_column(tmp_path: Path):
 
 def test_tile_cell_meta_keeps_a_missing_genotype_null(tmp_path: Path):
     """A cell with no reads has no barcode, variant or class -- null, never a
-    made-up value (architecture decision 19)."""
+    made-up value."""
     seg_csv, reads_csv = _tile(tmp_path)
     _write_segmentation_csv(seg_csv, index=[1, 2], bbox_x1=[1, 2])
     reads_csv.parent.mkdir(parents=True, exist_ok=True)

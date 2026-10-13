@@ -1,6 +1,5 @@
 """Pooling then full-rank PCA: `full_rank_pca` and `write_global`'s per-track outputs on an
-embeddings-pipeline run (formerly the GLOBAL_VARIANT_EMBEDDINGS and
-GLOBAL_VARIANT_CP_FEATURES stages).
+embeddings-pipeline run.
 
 No n_components knob: every PC the pooled table supports is computed, and
 ``pca_reduced`` keeps the fewest leading ones reaching ``cumulative_variance_explained``.
@@ -199,8 +198,7 @@ def test_full_rank_pca_components_columns() -> None:
         CUMULATIVE_VARIANCE_EXPLAINED_COL,
     ]
     assert components_df[COMPONENT_IDX_COL].to_list() == [1, 2, 3, 4]
-    # cumulative variance explained is monotonically non-decreasing and
-    # ends at (approximately) the full retained variance.
+    # cumulative variance explained is non-decreasing
     cumulative = components_df[CUMULATIVE_VARIANCE_EXPLAINED_COL].to_list()
     assert cumulative == sorted(cumulative)
     assert cumulative[-1] == pytest.approx(1.0, abs=1e-6)
@@ -239,10 +237,8 @@ def test_full_rank_pca_random_state_is_threaded_through(monkeypatch) -> None:
 
 
 def test_full_rank_pca_same_seed_reproduces_scores() -> None:
-    # Deterministic solver path at these matrix sizes: the same seed reproduces the
-    # same per-variant scores, up to the sign-indeterminacy floating noise (~1e-16)
-    # SVD leaves on a component with essentially-zero eigenvalue at full retained
-    # rank.
+    # Same seed, same scores, up to ~1e-16 sign noise on a near-zero-eigenvalue
+    # component at full rank.
     scores_a, _ = full_rank_pca(_median(), LABEL_COLUMN, seed=0)
     scores_b, _ = full_rank_pca(_median(), LABEL_COLUMN, seed=0)
     assert scores_a[LABEL_COLUMN].to_list() == scores_b[LABEL_COLUMN].to_list()
@@ -307,8 +303,7 @@ def test_write_global_writes_each_tracks_outputs(tmp_path: pathlib.Path) -> None
     )
     out = tmp_path / "global"
     written = _write_global(run, out)
-    # The CellProfiler track has no blocklist: that track has no reproducibility
-    # filtering.
+    # The CellProfiler track has no blocklist (no reproducibility filtering).
     expected = (
         {f"embeddings/{f}.parquet" for f in TRACK_FILES | {"blocklist"}}
         | {f"cp_features/{f}.parquet" for f in TRACK_FILES}
@@ -339,8 +334,7 @@ def test_median_aggregate_has_one_row_per_distinct_variant(
     run = _emb_run(tmp_path / "run", _two_batches())
     written = _write_global(run, tmp_path / "global")
     median_df = pl.read_parquet(written["embeddings/median_aggregate"])
-    # M1K appears in both batches and collapses to one row; the rest appear
-    # in exactly one batch each -- 5 distinct variants total.
+    # M1K is in both batches and collapses to one row.
     assert median_df[LABEL_COLUMN].to_list() == ["M1K", "M2K", "M3K", "M4K", "M5K"]
 
 
@@ -403,8 +397,7 @@ def test_pca_reduced_is_truncated_to_threshold(tmp_path: pathlib.Path) -> None:
     )
     assert 0 < len(reduced_pc_cols) < len(full_pc_cols)
     assert len(reduced_pc_cols) == expected_n
-    # The reduced matrix's leading components are identical to the full
-    # matrix's leading components -- a true truncation, not a re-fit.
+    # a truncation of the full scores, not a re-fit
     a = scores_df.sort(LABEL_COLUMN).select(reduced_pc_cols).to_numpy()
     b = reduced_df.sort(LABEL_COLUMN).select(reduced_pc_cols).to_numpy()
     np.testing.assert_allclose(a, b, atol=1e-8)
@@ -415,10 +408,7 @@ def test_pca_reduced_full_rank_when_threshold_is_one(tmp_path: pathlib.Path) -> 
     written = _write_global(run, tmp_path / "global", cumulative_variance_explained=1.0)
     full_pc_cols = _pc_cols(pl.read_parquet(written["embeddings/pca_scores"]))
     reduced_pc_cols = _pc_cols(pl.read_parquet(written["embeddings/pca_reduced"]))
-    # threshold=1.0 should keep essentially every component -- allow an
-    # off-by-one for the theoretical last (near-zero-eigenvalue) component,
-    # whose cumulative value can round to >= 1.0 one step early due to
-    # floating-point summation noise in np.cumsum.
+    # Allow an off-by-one: np.cumsum noise can reach 1.0 one component early.
     assert len(reduced_pc_cols) >= len(full_pc_cols) - 1
 
 
@@ -434,15 +424,13 @@ def test_pca_reduced_has_control_flag_and_impact_score(
         CONTROL_COLUMN_NAME,
         IMPACT_SCORE_COL,
     ]
-    # A1A is the only synonymous label -- the sole control row.
+    # A1A is the only synonymous label
     control_rows = reduced_df.filter(pl.col(CONTROL_COLUMN_NAME))
     assert control_rows[LABEL_COLUMN].to_list() == ["A1A"]
-    # meta_impact_score in [0, 1] for every row (up to floating noise), per
-    # compute_impact_score's own contract (cosine distance / 2).
+    # in [0, 1]: cosine distance / 2
     for val in reduced_df[IMPACT_SCORE_COL].to_list():
         assert -1e-6 <= val <= 1.0 + 1e-6
-    # The control row's own impact score should be ~0 (it's the reference
-    # point itself).
+    # the control is its own reference point
     control_score = control_rows[IMPACT_SCORE_COL].to_list()[0]
     assert control_score == pytest.approx(0.0, abs=1e-6)
 

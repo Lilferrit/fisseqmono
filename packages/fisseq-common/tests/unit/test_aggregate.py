@@ -191,10 +191,9 @@ def test_ks_neg_log_p_aggregator_excludes_control_rows(
 def test_ks_neg_log_p_matches_kstwobign(
     native_stats_df: pl.DataFrame, label: str
 ) -> None:
-    """Ground truth is scipy.stats.kstwobign.sf(D*sqrt(n_e)) -- the
-    classical limiting Kolmogorov distribution this aggregator implements
-    literally (see the class docstring for why this is NOT the same
-    number as scipy.stats.kstwo.sf / ks_2samp's own 'asymp' mode)."""
+    """Ground truth is scipy.stats.kstwobign.sf(D*sqrt(n_e)), the classical limiting
+    Kolmogorov distribution. Not the same number as kstwo.sf / ks_2samp's 'asymp' mode
+    (see the class docstring)."""
     result = m.KSNegLogPValueAggregator().aggregate(native_stats_df.lazy()).collect()
     row = _get_row(result, label)
     group, ref = _group_and_ref(native_stats_df, label)
@@ -222,12 +221,9 @@ def test_ks_neg_log_p_n_equals_one_group_matches_kstwobign() -> None:
 
 
 def test_ks_neg_log_p_loosely_tracks_ks_2samp_asymp() -> None:
-    """ks_2samp's own 'asymp' p-value uses a different, more refined
-    finite-sample algorithm (kstwo.sf with a rounded effective n) than the
-    classical closed-form series this aggregator implements -- the two
-    disagree by tens of percent in p even at moderate n (see class
-    docstring). This only checks they land in the same ballpark for a
-    clearly-significant case, not close agreement."""
+    """ks_2samp's 'asymp' p-value (kstwo.sf, rounded effective n) differs from the
+    classical closed-form series by tens of percent in p (see the class docstring).
+    Only checks the same ballpark for a clearly-significant case."""
     rng = np.random.default_rng(42)
     group = rng.normal(loc=1.5, size=100).tolist()
     ref = rng.normal(loc=0.0, size=100).tolist()
@@ -246,10 +242,8 @@ def test_ks_neg_log_p_loosely_tracks_ks_2samp_asymp() -> None:
 
 
 def test_ks_neg_log_p_strong_separation_is_finite_and_large() -> None:
-    """Exercises the logsumexp underflow-safe path: naively summing the
-    alternating series in linear space underflows to exactly 0.0 well
-    before D is this large, which would otherwise silently produce
-    -inf/null instead of a large finite score."""
+    """Naively summing the alternating series in linear space underflows to 0.0 well
+    before D is this large, which would give -inf/null instead of a large finite score."""
     rng = np.random.default_rng(7)
     n = 200
     group = rng.normal(loc=10.0, size=n).tolist()
@@ -367,8 +361,8 @@ def test_signed_ks_aggregator_tie_break_prefers_positive_on_exact_magnitude_tie(
     1(ref,-0.5) -> 2(grp,+0.5) -> 3(grp,+0.5) -> 4(ref,-0.5), giving
     cumsum=[-0.5, 0.0, 0.5, 0.0]. No value ties, so every position is a
     'last' position. Max |cumsum|=0.5 is achieved at both position 0
-    (-0.5) and position 2 (+0.5) -- the documented tie-break (positive
-    wins) must return +0.5, not the old arg_max first-occurrence -0.5.
+    (-0.5) and position 2 (+0.5); the documented tie-break (positive
+    wins) must return +0.5, not the -0.5 an arg_max would pick.
     """
     df = pl.DataFrame(
         {
@@ -405,7 +399,6 @@ def test_auroc_aggregator_matches_sklearn_unsymmetrized(
 
 
 def test_auroc_aggregator_directional_higher_approaches_one() -> None:
-    """Variant consistently higher than reference -> AUROC near 1.0."""
     df = pl.DataFrame(
         {
             "meta_aa_changes": ["WT"] * 5 + ["A"] * 5,
@@ -418,10 +411,8 @@ def test_auroc_aggregator_directional_higher_approaches_one() -> None:
 
 
 def test_auroc_aggregator_directional_lower_approaches_zero() -> None:
-    """Variant consistently lower than reference -> AUROC near 0.0.
-
-    Regression guard for symmetrization: the old ``if auroc < 0.5: auroc =
-    1 - auroc`` behavior would have folded this to ~1.0 instead.
+    """Regression guard for symmetrization: an `if auroc < 0.5: auroc = 1 - auroc`
+    implementation would fold this to ~1.0.
     """
     df = pl.DataFrame(
         {
@@ -435,7 +426,6 @@ def test_auroc_aggregator_directional_lower_approaches_zero() -> None:
 
 
 def test_auroc_aggregator_fully_overlapping_near_half() -> None:
-    """Variant and reference drawn from the identical set of values -> AUROC near 0.5."""
     df = pl.DataFrame(
         {
             "meta_aa_changes": ["WT"] * 6 + ["A"] * 6,
@@ -537,10 +527,8 @@ def test_auroc_neg_log_p_loosely_tracks_continuity_corrected_default() -> None:
 
 
 def test_auroc_neg_log_p_strong_separation_is_finite_and_large() -> None:
-    """Exercises the log-space erfc tail path: naively computing
-    1-Phi(|z|) in linear space underflows to exactly 0.0 well before |z|
-    is this large, which would otherwise silently produce -inf/null
-    instead of a large finite score."""
+    """Naively computing 1-Phi(|z|) in linear space underflows to 0.0 well before |z|
+    is this large, which would give -inf/null instead of a large finite score."""
     rng = np.random.default_rng(9)
     n = 300
     group = rng.normal(loc=10.0, size=n).tolist()
@@ -955,12 +943,11 @@ def test_reference_pool_built_once_per_feature_chunk(
     toy_norm_df: pl.DataFrame, chunk_size: int, expected_calls: int
 ) -> None:
     """
-    The reference pool is rebuilt per chunk, narrowed to that chunk's columns.
+    The reference pool is rebuilt per chunk, narrowed to that chunk's columns:
+    otherwise the broadcast control pool that chunking exists to bound would be
+    full-width again.
 
     ``toy_norm_df`` has 2 feature columns, so chunk_size=1 means two chunks.
-    Rebuilding is the point: a chunk's reference frame must only carry that
-    chunk's features, or the broadcast control pool this chunking exists to
-    bound would be full-width again.
     """
     with patch.object(
         m.ReferenceBasedAggregator,
@@ -1013,12 +1000,10 @@ def test_chunking_is_output_invariant(
     chunking_df: pl.DataFrame, aggregator_name: str, chunk_size: int | None
 ) -> None:
     """
-    Chunking must not change the answer, only the peak memory used to get it.
+    Chunking must not change the answer, only the peak memory.
 
-    Compared against a chunk size wider than the feature count, which is the
-    single-query shape the aggregators had before chunking existed. Equality
-    is exact, not approximate: each chunk runs the identical expression over a
-    narrower projection, so any drift here means the projection changed the
+    Equality is exact, not approximate: each chunk runs the identical expression
+    over a narrower projection, so any drift means the projection changed the
     computation. ``None`` (chunking disabled) must land on the same answer as
     every chunked width.
     """
@@ -1037,7 +1022,7 @@ def test_feature_chunk_size_none_disables_chunking(
     chunking_df: pl.DataFrame,
 ) -> None:
     """
-    ``None`` means one query over every feature -- the pre-chunking shape.
+    ``None`` means one query over every feature.
 
     Asserted through the reference-pool spy rather than the output, since the
     output is invariant by construction: the only observable difference is how
@@ -1507,7 +1492,6 @@ def test_auroc_aggregator_inf_in_variant_returns_null_not_exception() -> None:
 
 
 def test_auroc_aggregator_all_inf_in_variant_returns_null() -> None:
-    """When all variant values are inf, result must be null, not an exception."""
     full = pl.DataFrame(
         {
             "meta_aa_changes": ["WT", "WT", "A1B", "A1B"],
@@ -1527,7 +1511,6 @@ def test_auroc_aggregator_all_inf_in_variant_returns_null() -> None:
 
 
 def test_auroc_aggregator_inf_in_reference_returns_null() -> None:
-    """When all reference values are inf, result must be null, not an exception."""
     full = pl.DataFrame(
         {
             "meta_aa_changes": ["WT", "WT", "A1B", "A1B"],

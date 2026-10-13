@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """Fetches and shrinks the Fowler lab's public LMNA_T3 starcall-workflow
 testing image set into a tiny fixture for
-tests/integration/test_integration.py's --container mode -- the one test that
-invokes a REAL Snakemake run against real starcall-workflow data (every
-other integration test fakes that step; see this repo's docs, which flag
-"real snakemake rule execution against real starcall-workflow data hasn't
-been tested" as a known gap this fixture exists to close).
+tests/integration/test_integration.py's --container mode, the one test that
+runs a real Snakemake run against real starcall-workflow data (every other
+integration test fakes that step).
 
 Usage
 -----
@@ -15,40 +13,29 @@ Usage
 Idempotent: skips the download if the tarball is already cached, and skips
 cropping if the output already exists. Pass --force to redo the crop step.
 
-`--minimal` builds `testing_data/lmna_t3_mini/` -- what the `--container`
-integration tests actually run on -- from `lmna_t3/` (building that first
-if needed): see `crop_to_minimal` below. ~40MB instead of ~900MB, so
-starcall's whole chain runs in minutes on a laptop.
+`--minimal` builds `testing_data/lmna_t3_mini/` (what the `--container`
+integration tests run on, ~40MB instead of ~900MB) from `lmna_t3/`, building
+that first if needed: see `crop_to_minimal`.
 
 What it does
 ------------
 1. Downloads `LMNA_T3_testing_image_set.tar.gz` (~6.3GB) from
    visseq.gs.washington.edu, resuming a partial download if one exists.
-2. Extracts only `input/well1_subset3/` (a 3x3-tile section this dataset
-   already ships, per-cycle `raw.tif`/`positions.csv`) and
-   `input/auxdata/` (the barcode-to-variant library).
-3. Crops `well1_subset3` down further, to a single tile per sequencing
-   cycle (`well1_subset1`) -- see `crop_to_center_tiles` below. This
-   drops raw image data from ~8.4GB to well under 1GB while still
-   exercising the real pipeline (background correction, stitching/
-   registration solving, `stardist`/`cellpose` segmentation, sequencing
-   base-calling) essentially unchanged in kind, just smaller in extent.
-4. Writes the result to `testing_data/lmna_t3/starcall_input/` --
-   gitignored (see `.gitignore`), never committed.
+2. Extracts only `input/well1_subset3/` (a 3x3-tile section the dataset
+   ships, per-cycle `raw.tif`/`positions.csv`) and `input/auxdata/` (the
+   barcode-to-variant library).
+3. Crops `well1_subset3` to a single tile per sequencing cycle
+   (`well1_subset1`, see `crop_to_center_tiles`), taking raw image data
+   from ~8.4GB to well under 1GB while still exercising the real pipeline.
+4. Writes the result to the gitignored `testing_data/lmna_t3/starcall_input/`.
 
-`crop_to_center_tiles` reimplements starcall-workflow's own `rule
-make_section` (workflow/rules/io.smk, origin/devel) -- same crop math,
-run standalone here (pure numpy/tifffile, no snakemake/ML dependency
-needed for a deterministic crop) rather than via a real `snakemake`
-invocation just for this one step. One deliberate, documented departure
-from the upstream rule: it computes `center = mins + round((maxes -
-mins) / 2)`, not the upstream rule's own `center = round((maxes - mins)
-/ 2)` (i.e. relative to tile index 0). That's only correct when cropping
-a well whose tile indices already start near 0 (a freshly-stitched,
-never-subsetted well) -- this dataset's own well1_subset3 already has
-tile indices around 11-13 (confirmed by reading its own positions.csv),
-so re-basing to the true absolute center is required to crop it further
-at all.
+`crop_to_center_tiles` reimplements starcall-workflow's `rule make_section`
+(workflow/rules/io.smk, origin/devel) standalone, with one deliberate
+departure: it computes `center = mins + round((maxes - mins) / 2)`, not the
+upstream `center = round((maxes - mins) / 2)` (relative to tile index 0).
+That is only correct for a well whose tile indices start near 0;
+well1_subset3's start around 11-13 (per its positions.csv), so re-basing to
+the absolute center is required to crop it further at all.
 """
 
 from __future__ import annotations
@@ -71,11 +58,10 @@ _SOURCE_WELL = "well1_subset3"
 _CROPPED_WELL = "well1_subset1"
 _CROP_SIZE = 1  # tiles, in bases_scale (sequencing-cycle) coordinates
 
-# This dataset's own phenotype_scale/bases_scale (not independently
-# published -- inferred from its own data: well1_subset3's cyclePT tile
-# count (36) is exactly (phenotype_scale/bases_scale)**2 times its
-# sequencing cycles' tile count (9), i.e. a ratio of 2 -- matching
-# starcall-workflow's own default-config.yaml values of 20/10 exactly).
+# This dataset's phenotype_scale/bases_scale, inferred (not published):
+# well1_subset3's cyclePT tile count (36) is (phenotype_scale/bases_scale)**2
+# times its sequencing cycles' tile count (9), matching starcall-workflow's
+# default-config.yaml 20/10.
 _PHENOTYPE_SCALE = 20
 _BASES_SCALE = 10
 _PHENOTYPE_CYCLE_PREFIX = "cyclePT"
@@ -85,10 +71,9 @@ _CACHE_DIR = _REPO_ROOT / "testing_data" / "_download_cache"
 _OUTPUT_DIR = _REPO_ROOT / "testing_data" / "lmna_t3" / "starcall_input"
 _MINIMAL_OUTPUT_DIR = _REPO_ROOT / "testing_data" / "lmna_t3_mini" / "starcall_input"
 
-# Side length, in pixels, of --minimal's crop -- for EVERY cycle, phenotype
-# included (see crop_to_minimal for why the phenotype tile can't be cropped
-# larger). 512 phenotype px is about five 100px-diameter cells across,
-# enough for a non-empty cell table.
+# Side length, in pixels, of --minimal's crop for every cycle, phenotype
+# included (see crop_to_minimal). 512 px is about five 100px-diameter cells
+# across, enough for a non-empty cell table.
 _MINIMAL_PIXELS = 512
 
 
@@ -137,9 +122,8 @@ def _is_phenotype_cycle(path: str) -> bool:
 
 def crop_to_center_tiles(well_dir: Path, output_dir: Path, size: int) -> None:
     """Crop an already-tiled well (per-cycle raw.tif + positions.csv) down
-    to a `size`x`size` grid of tiles from its center. See module
-    docstring for how this relates to (and deliberately departs from)
-    starcall-workflow's own `rule make_section`.
+    to a `size`x`size` grid of tiles from its center. See the module
+    docstring for how this departs from starcall-workflow's `rule make_section`.
     """
     cycle_dirs = sorted(glob.glob(str(well_dir / "cycle*")))
     position_paths = [os.path.join(d, "positions.csv") for d in cycle_dirs]

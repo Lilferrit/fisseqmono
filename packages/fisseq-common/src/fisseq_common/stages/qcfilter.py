@@ -439,9 +439,9 @@ def select_variants(
     appears in that file pass through unconditionally and are *not* counted
     against `n_variants`; the remaining eligible rows go through the
     existing top/random selection, capped at `n_variants`. Allow-list
-    entries absent from the data are silently ignored (a left-semi join
-    handles this naturally). If every eligible variant is allow-listed,
-    `n_variants` has no effect for this run and a warning is logged.
+    entries absent from the data are silently ignored. If every eligible
+    variant is allow-listed, `n_variants` has no effect for this run and a
+    warning is logged.
 
     Runs upstream of :func:`add_qc_queries`, so ``barcode_counts``/
     ``variants_per_barcode`` reflect the post-selection population.

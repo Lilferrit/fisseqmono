@@ -246,10 +246,9 @@ def test_ovwt_batchwise_calibrate_true_gives_calibrators():
 
 def test_ovwt_batchwise_rare_barcode_variant_is_scored_not_skipped():
     """M2L has a single, extremely rare barcode (2 cells). It collapses into
-    _stratification_key's "rare|variant" bucket, and a fold's share of that
-    bucket used to be a singleton the inner split raised on, so M2L got
-    skipped. split_indices_stratified now sends singleton strata to the
-    train half, so M2L is scored alongside M1K."""
+    _stratification_key's "rare|variant" bucket, whose per-fold share can be a
+    singleton the inner split would raise on. split_indices_stratified sends
+    singleton strata to the train half, so M2L is scored alongside M1K."""
     rng = np.random.default_rng(2)
     rows = []
     for i in range(15):

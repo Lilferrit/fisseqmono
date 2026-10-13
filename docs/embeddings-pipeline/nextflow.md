@@ -171,18 +171,16 @@ Across experiments, `fisseqborn-global` reads each experiment's per-method
 
 ## CellProfiler-feature track
 
-An optional, parallel second track processes the same experiments'
-hand-engineered CellProfiler measurements. There's no separate list to
-keep in sync with `experiments:` -- an entry opts itself in by setting
-`cp_features: true`, which does two things: `BUILD_CELL_IMAGES` (always
-run, for every experiment) additionally forces that experiment's
-CellProfiler CSV to exist and folds its columns into `cell_table.parquet`,
-and `BUILD_CP_FEATURES` runs against that same output, selecting them back
-out. No entry setting `cp_features: true` -- the default -- skips
-`BUILD_CP_FEATURES` onward entirely. This track reuses that same
-experiment's `QC_FILTER` output rather than running QC a second time, and
-gets no bootstrap feature selection: its columns are hand-engineered and
-meant to stay comparable to the published CellProfiler analysis.
+An optional second track processes the same experiments'
+hand-engineered CellProfiler measurements. An `experiments:` entry opts in
+by setting `cp_features: true`, which does two things: `BUILD_CELL_IMAGES`
+additionally forces that experiment's CellProfiler CSV to exist and folds
+its columns into `cell_table.parquet`, and `BUILD_CP_FEATURES` selects them
+back out. Without it (the default) `BUILD_CP_FEATURES` onward is skipped.
+This track reuses the experiment's `QC_FILTER` output rather than running
+QC a second time, and gets no bootstrap feature selection: its columns are
+hand-engineered and meant to stay comparable to the published CellProfiler
+analysis.
 
 ```text
 experiments with cp_features: true  +  BUILD_CELL_IMAGES' cell_table.parquet
@@ -393,7 +391,7 @@ keeps snakemake from rerunning CellProfiler when, with `use_corrected`, it
 regenerates the `temp()` `corrected_tiles.tif` missing shards need; with
 raw images it's harmless ([Architecture](architecture.md) decision 17).
 
-with no `--cores`: in cluster mode that's the budget across all submitted
+There is no `--cores`: in cluster mode it is the budget across all submitted
 jobs and silently caps every rule's own `threads:`, so it belongs in the
 profile (or leave it to `jobs:`).
 

@@ -63,7 +63,6 @@ def _make_filtered_df(
 
 class TestGetBarcodeCounts:
     def test_passing_barcode_has_count(self, cfg):
-        """Barcode with count >= bc_threshold gets a non-null barcode_ok."""
         df = _make_filtered_df(["bc1"] * 3 + ["bc2"] * 2, ["V1"] * 5, cfg=cfg)
         result = get_barcode_counts(df.lazy(), cfg).collect()
 
@@ -71,7 +70,6 @@ class TestGetBarcodeCounts:
         assert bc1_row["barcode_ok"][0] == 3
 
     def test_failing_barcode_is_null(self, cfg):
-        """Barcode with count < bc_threshold gets a null barcode_ok."""
         df = _make_filtered_df(["bc1"] * 3 + ["bc2"] * 2, ["V1"] * 5, cfg=cfg)
         result = get_barcode_counts(df.lazy(), cfg).collect()
 
@@ -79,14 +77,12 @@ class TestGetBarcodeCounts:
         assert bc2_row["barcode_ok"][0] is None
 
     def test_one_row_per_barcode(self, cfg):
-        """Output contains exactly one row per unique barcode."""
         df = _make_filtered_df(["bc1"] * 3 + ["bc2"] * 3, ["V1"] * 6, cfg=cfg)
         result = get_barcode_counts(df.lazy(), cfg).collect()
 
         assert result.shape[0] == 2
 
     def test_counts_are_correct(self, cfg):
-        """The count column reflects the true number of cells per barcode."""
         df = _make_filtered_df(["bc1"] * 5 + ["bc2"] * 3, ["V1"] * 8, cfg=cfg)
         result = get_barcode_counts(df.lazy(), cfg).collect().sort("meta_barcode")
 
@@ -95,7 +91,6 @@ class TestGetBarcodeCounts:
 
 class TestGetBarcodesPerVariant:
     def test_passing_variant_has_count(self, cfg):
-        """Variant with barcode count >= variant_bc_threshold is flagged."""
         # V1 has two distinct barcodes; V2 has one
         df = _make_filtered_df(["bc1", "bc2", "bc3"], ["V1", "V1", "V2"], cfg=cfg)
         result = get_barcodes_per_variant(df.lazy(), cfg).collect()
@@ -104,7 +99,6 @@ class TestGetBarcodesPerVariant:
         assert v1_row["variant_barcode_count_ok"][0] == 2
 
     def test_failing_variant_is_null(self, cfg):
-        """Variant with barcode count < variant_bc_threshold gets null."""
         df = _make_filtered_df(["bc1", "bc2", "bc3"], ["V1", "V1", "V2"], cfg=cfg)
         result = get_barcodes_per_variant(df.lazy(), cfg).collect()
 
@@ -112,7 +106,6 @@ class TestGetBarcodesPerVariant:
         assert v2_row["variant_barcode_count_ok"][0] is None
 
     def test_one_row_per_variant(self, cfg):
-        """Output contains exactly one row per unique variant."""
         df = _make_filtered_df(
             ["bc1", "bc2", "bc3", "bc4"], ["V1", "V1", "V2", "V2"], cfg=cfg
         )
@@ -156,33 +149,28 @@ class TestAddQcQueries:
         )
 
     def test_edit_distance_filter(self, cell_df, cfg):
-        """Rows with editDistance > threshold are removed."""
         filtered, _, _ = add_qc_queries(cell_df.lazy(), cfg)
         result = filtered.collect()
         assert result["meta_edit_distance"].max() <= cfg.edit_distance_threshold
 
     def test_barcode_filter_removes_rare_barcodes(self, cell_df, cfg):
-        """Barcodes below bc_threshold do not appear in output."""
         filtered, _, _ = add_qc_queries(cell_df.lazy(), cfg)
         result = filtered.collect()
         assert "bc4" not in result["meta_barcode"].to_list()
         assert "bc5" not in result["meta_barcode"].to_list()
 
     def test_variant_filter_removes_rare_variants(self, cell_df, cfg):
-        """Variants below variant_bc_threshold do not appear in output."""
         filtered, _, _ = add_qc_queries(cell_df.lazy(), cfg)
         result = filtered.collect()
         assert "V2" not in result["meta_aa_changes"].to_list()
 
     def test_passing_cells_are_retained(self, cell_df, cfg):
-        """Cells from passing barcodes and variants are kept."""
         filtered, _, _ = add_qc_queries(cell_df.lazy(), cfg)
         result = filtered.collect()
         assert set(result["meta_barcode"].to_list()) == {"bc1", "bc2"}
         assert result.shape[0] == 6  # 3 cells each from bc1 and bc2
 
     def test_barcode_counts_frame_shape(self, cell_df, cfg):
-        """barcode_counts has one row per barcode surviving the edit filter."""
         _, barcode_counts, _ = add_qc_queries(cell_df.lazy(), cfg)
         result = barcode_counts.collect()
         # barcode_counts is built after the edit distance filter, so barcodes
@@ -193,7 +181,6 @@ class TestAddQcQueries:
         assert result.shape[0] == n_post_edit_filter
 
     def test_variants_per_barcode_frame_shape(self, cell_df, cfg):
-        """variants_per_barcode frame has one row per unique variant."""
         _, _, variants_per_barcode = add_qc_queries(cell_df.lazy(), cfg)
         # Only barcodes passing the barcode filter feed into this frame,
         # so the variant count may be less than in the raw data.
@@ -268,7 +255,6 @@ class TestReadFile:
         assert "meta_source_file_idx" in result.columns
 
     def test_meta_source_file_value(self, tmp_path):
-        """meta_source_file contains the path of the file that was read."""
         pq_file = tmp_path / "cells.parquet"
         pl.DataFrame({"a": [1]}).write_parquet(pq_file)
 
@@ -288,7 +274,6 @@ class TestReadFile:
 
 class TestCombineCellFiles:
     def test_row_count_is_sum_of_inputs(self, tmp_path):
-        """Combined frame has as many rows as all input files together."""
         f1 = tmp_path / "a.parquet"
         f2 = tmp_path / "b.parquet"
         pl.DataFrame({"x": [1, 2]}).write_parquet(f1)
@@ -299,7 +284,6 @@ class TestCombineCellFiles:
         assert result.shape[0] == 5
 
     def test_source_files_are_tracked(self, tmp_path):
-        """Each row records which source file it came from."""
         f1 = tmp_path / "a.parquet"
         f2 = tmp_path / "b.parquet"
         pl.DataFrame({"x": [1]}).write_parquet(f1)

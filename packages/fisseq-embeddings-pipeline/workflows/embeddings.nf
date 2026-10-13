@@ -101,9 +101,8 @@ workflow EmbeddingsPipeline {
         cell_images.map { stem, _cell_table, shards, pheno_dir -> tuple(stem, shards, pheno_dir) }
     )
 
-    // embeddings_only stops the cellDINO track here and skips the CP track:
-    // for when all you want is the embeddings (and what the containerized
-    // real-starcall integration test uses).
+    // embeddings_only stops here and skips the downstream tracks (used by the
+    // containerized real-starcall integration test).
     if (!asBool(params.embeddings_only)) {
         // The shared FILTER module: the cells are EMBED_CELLS' embeddings, the QC-passed
         // table QC_FILTER's; the normalizer is fit on the wildtype cells.
@@ -130,9 +129,8 @@ workflow EmbeddingsPipeline {
             // uncoerced in a Groovy IntRange.
             bootstrap_ch = channel.of(1..(params.feature_select_bootstrap_reps as int))
 
-            // Stage 1: full per-feature-type aggregation, one task per
-            // (experiment, feature_type). The published aggregates are z-scored
-            // against the experiment's synonymous variants (conf/modules.config).
+            // Stage 1: one task per (experiment, feature_type); aggregates are
+            // z-scored to the synonymous variants (conf/modules.config).
             // AGGREGATE's input: (batch_stem, cells, keys, normalizer, rep, half, split,
             // method); rep = half = 0 and no split file aggregate every cell.
             agg_input_ch = norm_ch
@@ -144,12 +142,11 @@ workflow EmbeddingsPipeline {
             agg_ch = AGGREGATE_FEATURE_TYPE_BATCHWISE.out.aggregate
                 .map { batch_stem, _rep, feature_type, _half, agg_file -> tuple(batch_stem, feature_type, agg_file) }
 
-            // Stage 1b: passthrough aggregation. Same process, and deliberately
-            // nothing downstream of it but the stage-4 join -- passthrough types
-            // never reach the bootstrap halves, the correlation, or the
-            // blocklist, which is the whole point of the second list. They are
-            // not z-scored (p-values must keep their own scale) and publish to
-            // their own directory, so no aggregates/ glob ever mixes the two.
+            // Stage 1b: passthrough aggregation. Deliberately nothing downstream
+            // but the stage-4 join: passthrough types never reach the bootstrap
+            // halves, correlation or blocklist. Not z-scored (p-values keep their
+            // own scale) and published to their own directory, so no aggregates/
+            // glob mixes the two.
             passthrough_types_ch = channel.fromList(params.feature_select_passthrough_types)
             pt_agg_input_ch = norm_ch
                 .combine(passthrough_types_ch)

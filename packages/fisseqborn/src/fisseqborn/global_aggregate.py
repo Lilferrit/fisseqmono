@@ -1,8 +1,8 @@
 """Cross-experiment aggregation of a pipeline run: `write_global` and ``fisseqborn-global``.
 
 Neither pipeline aggregates across experiments. `write_global` does it from either pipeline's
-per-experiment outputs (read through `fisseq_common.layout`), with the methods of the
-embeddings pipeline's former global stages (`fisseq_common.global_aggregation`)::
+per-experiment outputs (read through `fisseq_common.layout`), with the methods in
+`fisseq_common.global_aggregation`::
 
     <out>/<track>/
       blocklist.parquet              # the vote across experiments: feature, n_batches, n_ok,

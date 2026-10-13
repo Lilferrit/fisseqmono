@@ -22,9 +22,8 @@ def setup_logging(cfg: LoggingConfig, name: str) -> None:
     """
     Configure logging for the pipeline.
 
-    A timestamped log file and a console stream are set up simultaneously.
-    The log file is named ``{name}.{cfg.output_root}.log``. Its location follows
-    the same convention used for other output files:
+    A console stream and a log file are set up together. The log file is
+    ``{output_dir}/{output_root}.{name}.log`` (no ``output_root`` prefix when it is unset).
 
     Parameters
     ----------

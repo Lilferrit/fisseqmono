@@ -1,6 +1,6 @@
 """The aggregation stage's entry point (``python -m fisseq_common.stages.aggregate``): one
 method over the rebuilt normalized cells, or one bootstrap half, written leanly as
-``[label] + <stat columns>``. Moved from the data pipeline's AGGREGATE_FEATURE_TYPE wrapper.
+``[label] + <stat columns>``.
 
 The fixtures write the three files a stage rebuilds the cell table from: a cell table, the
 filter stage's keys (with ``meta_is_control``) and an identity normalizer, so the aggregated

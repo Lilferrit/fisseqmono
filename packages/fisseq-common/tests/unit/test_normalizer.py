@@ -1,11 +1,4 @@
-"""Tests for utils/normalizer.py's Normalizer.
-
-Ported from fisseq-data-pipeline's tests/unit/test_normalize.py -- only the
-Normalizer-specific tests (from_lazyframe/apply/save/load); that source
-file's NormalizeConfig/add_control_indicator_column/main tests don't apply
-here, since this pipeline has no standalone NORMALIZE stage (see
-utils/normalizer.py's module docstring).
-"""
+"""Tests for utils/normalizer.py's Normalizer: from_lazyframe, apply, save and load."""
 
 import math
 

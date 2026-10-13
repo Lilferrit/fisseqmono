@@ -8,11 +8,12 @@ as a snakemake target, so cropping fans out one job per tile under a
 ``starcall_profile`` and each shard is cached by snakemake's own mtime
 check -- see ``docs/architecture.md`` decision 17.
 
-Reads the tile's stitched phenotype image and segmentation mask (which
-``make_cell_shard`` stitches with starcall's own functions and writes to a
-job-local temp directory, in the layout of starcall's ``raw_pt.tif``/
-``{segmentation_type}_mask.tif``), segmentation cell table (``{segmentation_type}.csv``) and reads table
-(``{segmentation_type}_reads{params}.csv``), crops every cell out with
+Reads the tile's stitched phenotype image and segmentation mask
+(``make_cell_shard`` stitches them with starcall's own functions into a
+job-local temp directory, in the layout of ``raw_pt.tif``/
+``{segmentation_type}_mask.tif``), segmentation cell table
+(``{segmentation_type}.csv``) and reads table
+(``{segmentation_type}_reads{params}.csv``), crops every cell with
 :func:`crop_cell`, and writes one tar of per-cell samples (``crop.npy``,
 ``mask.npy``, ``meta.json``).
 
@@ -153,7 +154,6 @@ def crop_cell(
     low = window // 2
     high = window - low
 
-    # Requested window in tile coordinates, then clamped to the tile.
     x1, x2, y1, y2 = cx - low, cx + high, cy - low, cy + high
     tx1, tx2 = max(0, x1), min(mask.shape[0], x2)
     ty1, ty2 = max(0, y1), min(mask.shape[1], y2)
@@ -163,7 +163,6 @@ def crop_cell(
     if tx2 <= tx1 or ty2 <= ty1:
         return crop, crop_mask
 
-    # Where the clamped region lands inside the (padded) output window.
     ox1, oy1 = tx1 - x1, ty1 - y1
     ox2, oy2 = ox1 + (tx2 - tx1), oy1 + (ty2 - ty1)
     crop[:, ox1:ox2, oy1:oy2] = image[:, tx1:tx2, ty1:ty2]

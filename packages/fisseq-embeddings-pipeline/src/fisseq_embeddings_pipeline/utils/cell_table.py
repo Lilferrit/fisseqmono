@@ -14,9 +14,6 @@ EMBED_CELLS each add ``meta_batch`` and keep :data:`CELL_METADATA_SCHEMA`'s
 seven columns -- ``filter.py``'s ``JOIN_KEYS`` plus the three QC fields.
 The variant class stays out of them: every downstream stage derives it
 from ``meta_aa_changes`` itself.
-
-Not to be confused with ``utils/metadata.py``, which is the vendored
-*per-variant* aggregation helper (``get_aggregate_meta_data``).
 """
 
 import polars as pl

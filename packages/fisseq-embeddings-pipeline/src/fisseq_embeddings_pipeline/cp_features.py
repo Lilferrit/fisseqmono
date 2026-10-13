@@ -101,22 +101,9 @@ def main(cfg: DictConfig) -> None:
     """
     Hydra entry point: build one experiment's CellProfiler-feature table.
 
-    Steps
-    -----
-    1. Create ``output_dir``.
-    2. Read ``cell_images_dir/cell_table.parquet`` and select this
-       experiment's CellProfiler feature columns via :func:`build_cp_features`.
-    3. Write ``{prefix}cp_features.parquet`` to ``output_dir``.
+    Writes ``{prefix}cp_features.parquet`` to ``output_dir``, ``prefix``
+    being ``{output_root}.`` when ``output_root`` is set, else empty.
 
-    Output file
-    ------------
-    - ``{prefix}cp_features.parquet``
-
-    where ``prefix`` is ``{output_root}.`` when ``output_root`` is set,
-    otherwise empty.
-
-    Configuration
-    -------------
     Override any field on the command line, e.g.::
 
         python -m fisseq_embeddings_pipeline.cp_features \\

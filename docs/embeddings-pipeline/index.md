@@ -5,9 +5,8 @@ A Nextflow + Python pipeline that scores genetic variants against learned
 experiments -- the embedding-space sibling of
 [`fisseq-data-pipeline`](../data-pipeline/index.md),
 which does the same analysis on hand-engineered CellProfiler features. An
-optional, parallel second track (see below) runs that same
-CellProfiler-feature analysis directly inside this pipeline too, against
-the same cells, for direct comparison against the embedding-space results.
+optional second track (see below) runs that CellProfiler-feature analysis
+inside this pipeline too, on the same cells, for direct comparison.
 
 Each cell carries a genetic variant label; the pipeline embeds every cell
 with a pretrained Cell-DINO vision transformer and measures how each
@@ -32,7 +31,7 @@ done by `fisseqborn-global` in the fisseqborn package, from these per-experiment
 `BUILD_CELL_IMAGES` is the only stage that reads `starcall-workflow`'s
 tree or runs its snakemake (starcall's own Snakefile, at the commit the
 image pins, plus this pipeline's `make_cell_shard`
-rule). It has every tile's cells cropped straight into a per-tile
+rule). It crops every tile's cells straight into a per-tile
 WebDataset shard as an ordinary snakemake job, and joins each tile's
 segmentation and genotype tables into one self-sufficient
 `cell_table.parquet` per experiment (see [Architecture](architecture.md)).

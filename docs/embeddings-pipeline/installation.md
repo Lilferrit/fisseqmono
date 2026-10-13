@@ -2,9 +2,7 @@
 
 ## Python environment
 
-This project is managed with [uv](https://docs.astral.sh/uv/):
-
-The pipeline is a package of the fisseqmono uv workspace:
+The pipeline is a package of the fisseqmono [uv](https://docs.astral.sh/uv/) workspace:
 
 ```bash
 git clone https://github.com/Lilferrit/fisseqmono.git
@@ -39,9 +37,9 @@ sudo mv nextflow /usr/local/bin/
 ```
 
 Nextflow is not a Python dependency and `uv sync` doesn't install it.
-Neither is snakemake any more: the only snakemake this pipeline uses is
-the nested starcall-workflow run inside `BUILD_CELL_IMAGES`, which is
-pinned to 7.32.4 in the image's own `ops` env.
+Neither is snakemake: the only one this pipeline uses is the nested
+starcall-workflow run inside `BUILD_CELL_IMAGES`, pinned to 7.32.4 in the
+image's own `ops` env.
 
 ## Containers
 

@@ -1400,7 +1400,6 @@ def test_rerunning_reproduces_the_published_tables(reproducibility_outputs):
 # data: testing_data/lmna_t3_mini (12 cycles of one 512 px sequencing tile,
 # one 512 px phenotype tile; generate it with
 # `uv run python scripts/prepare_real_starcall_test_data.py --minimal`).
-# Minutes, not the hour-plus the old full-size fixture took.
 #
 # Both stop after EMBED_CELLS (params.embeddings_only): everything
 # downstream is covered by the synthetic suite, and a few dozen real cells
@@ -1620,8 +1619,7 @@ def test_real_starcall_local(real_starcall_local_run):
     ]
     # The tile shard is temp(), so snakemake deleted it once the well's
     # shards were packed; make_cell_shard stitches the tile in memory, so
-    # starcall's temp() raw_pt.tif is never written for it -- see
-    # docs/architecture.md decision 17.
+    # starcall's temp() raw_pt.tif is never written for it.
     tile_dir = grid_dir / _MINI_TILE
     assert not (tile_dir / f"cells_raw_shard_{_WINDOW}.tar").exists()
     assert not (tile_dir / "raw_pt.tif").exists()

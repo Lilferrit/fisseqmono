@@ -5,12 +5,10 @@ down to the seven `meta_*` columns `QC_FILTER` reads, as one
 per-experiment `metadata.parquet`. No images, no feature columns, no
 `starcall-workflow` tree access.
 
-This stage exists to make `QC_FILTER` the point where the cellDINO and
+This stage makes `QC_FILTER` the point where the cellDINO and
 CellProfiler tracks fan out, off a cheap table projection rather than the
-image-reading cellDINO track. Before it, QC's input was the (since
-removed) `BUILD_DATASET` stage's own `metadata.parquet`, written inside
-its WebDataset shard-writing loop -- which made the expensive dataset
-build a hard dependency of the CellProfiler track too, since
+image-reading cellDINO track; otherwise the expensive shard build would be
+a hard dependency of the CellProfiler track too, since
 `NORMALIZE_CP_FEATURES` consumes the same QC output. See
 [Nextflow Workflow: Track independence](../nextflow.md#track-independence).
 
@@ -47,7 +45,7 @@ Extends the [common config fields](#common-config-fields) below.
 
 The reads tables' genotype column names (`barcode_col_name`/
 `aa_changes_col_name`/`edit_distance_col_name`) are `BUILD_CELL_IMAGES`
-settings now: it renames those columns to `meta_*` in both
+settings: it renames those columns to `meta_*` in both
 `cell_table.parquet` and the shards, so this stage reads fixed names.
 
 ## Output file
@@ -60,13 +58,12 @@ Written to `output_dir`:
   (`CELL_METADATA_SCHEMA`). An empty table gives an empty frame with that
   schema.
 
-Note this covers *every* row of `cell_table.parquet`, where the removed
-`BUILD_DATASET` stage's own `metadata.parquet` only ever held cells that
-made it into a shard. `filtered_cells.parquet` can therefore cover strictly more
-cells than it used to; every downstream consumer inner-joins it back on
-the pipeline's `join_keys` (`meta_batch`, `meta_well`, `meta_tile`, `meta_cell_index`), so
-the extra rows drop out where they don't
-apply.
+This covers *every* row of `cell_table.parquet`, including cells that
+never made it into a shard, so `filtered_cells.parquet` can cover strictly
+more cells than `embeddings.parquet`; every downstream consumer inner-joins
+it back on the pipeline's `join_keys` (`meta_batch`, `meta_well`,
+`meta_tile`, `meta_cell_index`), so the extra rows drop out where they
+don't apply.
 
 ## Example
 

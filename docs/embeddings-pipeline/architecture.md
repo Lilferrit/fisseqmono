@@ -44,8 +44,7 @@ in the fisseqborn package, from these published outputs; see decision 8.
 "Cell Images" here is `BUILD_CELL_IMAGES`
 -- the only stage that reads `starcall-workflow`'s tree or runs its snakemake;
 see [Data contracts](#cell-images-build_cell_images-output-from-starcall-workflow)
-below. "Cell Info Table" no longer appears as its own node: the genotype/
-metadata columns it used to name are now part of `BUILD_CELL_IMAGES`'
+below. The genotype/metadata columns are part of `BUILD_CELL_IMAGES`'
 `cell_table.parquet`, not a separate input. "Cell Shards" -- gzipped
 WebDataset shards, `shard_size` cells each, per well -- isn't a Nextflow
 stage of its own either: it's `make_cell_shard` and `make_well_shards`,
@@ -590,7 +589,7 @@ packages/fisseq-embeddings-pipeline/
     integration/                  # end-to-end `nextflow run` + output assertions
 ```
 
-New dependency versus `fisseq-data-pipeline`'s stack: **`webdataset`**
+Dependency beyond `fisseq-data-pipeline`'s stack: **`webdataset`**
 (`tile_shard.py` writes shards, `EMBED_CELLS` reads them; `well_shards.py`
 repacks them with the standard library's `tarfile`), plus whatever
 `torch` pulls in for the GPU stage.
@@ -671,8 +670,7 @@ already built) and reads them:
   segmentation-side cell table:
   `phenotyping_dir/{well}_grid{N}/tile{x}x{y}y/{segmentation_type}.csv`,
   columns `orig_index`/`bbox_x1/y1/x2/y2`/`mask8` only -- **no**
-  `upBarcode`/`aaChanges`/`editDistance` (a real gap in what the old
-  `BUILD_DATASET` stage used to assume this file carried; see below).
+  `upBarcode`/`aaChanges`/`editDistance` (see decision 16).
 - **`rule merge_final_tables`** -- the tile's sequencing-side genotype
   table, a *different* directory tree:
   `sequencing_dir/{well}_grid{N}/tile{x}x{y}y/{segmentation_type}_reads{params}.csv`,
@@ -682,9 +680,7 @@ already built) and reads them:
   `""` -- verify against a real run if your starcall-workflow config uses
   a non-empty value there.
 - (only when `cp_features: true`) the tile's CellProfiler output,
-  `phenotyping_dir/{well}_grid{N}/tile{x}x{y}y/cellprofiler{cycle}_{pipeline}.csv`
-  -- same path `BUILD_CP_FEATURES` used to read directly before this
-  refactor, now read here instead.
+  `phenotyping_dir/{well}_grid{N}/tile{x}x{y}y/cellprofiler{cycle}_{pipeline}.csv`.
 
 `build_cell_images_table.py` then joins, per tile: the segmentation table
 to the sequencing table **by index value** (both are the same
@@ -753,16 +749,15 @@ shards are `temp()` and go once the well is packed.
 
 ### CellProfiler feature columns (`BUILD_CP_FEATURES` input)
 
-`BUILD_CP_FEATURES` no longer reads any CellProfiler CSV, or
+`BUILD_CP_FEATURES` reads no CellProfiler CSV, or
 `starcall-workflow`'s tree, directly -- it takes every non-`meta_` column
 straight out of `BUILD_CELL_IMAGES`' `cell_table.parquet`, which carries
-the CellProfiler columns under their own names, so `cp_features.parquet`'s
-column names are unchanged: one column per CellProfiler measurement, no
-`meta_*` prefix. The row-position join between each tile's cell table and its
-CellProfiler CSV -- CellProfiler's own `ObjectNumber` numbering has no
-shared index with the segmentation table's `orig_index`/`RangeIndex` --
-now happens once, inside `BUILD_CELL_IMAGES`' `build_cell_images_table.py`,
-not per-consumer.
+the CellProfiler columns under their own names: one column per CellProfiler
+measurement, no `meta_*` prefix. The row-position join between each tile's
+cell table and its CellProfiler CSV -- CellProfiler's own `ObjectNumber`
+numbering has no shared index with the segmentation table's
+`orig_index`/`RangeIndex` -- happens once, inside `BUILD_CELL_IMAGES`'
+`build_cell_images_table.py`.
 
 ## `EMBED_CELLS` / Cell-DINO inference internals
 
@@ -916,11 +911,7 @@ rather than one per channel because there is only ever one mask to
 apply: each tile's shard carries exactly one `mask.npy` per cell, cut from
 starcall's single-plane `{segmentation_type}_mask.tif` label image, so it
 carries no channel axis at all -- it is `(window, window)`, a per-cell
-uint8 foreground mask (`tile_shard.crop_cell`). This was
-previously a `list[bool]` required to match `channels` element-for-
-element, which bought the ability to mask some selected channels but not
-others -- an option no deployment used, at the cost of a length-coupling
-guard between two params.
+uint8 foreground mask (`tile_shard.crop_cell`).
 
 `embed_batch()` applies channel selection and per-channel masking *before*
 the bag-of-channels-vs-joint-multichannel branch above -- so, for a

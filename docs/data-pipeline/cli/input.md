@@ -9,8 +9,7 @@ Parquet file. The Nextflow process writes that YAML from the experiment's entry.
 only stage this package owns; every later stage is a
 [shared stage](../../common/stages.md).
 
-Variant-class/count-based restriction (previously done here via
-`top_n_missense`) now happens downstream, in `QC_FILTER`'s `n_variants` /
+Variant-class/count-based restriction happens downstream, in `QC_FILTER`'s `n_variants` /
 `variant_downsample_classes` / `variant_downsample_mode` (see
 [Shared stages: qcfilter](../../common/stages.md#qcfilter)), so it applies uniformly to every
 batch.

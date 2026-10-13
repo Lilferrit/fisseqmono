@@ -1,7 +1,6 @@
 """FINALIZE_FEATURE_SELECT (``python -m fisseq_common.stages.finalize``): per-method
 aggregates -> the blocklisted, synonymous-normalized per-variant table, plus the impact score,
-per-variant metadata and passthrough aggregates. The entry-point tests moved from the data
-pipeline's ``featureselect`` wrapper."""
+per-variant metadata and passthrough aggregates."""
 
 import logging
 from pathlib import Path

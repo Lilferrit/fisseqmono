@@ -28,11 +28,8 @@ dependencies = [
     "tqdm>=4.67.3",
     "webdataset>=0.2.111",
     "xgboost>=2.0.0",
-    # torch + dinov2 (EMBED_CELLS / Cell-DINO): torch is pip-installable
-    # (pinned to match your CUDA toolkit -- see README's GPU install note);
-    # dinov2 itself is not on PyPI and is vendored directly under
-    # src/fisseq_embeddings_pipeline/vendor/dinov2/ -- see that directory's
-    # VENDORED_FROM.md.
+    # torch (EMBED_CELLS / Cell-DINO). dinov2 is not on PyPI and is vendored under
+    # src/fisseq_embeddings_pipeline/vendor/dinov2/ (see its VENDORED_FROM.md).
     "torch>=2.4.0",
 ]
 
@@ -61,11 +58,8 @@ dev = [
     "pre-commit>=4.5.1",
     "pytest>=8.4.1",
     "ruff>=0.15.12",
-    # Ground-truth oracle for tests/unit/test_aggregate.py's p-value
-    # aggregators (kstwobign.sf / mannwhitneyu / norm.cdf / erfc). Not a
-    # runtime dependency -- KSnegLogP/AUROCnegLogP are pure Polars. It
-    # already resolved transitively via scikit-learn, but a direct import
-    # deserves a direct declaration.
+    # Ground-truth oracle for tests/unit/test_aggregate.py's p-value aggregators
+    # (kstwobign.sf / mannwhitneyu / norm.cdf / erfc); not a runtime dependency.
     "scipy>=1.16.1",
 ]
 

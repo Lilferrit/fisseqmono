@@ -590,12 +590,8 @@ def test_embed_batch_joint_multichannel_skips_split_and_pool():
     channel separately, then pool -- different numbers whenever channel
     means differ."""
     model = _MeanPixelStub(embed_dim=1, in_chans=2)
-    # channel 0 uniformly 1.0, channel 1 uniformly 9.0 -- bag-of-channels
-    # mean-pool would give 5.0; one joint forward over both channels'
-    # pixels together gives (1.0 + 9.0) / 2 = 5.0 too by coincidence here,
-    # so also assert dispatch never reshaped batch*channels into the batch
-    # dimension (which raise_on_unknown_channel_pool below would trigger
-    # for an unset channel_pool if the bag-of-channels branch ran instead).
+    # Channel means 1.0 and 9.0: both paths give 5.0, so the invalid
+    # channel_pool below is what shows the bag-of-channels branch never ran.
     crops = torch.stack([torch.full((4, 4), 1.0), torch.full((4, 4), 9.0)]).unsqueeze(0)
     mask = torch.ones(1, 4, 4, dtype=torch.uint8)
 
@@ -706,7 +702,7 @@ def test_main_runs_end_to_end_via_cli(tmp_path: Path):
     assert out.columns[7] == "emb_0000"
     assert out["meta_batch"].unique().to_list() == ["batch1"]
     assert out["meta_barcode"].to_list() == ["bc0", "bc1", "bc2", "bc3"]
-    # A missing genotype value stays null -- see architecture decision 19.
+    # A missing genotype value stays null.
     assert out["meta_aa_changes"].to_list() == ["WT", "WT", None, "WT"]
 
 

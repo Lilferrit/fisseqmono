@@ -1,9 +1,7 @@
 """Cross-experiment aggregation of the pipelines' per-experiment outputs.
 
 Polars only (base install). fisseqborn's ``write_global`` (the ``fisseqborn-global`` command)
-runs these on a pipeline run; they are the methods of the embeddings pipeline's former global
-stages (GLOBAL_BLOCKLIST, GLOBAL_VARIANT_EMBEDDINGS, GLOBAL_VARIANT_DISTINGUISHABILITY and
-their CellProfiler-track twins):
+runs these on a pipeline run:
 
 - :func:`blocklist_vote`: a feature is reproducible when every experiment that reports it
   marks it OK, or at least ``min_batches_ok`` do;

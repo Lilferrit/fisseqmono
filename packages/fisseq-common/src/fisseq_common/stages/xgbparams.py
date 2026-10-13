@@ -165,11 +165,9 @@ def split_indices_stratified(
     them -- so they are excluded from the stratified split and appended to
     ``train_idx``, with a logged warning. No row is discarded.
 
-    This is a two-way split on purpose. It used to be an 80/10/10
-    train/test/val split whose caller
-    (:func:`fisseq_common.stages.ovwt.ovwt_batchwise`) used only two of the
-    three slots, silently throwing 10% of each fold's rows away; the outer
-    k-fold's own test rows already serve as the test set.
+    The split is two-way on purpose: the outer k-fold's own test rows already
+    serve as the test set (:func:`fisseq_common.stages.ovwt.ovwt_batchwise`),
+    so a third slot would only discard rows.
     """
     all_idx = np.arange(len(labels))
     unique, counts = np.unique(labels, return_counts=True)
@@ -212,10 +210,6 @@ def train_binary_xgboost(
     weights are computed with :func:`sklearn.utils.compute_sample_weight`
     when ``cfg.xgboost.weigh_samples`` is ``True``. Early stopping is applied
     against the validation set.
-
-    Shared by every binary classifier entry point that needs it (e.g.
-    ``ovwt.py``) so the fit/predict loop itself is defined once; consumers
-    vary only in which column and positive value they pass.
 
     Parameters
     ----------

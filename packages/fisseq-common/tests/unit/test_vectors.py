@@ -78,9 +78,9 @@ def test_compute_impact_score_null_columns_excluded_from_calc() -> None:
 
 def test_compute_impact_score_null_in_one_row_does_not_affect_other_rows() -> None:
     # f2 is fully populated on both control rows and on one non-control row,
-    # and only null on a *different* non-control row. A column-wide drop
-    # (the old, buggy behavior) would exclude f2 from every row's score;
-    # the fix must only exclude it for the row where it's actually null.
+    # and only null on a *different* non-control row. A column-wide drop would
+    # exclude f2 from every row's score; it must only be excluded for the row
+    # where it's actually null.
     lf = pl.LazyFrame(
         {
             CONTROL_COLUMN_NAME: [True, True, False, False],

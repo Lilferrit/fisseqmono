@@ -12,9 +12,10 @@ whether or not it exists yet -- the nested snakemake is what creates them.
 
 A well's shards are one snakemake ``directory()`` output (``make_well_shards``)
 next to its tiles, ``{well}_grid{grid_size}/{segmentation_type}_{image}_shards_
-{window}_{shard_size}``, holding ``well_{n}_shard_{k}.tar.gz`` (``fisseq_embeddings_pipeline.well_shards``). How many it
-holds depends on the well's cell count, so the manifest rule lists them once
-they exist (:func:`shard_rows`).
+{window}_{shard_size}``, holding ``well_{n}_shard_{k}.tar.gz``
+(``fisseq_embeddings_pipeline.well_shards``). How many depends on the well's
+cell count, so the manifest rule lists them once they exist
+(:func:`shard_rows`).
 """
 
 import os

@@ -61,8 +61,7 @@ In the embeddings pipeline the features are the `emb_NNNN` dimensions, so the ag
 are `emb_NNNN_<type>`. Its CellProfiler track writes only
 `feature_select_batchwise_cp_features/<batch>/aggregates/<type>.parquet` (also z-scored).
 
-There is no `global/` directory any more: the pipeline stopped running its global stages, so the
-aggregation across experiments happens here. See
+Neither pipeline writes a `global/` directory; the aggregation across experiments happens here. See
 [Aggregate across experiments](#aggregate-across-experiments).
 
 Batches load in natural order (`T2_R1` before `T10_R1`). Each row is tagged with its batch
@@ -207,7 +206,7 @@ profiles = profiles.drop_nonfinite()           # drop columns with any null / Na
   `feature_ok`.
 
 `feature_select()` runs `pycytominer.feature_select` over the profile values. It needs
-`fisseqborn[select]`. The default operations are the ones the data pipeline used to run: drop near-zero-variance features,
+`fisseqborn[select]`. The default operations are drop near-zero-variance features,
 apply the blocklist, then drop one of every pair of features correlated above `corr_threshold`.
 
 ```python
@@ -300,7 +299,7 @@ lists, so it is never treated as a score, and passing it raises an error.
       slightly outside [0, 1].
     - Use `reference="all"` to base the correction on every variant instead.
 - With `rescale=False`, the result is the plain z-score of each experiment against its synonymous
-  controls, `(x - mean) / std`. This is the old `GLOBAL_OVWT` math.
+  controls, `(x - mean) / std`.
 - In both modes, the standard deviation uses ddof=1. If it is below float32 epsilon, that
   experiment's corrected scores are null.
 - An experiment with fewer than two synonymous controls also gets all-null scores, and `correct`
@@ -318,8 +317,8 @@ global_scores = fb.OvwtScores.read("global/ovwt_distinguishability/global_scores
 profiles.distinguishability(global_scores, score="meta_median_auroc_pooled")
 ```
 
-`Profiles.from_global` and `OvwtScores.from_global` still read the `global/` directory of older runs.
-They now raise a `DeprecationWarning`, because current runs don't have that directory.
+`Profiles.from_global` and `OvwtScores.from_global` read the `global/` directory of older runs.
+They raise a `DeprecationWarning`, because current runs don't have that directory.
 
 ## Aggregate across experiments
 
@@ -373,8 +372,8 @@ from Python and returns the paths it wrote, keyed `<dir>/<stem>`. The pooling st
 `fisseq_common.global_aggregation`'s `blocklist_vote`, `drop_blocked`, `median_across_batches`
 and `ovwt_global_scores`, and the PCA is `fisseqborn.global_aggregate.full_rank_pca`.
 
-To aggregate a subset of experiments (the old pipeline's per-channel global stages), run the command
-once per group, leaving the others out with `--exclude`.
+To aggregate a subset of experiments, run the command once per group, leaving the others out
+with `--exclude`.
 
 ## From the notebooks
 

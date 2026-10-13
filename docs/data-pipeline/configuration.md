@@ -27,8 +27,8 @@ parameter set, copy `params.yaml` and edit the copy.
 
 ## Declaring experiments
 
-`experiments:` is a list of maps, one per experiment. This replaces the former
-mandatory `<pipeline_dir>/configs/*.yaml` directory.
+`experiments:` is a list of maps, one per experiment; there is no
+`<pipeline_dir>/configs/` directory.
 
 ```yaml
 experiments:
@@ -55,9 +55,8 @@ An entry may set **only** these keys:
 
 Any other key is **rejected with an error naming it**, rather than silently
 ignored. If you want to change a QC threshold or an OvWT hyperparameter, set it
-at the top level of `params.yaml` — it applies pipeline-wide. This is a
-deliberate simplification: per-experiment override of arbitrary parameters was
-removed for the release.
+at the top level of `params.yaml` — it applies pipeline-wide. Per-experiment
+override of arbitrary parameters is deliberately not supported.
 
 The workflow also fails fast on an empty `experiments:` list, a non-map entry, a
 missing or blank `batch_stem`, a missing or empty `input_paths`, and duplicate

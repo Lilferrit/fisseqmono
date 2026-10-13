@@ -1,17 +1,12 @@
 // BUILD_CELL_METADATA. Projects BUILD_CELL_IMAGES' cell_table.parquet down
-// to the seven meta_* columns QC_FILTER reads (metadata.parquet) -- the
-// stage that makes QC_FILTER the pipeline's shared fan-out point rather
-// than the image-reading cellDINO track. EMBED_CELLS also joins its meta_*
-// columns back onto each embedded cell (a shard's meta.json carries only the
-// cell's location), so both tracks see identical meta_* values.
+// to the seven meta_* columns QC_FILTER reads (metadata.parquet), so
+// QC_FILTER is the shared fan-out point rather than the image-reading
+// cellDINO track. EMBED_CELLS builds the same meta_* columns from each
+// shard's meta.json, so both tracks see identical values.
 //
-// Before this stage existed, QC_FILTER was fed the (since removed)
-// BUILD_DATASET stage's own metadata.parquet, which made the WebDataset build
-// a hard dependency of the CellProfiler track too. See cell_metadata.py's own module docstring
-// and docs/architecture.md for the full rationale, including why QC can't
-// just read cell_table.parquet directly (qcfilter.py's filter_columns
+// QC can't just read cell_table.parquet directly: qcfilter's filter_columns
 // drops the unprefixed well/tile/tile_cell_index columns that become
-// filter.py's JOIN_KEYS).
+// filter.py's JOIN_KEYS. See cell_metadata.py and docs/architecture.md.
 
 include { threadEnv } from '../../../../fisseq-common/nextflow/modules/local/functions'
 

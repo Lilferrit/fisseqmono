@@ -4,9 +4,8 @@ The workflow's first task (``PLAN_EXPERIMENTS``, ``modules/local/
 plan_experiments``) runs this module's :func:`main` over the run's params,
 serialized to JSON, and gets back one plan per experiment: every stage's
 Hydra override string, already rendered. Keeping validation and routing
-here rather than in ``workflows/embeddings.nf``'s Groovy makes it ordinary,
-unit-testable Python, and running it as a task (rather than at workflow
-parse time) means it runs inside the pipeline image like everything else.
+here rather than in ``workflows/embeddings.nf``'s Groovy keeps it
+unit-testable Python; running it as a task keeps it inside the pipeline image.
 
 The routing contract:
 
@@ -80,9 +79,8 @@ def validate_config(config: Mapping[str, Any]) -> List[Dict[str, Any]]:
     """
     Validate a loaded ``params.yaml`` and return its ``experiments`` list.
 
-    Fails fast with a specific message for every required-with-no-default
-    param, rather than letting a missing-key error surface deep inside a
-    task.
+    Fails fast with a specific message for every required param with no
+    default.
 
     Parameters
     ----------
@@ -159,13 +157,10 @@ def _validate_aggregate_methods(config: Mapping[str, Any]) -> None:
     """
     Check both aggregator lists name real aggregators and stay disjoint.
 
-    Validated here, up front, rather than being left to each stage's own
-    Hydra config: the method names are interpolated straight into task
-    scripts and publish paths, so a bad entry otherwise surfaces as a
-    shell-level failure deep in the fan-out long before any Python
-    validation could fire. This is the
-    Python counterpart of the ``aggregatorKeys()`` check
-    fisseq-data-pipeline does in Groovy.
+    Checked up front because the method names are interpolated straight
+    into task scripts and publish paths, so a bad entry would otherwise be a
+    shell-level failure deep in the fan-out. Counterpart of the
+    ``aggregatorKeys()`` check fisseq-data-pipeline does in Groovy.
     """
     from fisseq_common.stages.aggregate import _AGGREGATORS
 
@@ -299,10 +294,10 @@ def _validate_ovwt(config: Mapping[str, Any]) -> None:
 
     Both OVWT tasks carry ``errorStrategy 'ignore'``, so a bad value caught
     only inside ``ovwt_batchwise`` would silently drop every experiment's
-    scores; checking here fails the run before any task is submitted. The
-    Python counterpart of the ``ovwtCvModes()``/``ovwtNFolds()`` checks
-    fisseq-data-pipeline does in Groovy -- reading ``CV_MODES`` directly, so
-    there is no second copy to drift.
+    scores; checking here fails the run before any task is submitted.
+    Counterpart of fisseq-data-pipeline's Groovy ``ovwtCvModes()``/
+    ``ovwtNFolds()`` checks; reads ``CV_MODES`` directly, so there is no
+    second copy to drift.
 
     ``ovwt_n_folds`` may arrive as a string from a command-line override
     (``--ovwt_n_folds null``), so ``"null"``/blank and digit strings are

@@ -9,17 +9,14 @@ more input cell-score files (CSV or Parquet), and merges them into a single
 Pipeline
 --------
 1. Load every file in ``input_paths`` (CSV or parquet, detected by
-   extension), tagging each row with which file it came from and its row
-   index within that file (``origin_file`` / ``origin_row_idx`` — these end
-   up as ``meta_origin_file`` / ``meta_origin_row_idx`` in the output, via
-   the same auto-prefixing step that handles the rest of the metadata
-   columns). Concatenate everything into one lazy frame.
-2. Select/rename columns (feature columns vs. auto-prefixed ``meta_*``
-   columns, same convention as before) and write the result to a single
-   output Parquet file.
+   extension), tagging each row with its source file and row index within it
+   (``origin_file`` / ``origin_row_idx``, output as ``meta_origin_file`` /
+   ``meta_origin_row_idx`` via the auto-prefixing of metadata columns).
+   Concatenate everything into one lazy frame.
+2. Split feature columns from auto-prefixed ``meta_*`` columns and write a
+   single output Parquet file.
 
-Variant-class/count-based restriction (previously done here via
-``top_n_missense``) now happens downstream, in
+Variant-class/count-based restriction happens downstream, in
 :func:`fisseq_common.stages.qcfilter.select_variants` (``n_variants``/
 ``variant_downsample_classes``/``variant_downsample_mode``), so it applies
 uniformly to every batch.
@@ -141,8 +138,7 @@ def load_and_concat(
     """
     Load and tag every input file, then concatenate them into one lazy frame.
 
-    ``infer_schema_length`` is forwarded to each :func:`load_and_tag` call --
-    see its docstring.
+    ``infer_schema_length`` is forwarded to :func:`load_and_tag`.
     """
     logger.info("Loading and tagging %d input file(s)", len(paths))
     for p in paths:
@@ -209,14 +205,8 @@ def select_output_columns(
 @hydra.main(version_base=None, config_path=None, config_name="input_main")
 def main(cfg: DictConfig) -> None:
     """
-    Hydra entry point: load and merge raw input files from a YAML spec.
-
-    Steps
-    -----
-    1. Read ``config_path`` (a separate, hand-authored YAML file — see the
-       module docstring's "Config file" section).
-    2. Load and concatenate all ``input_paths`` via :func:`load_and_concat`.
-    3. Select/rename output columns and write a single Parquet file.
+    Hydra entry point: load and merge raw input files from a YAML spec
+    (``config_path``; see the module docstring's "Config file" section).
 
     Output file
     -----------

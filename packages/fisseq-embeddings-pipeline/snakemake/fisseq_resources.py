@@ -19,16 +19,16 @@ import inspect
 
 
 def _call(func, wildcards, candidates):
-    """Call a snakemake resource function with the keyword arguments it
-    declares, the way snakemake does (``get_input_function_aux_params``)."""
+    """Call a snakemake resource function with only the keyword arguments it
+    declares, as snakemake does."""
     params = inspect.signature(func).parameters
     return func(wildcards, **{k: v for k, v in candidates.items() if k in params})
 
 
 def scaled_mem_mb(base):
     """``base`` (a ``mem_mb`` resource: number, numeric string or function)
-    as a resource function returning ``base * 2 ** (attempt - 1)``. A value that isn't
-    a number (e.g. ``"16G"``) is returned unscaled."""
+    as a resource function returning ``base * 2 ** (attempt - 1)``. A value
+    that isn't a number (e.g. ``"16G"``) is returned unscaled."""
 
     def mem_mb(wildcards, input, attempt, threads, rulename):
         value = base

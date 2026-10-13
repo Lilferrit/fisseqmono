@@ -98,9 +98,8 @@ class TestReadFile:
         assert result["meta_source_file_idx"].to_list() == [0, 1, 2]
 
     def test_unrecognized_suffix_raises(self, tmp_path: Path):
-        """Upstream's if/elif has no else, so an unrecognized suffix raises
-        an opaque UnboundLocalError -- this port raises a clear ValueError
-        instead (module docstring's read_file fix)."""
+        """An if/elif without an else would raise an opaque UnboundLocalError on an
+        unrecognized suffix; read_file must raise a clear ValueError."""
         bogus_file = tmp_path / "cells.tsv"
         pl.DataFrame({"a": [1]}).write_csv(bogus_file)
 

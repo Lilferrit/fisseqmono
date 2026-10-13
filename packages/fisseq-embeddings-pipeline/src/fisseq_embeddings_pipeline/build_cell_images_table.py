@@ -20,22 +20,10 @@ only this table, never starcall-workflow's tree.
 The genotype column names come from `snakemake_config` (the nested run's
 `--configfile`), so the table and the shards are built with the same ones.
 
-Reads CSVs via pandas (matching starcall-workflow's own
-``to_csv()``/``read_csv(index_col=0)`` convention), but writes the final
-table via polars, matching this repo's own parquet-writing convention
-(AGENTS.md: polars for tabular data) for the artifact everything downstream
-actually reads. These CSV reads are the ONLY pandas in the pipeline
-(``tile_shard.py`` reuses :func:`read_segmentation_table` rather than
-reading the same CSV its own way).
-
-Until this stage's Docker image merged starcall-workflow's own `ops` conda
-env into this repo's main image (see the root `Dockerfile`), this logic
-lived in a standalone `modules/local/build_cell_images_glue.py` (since
-deleted) that
-deliberately avoided importing `fisseq_embeddings_pipeline`, because it ran
-inside a wholly separate container. That constraint no longer applies --
-this module runs like every other stage, via this repo's own installed
-package.
+CSVs are read via pandas (starcall-workflow's ``to_csv()``/
+``read_csv(index_col=0)`` convention) and the table is written via polars.
+These reads are the only pandas in the pipeline (``tile_shard.py`` reuses
+:func:`read_segmentation_table`).
 """
 
 import csv

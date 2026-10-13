@@ -141,11 +141,8 @@ def predict_binary(
     """
     Raw predicted P(wildtype) scores for every row of ``df``.
 
-    Thin wrapper around :func:`get_dmatrix` + ``model.predict`` -- no metric
-    computation, since every cell gets exactly one raw out-of-fold score. Reuses
-    ``get_dmatrix``'s own feature-column handling and non-finite-to-NaN masking, so
-    scoring stays identical to what :func:`train_binary_xgboost` used to fit the
-    model.
+    Goes through :func:`get_dmatrix`, so feature-column handling and the
+    non-finite-to-NaN masking match what :func:`train_binary_xgboost` fit on.
 
     Parameters
     ----------
@@ -425,8 +422,7 @@ def _barcode_groups(
     if n_folds is not None:
         n_groups = min(n_folds, n_groups)
     if n_groups == len(variant_barcodes):
-        # np.unique already sorted them; keep that order so this stays
-        # byte-identical to the pre-grouping behaviour.
+        # np.unique already sorted them; keep that order.
         return [np.array([b]) for b in variant_barcodes]
 
     groups: "list[list[str]]" = [[] for _ in range(n_groups)]
@@ -620,8 +616,7 @@ def ovwt_batchwise(
 
     # train_binary_xgboost does `dict(cfg.xgboost.params)` internally, which
     # raises on a plain dataclass -- OmegaConf.structured() produces a properly
-    # nested DictConfig all the way down. Computed once and reused for every
-    # fold/variant below, since cfg does not change across the loop.
+    # nested DictConfig all the way down.
     xgb_cfg = OmegaConf.structured(cfg)
 
     per_variant_results: list[dict] = []
@@ -683,9 +678,8 @@ def ovwt_batchwise(
 
             for fold_idx, (fit_idx, test_idx) in enumerate(splits):
                 fit_df, test_df = subset[fit_idx], subset[test_idx]
-                # An 80/20 train/calibration split of the fold's fit rows.
-                # There is no third (test) slot: the fold's own test_idx above
-                # already serves that role.
+                # 80/20 train/calibration split of the fold's fit rows; the
+                # fold's test_idx is the test set.
                 train_pos, calib_pos = split_indices_stratified(
                     strata[fit_idx], cfg.random_seed + fold_idx
                 )
@@ -774,8 +768,8 @@ def ovwt_batchwise(
                     int((~is_wt & mask).sum()),
                     _format_auroc(barcode_auroc),
                 )
-            # None, not float("nan"), so the cross-experiment median in
-            # global_distinguishability.py excludes this cleanly instead of being poisoned by
+            # None, not float("nan"), so the cross-experiment median
+            # (global_aggregation.ovwt_global_scores) skips it instead of being poisoned by
             # a NaN. Defensive only -- a variant only enters this loop with at
             # least one barcode of its own.
             auroc_median_barcode = (

@@ -6,16 +6,12 @@ nextflow.enable.dsl = 2
 // Variant-class/count-based restriction happens in QC_FILTER
 // (params.qc_n_variants), so it applies uniformly to every experiment.
 //
-// Takes the resolved per-experiment scalars (workflows/fisseq.nf's
-// resolvedExperiments) as individual val()
-// inputs rather than the raw hand-authored YAML file, so Nextflow hashes
-// only these scalars for -resume caching -- a non-semantic edit to the
-// original YAML, or a change to a key this pipeline doesn't consume, no
-// longer busts this task's cache. The script rebuilds a minimal YAML from
-// these scalars (input_paths, feature_allowlist_file, feature_blocklist_file,
-// csv_schema_scan_rows) since python -m fisseq_data_pipeline.input's
-// config_path still expects a file (input_paths is a list, so it can't
-// cleanly become a single Hydra CLI override).
+// Takes the resolved per-experiment scalars (workflows/fisseq.nf's resolvedExperiments) as
+// individual val() inputs rather than the raw hand-authored YAML file, so Nextflow hashes
+// only these scalars for -resume caching: a non-semantic edit to the original YAML, or a
+// change to a key this pipeline doesn't consume, doesn't bust this task's cache. The script
+// rebuilds a minimal YAML from them because config_path expects a file (input_paths is a
+// list, so it can't cleanly become a single Hydra CLI override).
 process INPUT {
     errorStrategy 'ignore'
     label 'process_low'

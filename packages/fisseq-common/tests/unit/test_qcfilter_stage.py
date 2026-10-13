@@ -1,7 +1,6 @@
 """QC_FILTER's entry point (``python -m fisseq_common.stages.qcfilter``) as the data pipeline
 runs it: raw starcall column names, a ``meta_cell_index`` from the input row order and output
-sorted on the row keys. Moved from the data pipeline's ``qcfilter`` wrapper; plus the QC
-pseudo-variant rows' identity through the filter stage."""
+sorted on the row keys; plus the QC pseudo-variant rows' identity through the filter stage."""
 
 from unittest.mock import patch
 

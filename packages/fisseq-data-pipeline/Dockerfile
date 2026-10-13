@@ -5,10 +5,7 @@
 #
 #   docker build -f packages/fisseq-data-pipeline/Dockerfile -t fisseq-data-pipeline .
 #
-# CPU-only: this pipeline is polars + XGBoost, with no CUDA
-# dependency anywhere, so a plain ubuntu base is enough (the sibling
-# fisseq-embeddings-pipeline needs nvidia/cuda for its Cell-DINO stage; nothing
-# here does).
+# CPU-only (polars + XGBoost, no CUDA), so a plain ubuntu base is enough.
 FROM ubuntu:22.04
 
 # ca-certificates/git: needed by the uv project install below. No compiler
@@ -18,11 +15,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
 
-# uv as a standalone static binary (Astral's own published image), not via
-# `pip install uv` -- this needs no system Python or pip pre-installed at all,
-# since uv provisions its own interpreter. ubuntu 22.04 (jammy) only ships
-# Python 3.10 by default, which does not satisfy pyproject.toml's
-# `requires-python` regardless.
+# uv as a standalone static binary, not via `pip install uv`: no system Python is needed,
+# since uv provisions its own interpreter (jammy's default 3.10 would not satisfy
+# `requires-python` anyway).
 # Pinned, not :latest: a new uv release would change this layer and so invalidate every cached
 # layer below it (the whole image) on the next CI build. Bump it deliberately.
 COPY --from=ghcr.io/astral-sh/uv:0.12.23 /uv /uvx /usr/local/bin/
@@ -32,11 +27,10 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python
 
 WORKDIR /opt/fisseqmono
 
-# .python-version (which pins 3.13 exactly, not just pyproject.toml's
-# `>=3.13,<3.14` range) MUST be copied in before the first `uv sync`. Without
-# it uv has nothing here to prefer 3.13 over any newer interpreter it can
-# fetch, and Hydra 1.3.x's `get_args_parser()` crashes on Python 3.14's
-# stricter argparse -- which breaks every stage's `python -m` invocation.
+# .python-version (pins 3.13 exactly, not just pyproject.toml's `>=3.13,<3.14` range) MUST
+# be copied in before the first `uv sync`; otherwise uv may fetch a newer interpreter, and
+# Hydra 1.3.x's `get_args_parser()` crashes on Python 3.14's stricter argparse, breaking
+# every stage's `python -m` invocation.
 #
 # Dependencies-only layer, cached independently of source changes: the workspace definition
 # (root pyproject.toml, uv.lock and every member's pyproject.toml) and nothing else.
@@ -58,11 +52,8 @@ COPY packages/fisseq-data-pipeline/README.md packages/fisseq-data-pipeline/
 COPY packages/fisseq-data-pipeline/src/ packages/fisseq-data-pipeline/src/
 RUN uv sync --frozen --no-dev --package fisseq-data-pipeline --no-editable
 
-# `uv sync` installs into the workspace's .venv/, not any system Python -- put
-# it on PATH so the bare `python -m fisseq_data_pipeline.<module>` that every
-# process script invokes actually resolves there. Without
-# this, `python` would not resolve at all (no system Python is installed
-# above), and every process would fail with `python: command not found`.
+# uv installs into the workspace's .venv/; with no system Python, every process's bare
+# `python -m ...` fails with `python: command not found` unless that venv is on PATH.
 ENV PATH="/opt/fisseqmono/.venv/bin:${PATH}"
 
 ENTRYPOINT []

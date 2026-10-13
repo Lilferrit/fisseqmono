@@ -52,22 +52,18 @@ from .config import AppConfig, CellsInput, feature_selector, row_keys, stage_mai
 from .filter import load_cells, variant_classification
 
 #: Number of feature columns aggregated per Polars query when no explicit
-#: ``feature_chunk_size`` is given. Aggregating every feature in one query is
-#: what OOM-killed the production ``AGGREGATE_FEATURE_TYPE`` / ``AGGREGATE_HALF``
-#: tasks: peak memory scales with ``chunk_size x n_labels`` (and, for the
-#: reference-based aggregators, the cross-joined control pool on top).
+#: ``feature_chunk_size`` is given. One query over every feature OOM-kills
+#: full-size ``AGGREGATE_FEATURE_TYPE`` / ``AGGREGATE_HALF`` tasks: peak memory
+#: scales with ``chunk_size x n_labels`` (plus the cross-joined control pool for
+#: the reference-based aggregators).
 #:
-#: This default is sized to the memory one task is granted, not to a property
-#: of the data -- ``params.aggregate_feature_chunk_size`` is the knob, and
-#: ``params.yaml`` carries the sizing rule. ``32`` assumes >=128 GB per task at
-#: production shape, where the reference-based aggregators cost roughly 3 GB
-#: (AUROC) to 4.5 GB (KS) per feature in the chunk. See
-#: ``tests/benchmarks/README.md``.
+#: Sized to the memory one task is granted, not to the data:
+#: ``params.aggregate_feature_chunk_size`` is the knob. ``32`` assumes >=128 GB
+#: per task at production shape, where the reference-based aggregators cost
+#: roughly 3 GB (AUROC) to 4.5 GB (KS) per feature in the chunk. See
+#: ``packages/fisseq-data-pipeline/tests/benchmarks/README.md``.
 #:
-#: ``None`` disables chunking entirely -- every feature in one query, the
-#: pre-chunking behaviour. That is what OOM-killed production, so it is an
-#: opt-in escape hatch (for small inputs, or for reproducing the old shape),
-#: not a supported setting for a full-size batch.
+#: ``None`` disables chunking (every feature in one query): only for small inputs.
 DEFAULT_FEATURE_CHUNK_SIZE: int = 32
 
 
@@ -77,13 +73,11 @@ class BaseAggregator(abc.ABC):
 
     Subclasses declare :attr:`_stat_suffix` (e.g. ``"_mean"``, ``"_KS"``)
     and implement :meth:`_feature_expr`, a native Polars list expression
-    for one feature column. :meth:`aggregate` handles everything
-    else: resolving the feature columns (``feature_selector``),
-    building the reference pool (only for :class:`ReferenceBasedAggregator`
-    subclasses -- see :meth:`_reference_lf`), grouping non-control rows
-    into per-label list columns, and assembling the final per-dimension
-    expressions -- entirely in Arrow, no numpy materialization, no
-    per-(group, dimension) Python loop.
+    for one feature column. :meth:`aggregate` handles the rest: resolving
+    the feature columns (``feature_selector``), building the reference pool
+    (only for :class:`ReferenceBasedAggregator` subclasses -- see
+    :meth:`_reference_lf`), grouping non-control rows into per-label list
+    columns and assembling the per-dimension expressions, all in Arrow.
 
     Parameters
     ----------
@@ -189,11 +183,8 @@ class BaseAggregator(abc.ABC):
         """
         Optional helper expressions to materialize via a ``with_columns``
         pass before ``_feature_expr`` runs, keyed by feature name. Empty
-        by default (no extra pass, no behavior or performance change for
-        aggregators that don't override this). See
-        :class:`SignedKSAggregator` for the motivating case --
-        kept as a hook for any future aggregator that needs to hoist a
-        subexpression referenced more than once.
+        by default. Hoists a subexpression that ``_feature_expr`` references
+        more than once (see :class:`SignedKSAggregator`).
         """
         return []
 
@@ -203,13 +194,10 @@ class BaseAggregator(abc.ABC):
 
         Dimensions are processed :attr:`feature_chunk_size` at a time. Each
         chunk projects ``lf`` down to the label column, the control flag and
-        that chunk's dimensions *before* grouping -- that projection is the
-        whole point, since it lets the Parquet scan read only those columns
-        and keeps both the grouped list columns and the cross-joined
-        reference pool proportional to the chunk width rather than to the
-        total dimension count. The per-chunk results (one row per label, a
-        few hundred columns each) are joined back together on the label,
-        which costs nothing next to the grouped cell-level data.
+        that chunk's dimensions *before* grouping, so the Parquet scan reads
+        only those columns and the grouped list columns and cross-joined
+        reference pool scale with the chunk width, not the total dimension
+        count. The per-chunk results are joined back together on the label.
 
         Parameters
         ----------
@@ -287,18 +275,13 @@ class ReferenceBasedAggregator(BaseAggregator):
         Single-row LazyFrame holding one ``{feat}_ref`` list column per
         feature with the finite control-row values for that feature.
 
-        The reference pool is shared by every variant label (a single
-        global control group, not split per-label), so this stays a single
-        row and is cross-joined onto the per-label variant-list frame
-        rather than collected eagerly: the reference pool and the
-        per-group variant lists then live in the same lazy query graph,
-        letting the streaming engine manage memory instead of Python
-        holding numpy arrays for the whole aggregation call.
+        The reference pool is shared by every variant label, so this stays a
+        single row, cross-joined onto the per-label frame rather than
+        collected eagerly: both live in one lazy query graph and the
+        streaming engine manages memory.
 
-        ``is_finite()`` is ``False`` for null/NaN/Inf alike, so filtering
-        on it drops all three in one pass — the same set
-        :meth:`BaseAggregator._native_clean` drops from per-group list
-        columns.
+        Drops null/NaN/Inf, the same set :meth:`BaseAggregator._native_clean`
+        drops from per-group list columns.
         """
         exprs = [
             pl.col(f).filter(pl.col(f).is_finite()).implode().alias(f"{f}_ref")
@@ -333,9 +316,6 @@ class MADAggregator(BaseAggregator):
     _stat_suffix = "_MAD"
 
     def _feature_expr(self, feat: str) -> pl.Expr:
-        # Verified against np.median(np.abs(vals - np.median(vals))) for
-        # empty, single-value, normal, and NaN/Inf-present cases — matches
-        # exactly (see test_mad_native_matches_numpy_with_nan_inf_present).
         return (
             self._native_clean(feat)
             .list.eval((pl.element() - pl.element().median()).abs())
@@ -350,8 +330,7 @@ class StdAggregator(BaseAggregator):
     _stat_suffix = "_std"
 
     def _feature_expr(self, feat: str) -> pl.Expr:
-        # Confirmed: list.std(ddof=1) returns null for lists of length < 2
-        # (see test_std_native_single_value_group_returns_null).
+        # list.std(ddof=1) is null for lists of length < 2.
         return (
             self._native_clean(feat)
             .list.std(ddof=1)
@@ -436,45 +415,22 @@ class KSNegLogPValueAggregator(KSAggregator):
     Computes ``-log10(p)`` of the two-sample Kolmogorov-Smirnov statistic
     against the reference distribution, for each feature column.
 
-    Reports evidence strength against the null hypothesis "this variant
-    group's values are drawn from the same distribution as the reference
-    control" — larger values mean more significant departures. This
-    reuses the exact same KS D-statistic as :class:`KSAggregator` (via
-    :meth:`KSAggregator._ks_stat_expr`) rather than recomputing it; only
-    the D -> p-value conversion is new.
+    Larger values mean stronger evidence against "this variant group's
+    values are drawn from the same distribution as the reference control".
+    Reuses :class:`KSAggregator`'s D-statistic (via
+    :meth:`KSAggregator._ks_stat_expr`); only the D -> p-value conversion is new.
 
-    The p-value is computed from the asymptotic (large-sample /
-    "limiting") two-sided Kolmogorov distribution — the classical
-    closed-form ``Q(x) = 2 * sum_{k=1}^inf (-1)^(k-1) exp(-2 k^2 x^2)``
-    with ``x = D * sqrt(n_e)``, ``n_e = n_group * n_ref / (n_group +
-    n_ref)`` — not an exact finite-sample distribution. This is the same
-    conceptual caveat as scipy's ``ks_2samp(..., mode='asymp')``, and is
-    appropriate here given the large per-well/per-guide cell counts this
-    pipeline typically works with. Note, however, that this is
-    numerically the classical limiting distribution (equivalent to
-    ``scipy.stats.kstwobign.sf(D * sqrt(n_e))``, matches to ~1e-14), which
-    is *not* the same number as scipy's own ``kstwo.sf``-based asymp
-    p-value (``ks_2samp``'s default 'asymp' mode uses a more refined
-    finite-sample algorithm from Marsaglia et al. that can differ from
-    this classical formula by tens of percent in ``p`` even at n in the
-    hundreds, since the classical KS limit theorem converges slowly) —
-    see the test suite for a direct comparison of the two.
+    The p-value is the asymptotic two-sided Kolmogorov distribution,
+    ``Q(x) = 2 * sum_{k=1}^inf (-1)^(k-1) exp(-2 k^2 x^2)`` with
+    ``x = D * sqrt(n_e)``, ``n_e = n_group * n_ref / (n_group + n_ref)``,
+    not an exact finite-sample distribution. That is
+    ``scipy.stats.kstwobign.sf(D * sqrt(n_e))`` (matches to ~1e-14), *not*
+    the number from ``ks_2samp``'s default 'asymp' mode, which uses a
+    finite-sample algorithm and can differ in ``p`` by tens of percent even
+    at n in the hundreds; the test suite compares the two.
 
-    The truncated alternating series this is computed from is reliable in
-    the significant/large-D regime this aggregator is meant to rank
-    variants by, but is numerically imprecise very close to D=0 (p near
-    1, ``-log10(p)`` near 0). That's not a problem in practice here, since
-    near-null variants aren't the ones being ranked by this statistic —
-    don't read precision into values near 0.
-
-    Benchmark (300 labels x 300 features, 30 cells/group synthetic data;
-    see ``tests/benchmarks/benchmark_pvalue_aggregators.py``):
-    ``KSAggregator`` took 2.53s / 306.6KB peak traced Python allocations
-    (839.6MB RSS delta) vs. ``KSNegLogPValueAggregator``'s 14.24s / 702.1KB
-    (973.5MB RSS delta) — computing the p-value adds ~5.6x time and
-    ~134MB additional peak RSS over the base KS statistic alone (dominated
-    by the ``k_terms=100``-wide logsumexp series evaluated per
-    (label, feature) pair).
+    The truncated alternating series is imprecise very close to D=0
+    (p near 1, ``-log10(p)`` near 0); don't read precision into values there.
     """
 
     _stat_suffix = "_KSnegLogP"
@@ -575,12 +531,9 @@ class SignedKSAggregator(ReferenceBasedAggregator):
 
     def _prep_exprs(self, feat: str) -> list[pl.Expr]:
         """
-        Materializes, once per feature, the expensive shared
-        subexpressions that :meth:`_feature_expr` needs twice (for its
-        max and min reductions): the signed-weight cumulative sum and
-        the tie-position penalty mask. See
-        :meth:`BaseAggregator._prep_exprs` for why this hoisting is
-        required for performance, not just style.
+        Materializes, once per feature, the expensive subexpressions that
+        :meth:`_feature_expr` needs twice (for its max and min reductions):
+        the signed-weight cumulative sum and the tie-position penalty mask.
 
         Same signed-weight cumulative-sum construction as KSAggregator:
         the cumsum at a combined-sorted position IS
@@ -606,13 +559,10 @@ class SignedKSAggregator(ReferenceBasedAggregator):
         is_last_f = diff.list.eval(
             ((pl.element() != 0) | pl.element().is_null()).cast(pl.Float64)
         )
-        # cumsum is provably bounded in [-1, 1]: g_weight sums to
-        # exactly +1.0 over the group's values, ref_weight to exactly
-        # -1.0 over the reference's, so any prefix sum is a difference
-        # of two fractions each in [0, 1]. SENTINEL only needs to
-        # exceed 2.0 to push a non-last position out of range in both
-        # directions; 10.0 gives headroom. is_last_f is exactly 0.0/1.0,
-        # so this additive masking has no 0 * inf risk.
+        # cumsum is bounded in [-1, 1] (g_weight sums to +1.0, ref_weight to
+        # -1.0), so a SENTINEL above 2.0 pushes a non-last position out of
+        # range in both directions; 10.0 gives headroom. is_last_f is exactly
+        # 0.0/1.0, so additive masking has no 0 * inf risk.
         penalty = (1.0 - is_last_f) * self._SENTINEL
 
         return [
@@ -633,10 +583,8 @@ class SignedKSAggregator(ReferenceBasedAggregator):
         # Extremum via two reductions over the materialized cumsum/penalty
         # columns instead of arg_max + indexed gather (list.get).
         #
-        # Tie-break convention (deliberate, documented): if the max and
-        # min last-position cumsum values have exactly equal magnitude
-        # but opposite sign, the POSITIVE value wins. See
-        # test_signed_ks_aggregator_tie_break_prefers_positive_on_exact_magnitude_tie.
+        # Tie-break: if the max and min last-position cumsum values have equal
+        # magnitude and opposite sign, the POSITIVE value wins.
         masked_for_max = cumsum - penalty
         masked_for_min = cumsum + penalty
         pos_max = masked_for_max.list.max()
@@ -690,27 +638,18 @@ class QQCorrelationAggregator(ReferenceBasedAggregator):
         """
         Per-row quantiles of a list column at fixed probability points
         ``probs``, matching ``np.quantile(..., interpolation="linear")``
-        bit-for-bit (verified across 200 randomized trials, including
-        single-element and empty lists).
+        bit-for-bit, including single-element and empty lists.
 
         Computed via one sort + a per-row index gather rather than one
-        ``list.eval(...quantile...)`` call per probability point: with 100
-        quantile points and hundreds of features per aggregation call, the
-        naive one-expression-per-point approach makes the ``.select()``
-        call contain ``n_quantiles * n_features`` sub-expressions (50,000
-        at the defaults), which measured *slower* than the numpy loop it
-        replaces (247.9s vs a 157.4s baseline at 500 labels x 500 features
-        x 100 quantiles). This version measured 22.5s at the same scale.
+        ``list.eval(...quantile...)`` call per probability point, which
+        makes the ``.select()`` hold ``n_quantiles * n_features``
+        sub-expressions (50,000 at the defaults) and measured slower than the
+        numpy loop it replaced.
 
-        ``null_on_oob=True`` on the gathers is required, not defensive
-        padding: an empty list (``n=0``) produces negative/garbage indices
-        after the ``(n - 1)`` scaling, and Polars' ``when/otherwise`` does
-        not short-circuit — the ``otherwise`` branch is evaluated for every
-        row before the mask is applied, so an out-of-bounds gather raises
-        regardless of whether that row's result is later discarded
-        (confirmed directly: without ``null_on_oob``, a single empty group
-        anywhere in the data crashes the whole query with
-        ``OutOfBoundsError``).
+        ``null_on_oob=True`` on the gathers is required: an empty list
+        (``n=0``) gives negative indices after the ``(n - 1)`` scaling, and
+        Polars' ``when/otherwise`` evaluates every branch for every row, so
+        without it a single empty group anywhere raises ``OutOfBoundsError``.
         """
         n = list_expr.list.len()
         sorted_list = list_expr.list.eval(pl.element().sort())
@@ -732,13 +671,9 @@ class QQCorrelationAggregator(ReferenceBasedAggregator):
         ref_list = pl.col(f"{feat}_ref")
         n_ref = ref_list.list.len()
 
-        # Reference-side quantiles and their centering are fixed per
-        # feature (the reference pool doesn't vary by group) but are now
-        # computed per row via _native_quantiles rather than once in plain
-        # numpy, since the reference pool lives in the query graph — every
-        # row gets the identical broadcast reference list post-cross-join,
-        # so this recomputes the same quantiles redundantly per group
-        # rather than once per feature.
+        # The reference quantiles are fixed per feature but, since the
+        # reference pool lives in the query graph, are recomputed per group
+        # row (every row gets the same broadcast reference list).
         ref_q = self._native_quantiles(ref_list, self.quantile_points)
         # Constant reference quantile profile (e.g. a single distinct
         # reference value) -> correlation is undefined for every group
@@ -760,18 +695,12 @@ class QQCorrelationAggregator(ReferenceBasedAggregator):
         denom_x = x_centered.list.eval(pl.element() ** 2).list.sum()
         denom = (denom_x * var_y_sum).sqrt()
 
-        # A group with a single distinct value has an exactly constant
-        # quantile profile (quantile(0) == quantile(1) == that value, since
-        # the grid includes both endpoints), so its correlation with the
-        # reference is mathematically undefined — same case scipy flags via
-        # ConstantInputWarning. This is checked on
-        # group_list.list.n_unique(), not solely on `denom == 0`, because
-        # mean-centering a repeated constant is *not* guaranteed to cancel
-        # to bit-exact zero in floating point (e.g. 100 copies of
-        # 0.09048978162787422 summed then divided by 100 comes back
-        # ~2.8e-17 off), which would otherwise leak a bogus near-zero
-        # correlation instead of null — caught directly via a real n=1
-        # group during verification.
+        # A group with a single distinct value has a constant quantile
+        # profile (the grid includes both endpoints), so its correlation is
+        # undefined (scipy's ConstantInputWarning case). Checked on n_unique,
+        # not just `denom == 0`: mean-centering a repeated constant need not
+        # cancel to bit-exact zero (100 copies of 0.09048978162787422 come
+        # back ~2.8e-17 off), which would leak a bogus near-zero correlation.
         is_constant_group = group_list.list.n_unique() <= 1
 
         result = (
@@ -865,13 +794,12 @@ class AUROCNegLogPValueAggregator(AUROCAggregator):
     Computes ``-log10(p)`` of the AUROC / Mann-Whitney U statistic against
     the reference distribution, for each feature column.
 
-    Reports evidence strength against the null hypothesis "this variant
-    group's values are drawn from the same distribution as the reference
-    control" — larger values mean more significant departures. This
-    reuses the exact same rank-sum/U statistic as :class:`AUROCAggregator`
-    (via :meth:`AUROCAggregator._auroc_u_expr` and
-    :meth:`AUROCAggregator._auroc_ranks_expr`) rather than recomputing
-    ranks or U independently; only the U -> p-value conversion is new.
+    Larger values mean stronger evidence against "this variant group's
+    values are drawn from the same distribution as the reference control".
+    Reuses :class:`AUROCAggregator`'s rank-sum/U statistic (via
+    :meth:`AUROCAggregator._auroc_u_expr` and
+    :meth:`AUROCAggregator._auroc_ranks_expr`); only the U -> p-value
+    conversion is new.
 
     The p-value comes from the standard asymptotic-normal approximation
     to the Mann-Whitney U distribution with a tie correction (``tie_term
@@ -884,34 +812,17 @@ class AUROCNegLogPValueAggregator(AUROCAggregator):
         z = (U - mu_U) / sqrt(sigma2_U)
         p = 2 * (1 - Phi(|z|))
 
-    Deliberately **no continuity correction** is applied (unlike
-    ``scipy.stats.mannwhitneyu``'s default ``use_continuity=True``) — this
-    matches the plain textbook asymptotic-normal formula above. Tests
-    compare against ``scipy.stats.mannwhitneyu(..., use_continuity=False)``
-    for exact agreement (~1e-8, limited only by the erfc rational
-    approximation's own error bound); the continuity-corrected default
-    differs slightly (a fixed 0.5 shift toward ``mu_U``), which matters
-    more for small samples than the large per-well/per-guide cell counts
-    these pipelines typically work with.
+    Deliberately **no continuity correction**, unlike
+    ``scipy.stats.mannwhitneyu``'s default ``use_continuity=True``: this is
+    the plain textbook formula. Tests compare against
+    ``scipy.stats.mannwhitneyu(..., use_continuity=False)`` (agreement ~1e-8,
+    limited by the erfc approximation's error bound).
 
-    Since Polars has no built-in normal CDF, ``Phi`` is implemented via a
-    rational approximation to ``erfc`` — see :meth:`_log_erfc_expr` for
-    the formula and citation. Critically, the final p-value is computed
-    by staying in **log space end to end** (see
-    :meth:`_neg_log10_two_sided_normal_pvalue_expr`): naively computing
-    ``Phi(z)`` in linear space and then taking ``-log10(2*(1-Phi(|z|)))``
-    underflows to exactly 0.0 (-> null/-inf) for exactly the
-    most-significant, large-|z| hits this aggregator exists to rank —
-    well before z is "impossibly significant" for these sample sizes.
-
-    Benchmark (300 labels x 300 features, 30 cells/group synthetic data;
-    see ``tests/benchmarks/benchmark_pvalue_aggregators.py``):
-    ``AUROCAggregator`` took 0.93s / 283.1KB peak traced Python allocations
-    vs. ``AUROCNegLogPValueAggregator``'s 2.66s / 660.4KB — computing the
-    p-value adds ~2.9x time over the base AUROC statistic alone (the extra
-    ``_prep_exprs`` pass for the tie-correction term and the rank/U
-    recomputation inside it — see the note on that in the source); no
-    measurable additional peak RSS at this scale.
+    Polars has no normal CDF, so ``Phi`` uses a rational approximation to
+    ``erfc`` (:meth:`_log_erfc_expr`), and the p-value stays in **log space
+    end to end** (:meth:`_neg_log10_two_sided_normal_pvalue_expr`): in linear
+    space ``-log10(2*(1-Phi(|z|)))`` underflows to 0.0 (-> null/-inf) for
+    exactly the large-|z| hits this aggregator exists to rank.
     """
 
     _stat_suffix = "_AUROCnegLogP"
@@ -935,21 +846,15 @@ class AUROCNegLogPValueAggregator(AUROCAggregator):
     def _prep_exprs(self, feat: str) -> list[pl.Expr]:
         """
         Materializes, once per feature, the quantities
-        :meth:`_feature_expr` needs more than once downstream (``u``,
-        ``n_group``, ``n_ref``, ``tie_term``) — see
-        :meth:`BaseAggregator._prep_exprs` for why this hoisting is
-        required for performance, not just style (same reasoning
-        documented for :class:`SignedKSAggregator`).
+        :meth:`_feature_expr` needs more than once (``u``, ``n_group``,
+        ``n_ref``, ``tie_term``); see :meth:`BaseAggregator._prep_exprs`.
 
         ``tie_term`` uses the identity
-        ``sum_groups(t^3 - t) == sum_elements(tie_size(x_i)^2 - 1)``
-        (verified against a ``collections.Counter``-based reference
-        computation across 20 randomized tie-heavy integer trials),
-        computed natively from per-element min/max rank without any
-        groupby or ``value_counts`` inside ``list.eval``: a tied run's
-        every element shares the same ``[rank_min, rank_max]`` window, so
-        ``tie_size = rank_max - rank_min + 1`` recovers each element's
-        tie-group size directly.
+        ``sum_groups(t^3 - t) == sum_elements(tie_size(x_i)^2 - 1)``,
+        computed from per-element min/max rank without a groupby or
+        ``value_counts`` inside ``list.eval``: a tied run's elements share
+        one ``[rank_min, rank_max]`` window, so
+        ``tie_size = rank_max - rank_min + 1``.
         """
         u, n_group, n_ref = self._auroc_u_expr(feat)
         combined, _ranks, _n_group, _n_ref = self._auroc_ranks_expr(feat)
@@ -973,16 +878,11 @@ class AUROCNegLogPValueAggregator(AUROCAggregator):
         Natural log of ``erfc(x)`` for ``x >= 0``, via the Numerical
         Recipes rational/Chebyshev approximation (Press, Teukolsky,
         Vetterling & Flannery, *Numerical Recipes*, 3rd ed., S6.2.2,
-        "erfcc"; documented fractional error < 1.2e-7 across the entire
-        domain — not just a tail expansion). Verified here against
-        ``scipy.special.erfc`` up to x=30 (max relative error ~1.05e-7,
-        consistent with the cited bound).
+        "erfcc"; fractional error < 1.2e-7 over the whole domain).
 
-        Kept in log space throughout — never forms ``erfc(x)`` or
-        ``exp(-x^2)`` directly — because for the ``|z| > 5`` tails this
-        is meant to serve, ``exp(-x^2)`` itself underflows to 0.0 in
-        float64 (around ``x > ~26``) long before the true p-value stops
-        mattering for ranking hits.
+        Kept in log space throughout, never forming ``erfc(x)`` or
+        ``exp(-x^2)``: for the ``|z| > 5`` tails this serves, ``exp(-x^2)``
+        underflows to 0.0 in float64 (around ``x > ~26``).
         """
         t = 1.0 / (1.0 + 0.5 * x)
         poly = -1.26551223 + t * (
@@ -1015,12 +915,9 @@ class AUROCNegLogPValueAggregator(AUROCAggregator):
     def _standard_normal_cdf_expr(z: pl.Expr) -> pl.Expr:
         """
         Rational approximation to ``Phi(z)``, built from
-        :meth:`_log_erfc_expr` (see there for the citation and peak error
-        bound of ~1.2e-7). Verified against ``scipy.stats.norm.cdf``
-        across randomized z values, including tail values (``|z| > 5``),
-        before being trusted downstream. Provided for standalone
-        testing/verification — :meth:`_neg_log10_two_sided_normal_pvalue_expr`
-        does not call this; it stays in log space end to end instead.
+        :meth:`_log_erfc_expr` (see there for the error bound). For
+        standalone testing: :meth:`_neg_log10_two_sided_normal_pvalue_expr`
+        does not call it.
         """
         a = z.abs() / math.sqrt(2.0)
         log_erfc_a = AUROCNegLogPValueAggregator._log_erfc_expr(a)
@@ -1032,10 +929,8 @@ class AUROCNegLogPValueAggregator(AUROCAggregator):
     def _neg_log10_two_sided_normal_pvalue_expr(z: pl.Expr) -> pl.Expr:
         """
         ``-log10(2 * (1 - Phi(|z|))) == -log10(erfc(|z| / sqrt(2)))``,
-        computed by staying in log space via :meth:`_log_erfc_expr` end
-        to end — never forming ``Phi(z)`` or ``1 - Phi(z)`` in linear
-        space, which is exactly what underflows to 0.0 (-> null/-inf) for
-        the large-``|z|`` hits this aggregator ranks by most.
+        computed in log space via :meth:`_log_erfc_expr`: ``Phi(z)`` in
+        linear space underflows to 0.0 (-> null/-inf) for large ``|z|``.
         """
         a = z.abs() / math.sqrt(2.0)
         log_erfc_a = AUROCNegLogPValueAggregator._log_erfc_expr(a)
@@ -1075,11 +970,10 @@ def downsample_control(
 
     Non-control rows are left untouched. Selection is deterministic given
     ``seed``: each control row gets a seeded hash of a fresh row index, rows
-    are ranked by that hash, and the lowest ``target`` ranks are kept — the
-    same lazy hash-and-rank idiom used by
-    :func:`fisseq_common.stages.qcfilter.add_downsampled_pseudo_variants`, which
-    avoids collecting the full control pool up front and reproduces exactly
-    across runs for a fixed seed.
+    are ranked by that hash, and the lowest ``target`` ranks are kept (the
+    same lazy hash-and-rank idiom as
+    :func:`fisseq_common.stages.qcfilter.add_downsampled_pseudo_variants`,
+    which never collects the full control pool).
 
     Parameters
     ----------
@@ -1157,11 +1051,9 @@ def aggregate(
     feature_chunk_size : int or None
         Number of feature columns evaluated per Polars query. Lower it if a
         task is OOM-killed; runtime is essentially flat in this value for the
-        expensive aggregators, so it is a memory dial rather than a
-        speed/memory trade-off. ``None`` disables chunking entirely (every
-        feature in one query), which is the shape that OOM-killed production
-        -- use it only for small inputs. Defaults to
-        :data:`DEFAULT_FEATURE_CHUNK_SIZE`.
+        expensive aggregators, so it is a pure memory dial. ``None`` disables
+        chunking (every feature in one query): only for small inputs.
+        Defaults to :data:`DEFAULT_FEATURE_CHUNK_SIZE`.
 
     Returns
     -------
@@ -1198,10 +1090,8 @@ def aggregate_methods(
     ``filtered_lf`` and joins their outputs together on ``label_column``,
     then joins in :func:`fisseq_common.utils.metadata.get_aggregate_meta_data`
     for `meta_num_cells`/`meta_barcode_num_unique`/etc. The control/WT-label
-    metadata row is naturally dropped by this join -- no aggregator ever
-    produces a control-row group to join against, so the inner join between
-    aggregator output and metadata output already excludes it without any
-    separate filtering step.
+    metadata row drops out of the inner join, since no aggregator produces a
+    control-row group.
 
     Parameters
     ----------
@@ -1274,13 +1164,10 @@ def aggregate_methods(
             else result_lf.join(agg_lf, on=label_column, how="inner")
         )
 
-    # Sorted, not merely collected. Each aggregator's own output is already
-    # sorted (BaseAggregator.aggregate), but a join is not order-preserving
-    # under Polars' multithreaded execution, so the multi-method join above
-    # and the metadata join below can both reshuffle rows. Without this the
-    # same input produces the same numbers in a different order run to run,
-    # which makes aggregate.parquet non-byte-reproducible and defeats
-    # `--rerun-triggers`-style change detection downstream.
+    # Each aggregator's output is already sorted, but joins are not
+    # order-preserving under Polars' multithreaded execution, so the
+    # multi-method join above and the metadata join below can reshuffle rows;
+    # without this sort the output is not byte-reproducible.
     if not include_metadata:
         return result_lf.sort(label_column).collect()
 

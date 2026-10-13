@@ -14,9 +14,9 @@ fisseq-embeddings-pipeline's ``conf/modules.config`` calls every stage downstrea
   the synonymous variants.
 
 These tests run each stage in that configuration, from QC_FILTER to FINALIZE_FEATURE_SELECT,
-the CLI-level ones with the exact arguments the Nextflow modules pass. Moved from the embeddings
-pipeline's own stage wrappers, which these entry points replaced; the stages' general behaviour
-is tested in the other ``test_*.py`` files here.
+These tests run each stage in that configuration, from QC_FILTER to FINALIZE_FEATURE_SELECT,
+the CLI-level ones with the exact arguments the Nextflow modules pass. The stages' general
+behaviour is tested in the other ``test_*.py`` files here.
 """
 
 from __future__ import annotations

@@ -1,7 +1,4 @@
 #!/usr/bin/env nextflow
-// Single pipeline mode -- no --pipeline_mode dispatch needed unless/until a
-// second mode is added.
-//
 // FISSEQ Data Pipeline -- Nextflow DSL2
 //
 // DAG:

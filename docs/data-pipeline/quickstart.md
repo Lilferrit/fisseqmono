@@ -1,7 +1,6 @@
 # Quickstart
 
-The fastest path from a fresh checkout to a first pipeline run, including
-setting up a cluster config. For more depth, see
+For more depth, see
 [Installation](installation.md) (full environment setup),
 [Configuration](configuration.md) (every parameter and the `experiments:`
 schema), and

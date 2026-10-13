@@ -6,19 +6,12 @@ Projects BUILD_CELL_IMAGES' ``cell_table.parquet`` down to the seven
 per-experiment ``metadata.parquet`` -- no images, no feature columns, no
 starcall-workflow tree access.
 
-This stage exists to make QC_FILTER the pipeline's shared fan-out point,
-independent of the image-reading cellDINO track: QC depends only on the
-cell table, so QC thresholds can be retuned (and the whole QC report
-regenerated) without touching the shards at all.
-
-Structurally the analogue of ``fisseq-data-pipeline``'s own ``INPUT``
-stage: the cheap read-and-normalize step that turns what the upstream
-produced into the one per-batch parquet QC_FILTER consumes. The table
-already carries canonical ``meta_*`` names (BUILD_CELL_IMAGES renames the
-reads tables' genotype columns), so all this adds is ``meta_batch`` --
-which neither the table nor the shards carry, being a run-level name --
-and it leaves out ``meta_variant_class``, which QC and every stage after
-it derive from ``meta_aa_changes`` themselves.
+Keeps QC_FILTER independent of the image-reading cellDINO track: QC
+depends only on the cell table, so thresholds can be retuned without
+touching the shards. The analogue of ``fisseq-data-pipeline``'s ``INPUT``
+stage. All this adds is ``meta_batch`` (a run-level name neither the table
+nor the shards carry); it leaves out ``meta_variant_class``, which QC and
+every later stage derive from ``meta_aa_changes``.
 
 EMBED_CELLS builds the same seven columns from each shard sample's
 ``meta.json``, written from the same per-tile CSVs by the same function
@@ -108,21 +101,9 @@ def main(cfg: DictConfig) -> None:
     """
     Hydra entry point: build one experiment's QC metadata table.
 
-    Steps
-    -----
-    1. Create ``output_dir``.
-    2. Read ``cell_table`` and project it via :func:`build_cell_metadata`.
-    3. Write ``{prefix}metadata.parquet`` to ``output_dir``.
+    Writes ``{prefix}metadata.parquet`` to ``output_dir``, ``prefix``
+    being ``{output_root}.`` when ``output_root`` is set, else empty.
 
-    Output file
-    ------------
-    - ``{prefix}metadata.parquet``
-
-    where ``prefix`` is ``{output_root}.`` when ``output_root`` is set,
-    otherwise empty.
-
-    Configuration
-    -------------
     Override any field on the command line, e.g.::
 
         python -m fisseq_embeddings_pipeline.cell_metadata \\

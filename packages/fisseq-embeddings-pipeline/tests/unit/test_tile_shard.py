@@ -200,7 +200,7 @@ def test_write_tile_shard_round_trips_crops_masks_and_location(tmp_path: Path):
 
 def test_write_tile_shard_float_nan_image_crops_as_uint16_zeros(tmp_path: Path):
     """starcall stitches into float32 with NaN outside the well: the crops
-    are the uint16 ones, NaN pixels 0, as before it used NaN."""
+    are the uint16 ones, NaN pixels 0."""
     bboxes = [(4, 4, 8, 8), (30, 30, 36, 36)]
     image, mask = _write_tile(tmp_path, list(zip([10, 11], bboxes)))
     expected = image.copy()

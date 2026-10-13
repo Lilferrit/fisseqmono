@@ -22,12 +22,8 @@ nested snakemake starts:
   :func:`render_starcall_jobscript`.
 
 `resolve_data_dir` resolves each of the three directories independently:
-an explicit value always wins; otherwise starcall-workflow's own project
-config (`{starcall_workflow_dir}/config.yaml`, or `default-config.yaml` if
-that's absent -- the same files, in the same precedence, `workflow/
-Snakefile` itself consults) is read for that key; only once neither file
-sets it does this fall back to starcall-workflow's documented default
-subdirectory (`phenotyping/`, `segmentation/`, `sequencing/`).
+an explicit value wins, then starcall-workflow's own project config, then
+its default subdirectory (`phenotyping/`, `segmentation/`, `sequencing/`).
 """
 
 import dataclasses
@@ -55,11 +51,8 @@ _DEFAULT_SUBDIR = {
     "sequencing_dir": "sequencing",
 }
 
-# The two project-config filenames workflow/Snakefile itself consults, in
-# the same either/or precedence order (never both -- confirmed by reading
-# that file directly: `if os.path.exists('config.yaml'): configfile:
-# 'config.yaml' elif os.path.exists('default-config.yaml'): configfile:
-# 'default-config.yaml'`).
+# The project-config filenames workflow/Snakefile consults: either/or, never
+# both (`if exists('config.yaml') ... elif exists('default-config.yaml')`).
 _PROJECT_CONFIG_FILENAMES = ("config.yaml", "default-config.yaml")
 
 _RESOLVED_DIR_KEYS = ("phenotyping_dir", "segmentation_dir", "sequencing_dir")
@@ -195,28 +188,17 @@ def resolve_data_dir(
 ) -> str:
     """Resolve one of phenotyping_dir/segmentation_dir/sequencing_dir.
 
-    Precedence, matching `workflow/Snakefile`'s own resolution exactly (so
-    this stays correct even when a project's own config.yaml remaps these
-    paths -- "handles cases where the output looks different for whatever
-    reason", not just the documented-default case):
+    Precedence matches `workflow/Snakefile`'s own resolution, so it holds
+    even when a project's config.yaml remaps these paths:
 
     1. ``explicit``, if given.
-    2. ``dir_key`` read from ``starcall_workflow_dir``'s own project
-       config -- ``config.yaml`` if present, else ``default-config.yaml``
-       (never both; a project's ``config.yaml`` existing at all stops
-       ``default-config.yaml`` from being consulted, exactly like
-       `workflow/Snakefile`'s own `if os.path.exists('config.yaml'): ...
-       elif os.path.exists('default-config.yaml'): ...`). A relative value
-       there (starcall-workflow's own convention, e.g. ``'phenotyping/'``)
-       is resolved against ``starcall_workflow_dir`` -- the same directory
-       Snakemake itself runs relative to (`--directory`); an absolute
-       value is used as-is.
+    2. ``dir_key`` from ``starcall_workflow_dir``'s project config --
+       ``config.yaml`` if present, else ``default-config.yaml`` (never
+       both). A relative value is resolved against ``starcall_workflow_dir``
+       (Snakemake's `--directory`); an absolute one is used as-is.
     3. ``{starcall_workflow_dir}/{bare_name}`` (e.g. ``.../phenotyping``),
-       matching starcall-workflow's own ``default-config.yaml`` default
-       for the common case where a project doesn't override this key at
-       all (confirmed by reading `rules/config.smk`'s own
-       ``config.get(dir_key, '<bare_name>/')`` -- this fallback is exactly
-       that default, resolved against the same working directory).
+       starcall-workflow's own default (`rules/config.smk`'s
+       ``config.get(dir_key, '<bare_name>/')``).
 
     Parameters
     ----------
@@ -242,9 +224,7 @@ def resolve_data_dir(
                 if os.path.isabs(value)
                 else os.path.join(starcall_workflow_dir, value)
             )
-        break  # config.yaml exists (even without dir_key set) -- don't
-        # also fall through to default-config.yaml, matching the
-        # Snakefile's own either/or (never both) precedence.
+        break  # config.yaml exists (even without dir_key): skip default-config.yaml
 
     return os.path.join(starcall_workflow_dir, bare_name)
 

@@ -44,8 +44,7 @@ fisseq.AMINO_ACID_ORDER         # the 20 amino acids, top to bottom in a Variant
 
 `fisseq.batch_palette(experiments)` colors `T{tile}_R{replicate}` experiment names. Replicates of the
 same tile share a hue, with lower replicates lighter. Tiles are spread around the color wheel so
-neighbors are easy to tell apart. This replaces the `build_batch_palette` helper that was copied between
-notebooks.
+neighbors are easy to tell apart.
 
 ```python
 fb.BoxPlot(df, x="meta_variant_type", y="test_auroc_corrected", hue="meta_experiment",

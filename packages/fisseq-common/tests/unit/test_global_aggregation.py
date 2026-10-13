@@ -1,6 +1,5 @@
 """fisseq_common.global_aggregation: the cross-experiment blocklist vote, pooling,
-distinguishability and reduced-PCA methods (formerly the embeddings pipeline's
-GLOBAL_BLOCKLIST, GLOBAL_VARIANT_EMBEDDINGS and GLOBAL_VARIANT_DISTINGUISHABILITY stages).
+distinguishability and reduced-PCA methods.
 
 The full-rank PCA fit needs scikit-learn and is tested with its caller, fisseqborn
 (``test_global_pca.py``); here the PC score frames are built by hand.

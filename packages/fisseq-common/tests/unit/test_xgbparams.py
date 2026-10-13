@@ -175,7 +175,7 @@ def test_split_indices_stratified_respects_test_size():
 
 
 def test_split_indices_stratified_singleton_stratum_does_not_raise():
-    """The production failure: a lone member of its stratum used to raise."""
+    """A lone member of its stratum must not raise."""
     labels = np.array(["A"] * 50 + ["B"] * 49 + ["solo"])
     train_idx, holdout_idx = split_indices_stratified(labels, random_state=0)
     assert len(train_idx) + len(holdout_idx) == len(labels)
@@ -214,7 +214,7 @@ def test_split_indices_stratified_no_warning_when_all_strata_populated(caplog):
 
 
 def test_split_indices_stratified_two_member_stratum_survives():
-    """A 2-member stratum splitting 1/1 broke the old nested second split."""
+    """A 2-member stratum splitting 1/1 must survive the nested second split."""
     labels = np.array(["A"] * 49 + ["B"] * 49 + ["pair", "pair"])
     train_idx, holdout_idx = split_indices_stratified(labels, random_state=0)
     assert set(train_idx) | set(holdout_idx) == set(range(len(labels)))

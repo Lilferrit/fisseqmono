@@ -49,7 +49,6 @@ the Hydra config and the entry point `python -m fisseq_common.stages.<stage>`, r
 shared Nextflow modules in `packages/fisseq-common/nextflow/modules/local/<stage>/main.nf`.
 The embeddings pipeline runs the same stages, process names, params and publish layout.
 
-There is a single pipeline mode — `main.nf` includes one workflow and runs it.
 Every output is per experiment. Cross-experiment aggregation (combining
 blocklists, per-variant medians across experiments, re-centering OvWT AUROCs
 against synonymous variants) is done downstream by
@@ -287,13 +286,11 @@ Lowercase verb, optional scope, PR number in parentheses:
    variants legitimately hit this; the alternative is losing every other
    variant's results. fisseq-common's `test_variant_failure_is_isolated_not_fatal` asserts a
    failing variant is silently dropped while its peers succeed. (Singleton
-   strata inside a fold are *not* one of these cases any more — see gotcha 5.)
+   strata inside a fold are *not* one of these cases — see gotcha 5.)
 
 5. **`split_indices_stratified` is a two-way split that tolerates singleton
    strata.** It splits each outer fold's fit rows 80/20 into train and
-   calibration — no third slot. It was an 80/10/10 train/test/val split whose
-   only caller used two of the three slots, silently discarding 10% of every
-   fold. Rows in a 1-member stratum can't be stratified, so they are assigned
+   calibration — no third slot, so no rows are silently discarded. Rows in a 1-member stratum can't be stratified, so they are assigned
    to the train half with a logged warning rather than raising (the production
    `least populated class in y has only 1 member` failure) or being thrown
    away. Test fixtures still want comfortably more than `n_folds` cells per
@@ -386,7 +383,7 @@ Lowercase verb, optional scope, PR number in parentheses:
     14). This is the complement of gotcha 11: `.join()` drops on the many side
     and starves on the empty side.
 
-18. **`output.parquet` is not "the selected features" any more.**
+18. **`output.parquet` is not just "the selected features".**
     `params.feature_select_passthrough_types` puts non-`meta_` columns into
     `feature_select_batchwise/<batch>/output.parquet` that were never
     blocklisted or normalized — that

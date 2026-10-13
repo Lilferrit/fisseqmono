@@ -14,12 +14,11 @@ nextflow.enable.dsl = 2
 // blocklists, medians across experiments, AUROC re-centering) is left to the
 // downstream fisseqborn package, which reads these published outputs.
 //
-// Experiments are declared as a list of maps under `experiments:` in
-// params.yaml (loaded with -params-file); there is no <pipeline_dir>/configs/
-// directory and no per-experiment override of arbitrary pipeline params. Each
-// entry carries only batch_stem, input_paths, and the three optional INPUT-stage fields, which fall back to their
-// pipeline-wide defaults when omitted. Every other parameter -- including
-// every run gate and the single params.random_seed -- is pipeline-wide.
+// Experiments are a list of maps under `experiments:` in params.yaml (loaded with
+// -params-file). Each entry carries only batch_stem, input_paths, and the three optional
+// INPUT-stage fields, which fall back to their pipeline-wide defaults when omitted. Every
+// other parameter -- including every run gate and the single params.random_seed -- is
+// pipeline-wide.
 
 // Shared modules (one copy for both pipelines) live in fisseq-common's nextflow/ directory;
 // this pipeline's per-process settings for them are in conf/modules.config.
@@ -55,14 +54,11 @@ def experimentKeys() {
 // tests/unit/test_nextflow_params.py, which parses this function and asserts it
 // matches _AGGREGATORS exactly.
 //
-// This list has to exist here because the value is interpolated straight into
-// AGGREGATE_FEATURE_TYPE / AGGREGATE_HALF's shell script. aggregate() does
-// raise a clear "Unknown aggregator" ValueError, but that code never runs: a
-// malformed entry (a stray quote from a mis-quoted params.yaml list, say)
-// breaks the generated .command.sh at the bash level first, and
-// errorStrategy 'ignore' then swallows the task. Validating here fails the
-// whole run, before a single task is submitted, with a message that names the
-// offending value.
+// The value is interpolated straight into the AGGREGATE processes' shell script, so a
+// malformed entry (a stray quote from a mis-quoted params.yaml list, say) breaks
+// .command.sh at the bash level before aggregate()'s "Unknown aggregator" ValueError can
+// fire, and errorStrategy 'ignore' then swallows the task. Validating here fails the whole
+// run up front and names the offending value.
 def aggregatorKeys() {
     [
         'mean',
@@ -99,14 +95,13 @@ def ovwtNFolds() {
 }
 
 // Nextflow CLI overrides (--run_ovwt false) arrive as the Groovy-truthy
-// String "false", so every gate must be coerced before use. Replaces
-// lib/BatchParams.groovy's asBool(), which went away with per-batch overrides.
+// String "false", so every gate must be coerced before use.
 def asBool(v) {
     v == null ? false : v.toString().toBoolean()
 }
 
-// Parameters of features this pipeline no longer has. Setting one is not an error -- an
-// older params.yaml still runs -- but each is named in a warning so it isn't silently ignored.
+// Parameters of removed features. Setting one is not an error -- an older params.yaml still
+// runs -- but each is named in a warning so it isn't silently ignored.
 def removedParams() {
     [
         'run_pca'           : 'PCA was removed: cross-experiment PCA is fisseqborn-global\'s',

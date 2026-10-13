@@ -37,16 +37,11 @@ def compute_feature_correlations(
     -------
     pl.DataFrame
         One row per dimension: ``feature``, ``r``, ``r_squared``. ``r`` is
-        **null** for a dimension that is constant in either half -- Polars'
-        ``corr`` of a zero-variance column is NaN, which is normalized to
-        null here on purpose. NaN would propagate through BLOCKLIST's
-        median and condemn a dimension outright on the strength of one
-        degenerate replicate; null is skipped by ``median``, so the
-        dimension is judged on the replicates that actually produced a
-        number. A dimension that was degenerate in *every* replicate gets a
-        null median, which fails the threshold comparison and is blocked --
-        the right verdict, since it carried no variant-to-variant signal at
-        all.
+        **null** for a dimension that is constant in either half: Polars'
+        ``corr`` gives NaN there, which would propagate through BLOCKLIST's
+        median and condemn the dimension on one degenerate replicate, whereas
+        ``median`` skips null. A dimension degenerate in *every* replicate gets
+        a null median and is blocked.
 
     Notes
     -----
@@ -65,9 +60,7 @@ def compute_feature_correlations(
             schema={"feature": pl.String, "r": pl.Float64, "r_squared": pl.Float64}
         )
     corrs = df_joined.select(
-        # nan_to_null: a zero-variance column makes pl.corr return NaN, and
-        # NaN survives BLOCKLIST's median where null is skipped. See the
-        # Returns section above.
+        # NaN -> null: see Returns.
         pl.corr(f, f"{f}_right").fill_nan(None).alias(f)
         for f in features
     ).row(0)

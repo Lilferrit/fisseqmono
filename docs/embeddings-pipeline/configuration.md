@@ -83,10 +83,9 @@ these stages:
   besides `batch_stem` (the plan's `cell_table_args` is empty, so a stray
   key fails there). Their input
   (`cell_table`/`cell_images_dir`) is injected automatically from
-  `BUILD_CELL_IMAGES`' own output -- never set it yourself. There's no separate list to keep in sync with
-  `experiments:` -- an entry opts itself in by setting `cp_features: true`,
-  which also makes `BUILD_CELL_IMAGES` force + fold in that experiment's
-  CellProfiler CSV -- see
+  `BUILD_CELL_IMAGES`' own output -- never set it yourself. An entry opts
+  in by setting `cp_features: true`, which also makes `BUILD_CELL_IMAGES`
+  force + fold in that experiment's CellProfiler CSV -- see
   [Nextflow Workflow](nextflow.md#cellprofiler-feature-track).
 
 Four fields that are logically per-experiment but in practice are almost
@@ -157,8 +156,7 @@ Every parameter from `random_seed` down to the `ovwt_*` set, except the `cell_di
 fisseq-data-pipeline: downstream of `EMBED_CELLS` this pipeline runs that pipeline's stages
 (see [Shared stages](../common/stages.md)).
 
-The parameters this pipeline used to have under its own names were renamed to the data
-pipeline's: `aggregate_methods` → `feature_select_types`, `aggregate_methods_passthrough` →
+Parameters are named as in the data pipeline; these old names are renamed: `aggregate_methods` → `feature_select_types`, `aggregate_methods_passthrough` →
 `feature_select_passthrough_types`, `aggregate_methods_cp_features` →
 `feature_select_types_cp_features`, `reproducibility_bootstrap_reps` →
 `feature_select_bootstrap_reps`, `reproducibility_min_correlation` →
@@ -168,7 +166,7 @@ name instead.
 
 The cross-experiment (global) stages and their params
 (`reproducibility_global_min_batches_ok`,
-`global_variant_{embeddings,cp_features}_cumulative_variance_explained`) were removed: every
+`global_variant_{embeddings,cp_features}_cumulative_variance_explained`) do not exist: every
 output is per experiment, and `fisseqborn-global <pipeline_dir> --out <dir>` (the fisseqborn
 package) aggregates across experiments, with `--min-batches` and
 `--cumulative-variance-explained`. An old `params.yaml` that still sets them runs, with a
@@ -271,7 +269,7 @@ One CUDA-capable base image serves every stage, including the CPU-only
 ones (`QC_FILTER`, `NORMALIZE`, etc.) -- simpler to build/publish/
 version as a single artifact than a GPU image plus a slimmer CPU image, at
 the cost of a larger pull for CPU-only processes. Worth splitting into two
-images later if that pull cost matters in practice; not required for v1.
+images if that pull cost matters in practice.
 
 That same image also bakes in `starcall-workflow`'s own dependency stack
 (tensorflow/stardist/cellpose/snakemake 7.32.4) as a second, isolated conda
@@ -280,10 +278,8 @@ cluster mode, every starcall child job it submits) --
 rather than publishing that as yet another separate image. This grows the
 image meaningfully (two full ML stacks in one artifact, so every pull,
 even for CPU-only stages, is bigger than it would be with the two split
-apart) and means every build now also runs the `ops` env's install chain
+apart) and means every build also runs the `ops` env's install chain
 (conda/pip installs from a `starcall-workflow` clone at the pinned
-`STARCALL_WORKFLOW_COMMIT`) -- worth knowing if a
-build ever gets noticeably slower or larger, but not something to work
-around: this is the direct cost of one image over two, chosen so
-`starcall-workflow`'s own environment gets the same CI build coverage as
-everything else (it previously had none at all).
+`STARCALL_WORKFLOW_COMMIT`). That is the direct cost of one image over two,
+chosen so `starcall-workflow`'s own environment gets the same CI build
+coverage as everything else.

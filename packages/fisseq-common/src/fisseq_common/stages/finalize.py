@@ -196,7 +196,6 @@ def finalize(cfg: FinalizeConfig) -> pl.DataFrame:
     )
     selected_df = selected_lf.join(meta_lf, on=cfg.label_column).collect()
 
-    # Deliberately last: see the module docstring.
     selected_df = join_passthrough(
         selected_df, cfg.passthrough_feature_type_files, cfg.label_column
     )

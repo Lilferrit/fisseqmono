@@ -3,10 +3,10 @@
 Fixture sizing note: the inner 80/20 train/calibration split
 (``split_indices_stratified``) runs *inside* each outer fold, so a
 ``(barcode, is_wt)`` stratum wants comfortably more than ``n_folds`` members
-for the folds to carry a real signal. Undersized fixtures used to send every
-variant into ``ovwt_batchwise``'s per-variant ``except`` branch, and the test
-would then pass against empty output while asserting nothing. These fixtures
-use ``n_folds=3`` with ~15 cells per barcode for that reason;
+for the folds to carry a real signal. Undersized fixtures send every variant
+into ``ovwt_batchwise``'s per-variant ``except`` branch, and the test then
+passes against empty output while asserting nothing. These fixtures use
+``n_folds=3`` with ~15 cells per barcode for that reason;
 ``test_normal_variant_survives`` guards the failure mode directly.
 """
 
@@ -355,9 +355,9 @@ def test_ovwt_batchwise_is_reproducible():
 
 def test_rare_barcode_variant_is_scored_not_skipped():
     """
-    A variant whose barcodes contribute a lone cell used to die in the inner
-    split (``ValueError: The least populated class in y has only 1 member``)
-    and get dropped. It now trains: singleton strata go to the train half.
+    A variant whose barcodes contribute a lone cell must be scored, not dropped by
+    the inner split (``ValueError: The least populated class in y has only 1
+    member``): singleton strata go to the train half.
     """
     df = _cells(variants={"GOOD": 15, "TINY": 1}, barcodes_per_variant=2)
     results, _, models = ovwt_batchwise(df.lazy(), _cfg())

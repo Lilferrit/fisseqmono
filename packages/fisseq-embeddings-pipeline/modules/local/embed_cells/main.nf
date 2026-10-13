@@ -1,10 +1,4 @@
-// EMBED_CELLS, the pipeline's only GPU-bound stage. container
-// "${params.container_image}" and a trailing random_seed=${params.random_seed}
-// are the two additions every module picks up versus fisseq-data-pipeline's
-// modules. The `channels=[...]` list interpolation below mirrors
-// aggregate_embeddings/main.nf's `aggregators=[...]` precedent;
-// `apply_mask` is a plain scalar (one shared mask per cell, so one flag
-// covering every selected channel -- see EmbedCellsConfig).
+// EMBED_CELLS, the pipeline's only GPU-bound stage.
 //
 // The shards themselves aren't staged: shards.parquet names each well's
 // shards by their real paths under phenotyping_dir, where the nested

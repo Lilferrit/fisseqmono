@@ -1,7 +1,7 @@
 """fisseq_common.stages.aggregate over embedding-shaped columns (``emb_0000``...): the
 aggregators, :func:`aggregate_methods` (method combination, lean output) and
-``feature_selector``. Moved from the embeddings pipeline; ``aggregate_embeddings`` below is its
-wrapper's selector default."""
+``feature_selector``. ``aggregate_embeddings`` below is ``aggregate_methods`` with the
+embeddings pipeline's selector."""
 
 from __future__ import annotations
 
@@ -175,10 +175,9 @@ def test_ks_neg_log_p_aggregator_returns_expected_columns(
 def test_ks_neg_log_p_matches_kstwobign(
     native_stats_df: pl.DataFrame, label: str
 ) -> None:
-    """Ground truth is scipy.stats.kstwobign.sf(D*sqrt(n_e)) -- the
-    classical limiting Kolmogorov distribution this aggregator implements
-    literally. See the class docstring for why this is NOT the same number
-    as scipy.stats.kstwo.sf / ks_2samp's own 'asymp' mode."""
+    """Ground truth is scipy.stats.kstwobign.sf(D*sqrt(n_e)), the classical limiting
+    Kolmogorov distribution. Not the same number as kstwo.sf / ks_2samp's 'asymp' mode
+    (see the class docstring)."""
     result = m.KSNegLogPValueAggregator().aggregate(native_stats_df.lazy()).collect()
     row = _get_row(result, label)
     group, ref = _group_and_ref(native_stats_df, label)
@@ -189,13 +188,10 @@ def test_ks_neg_log_p_matches_kstwobign(
 
 
 def test_ks_neg_log_p_is_kstwobign_not_ks_2samp_asymp() -> None:
-    """Pins the documented divergence rather than leaving it implicit: the
-    classical limiting distribution and ks_2samp's own 'asymp' mode
-    (kstwo.sf, Marsaglia et al.) are different numbers, disagreeing by
-    tens of percent in p even at n in the hundreds. If a future refactor
-    silently switched to kstwo, this test fails while
-    test_ks_neg_log_p_matches_kstwobign's abs=1e-6 would too -- this one
-    says *why*."""
+    """Pins the documented divergence: the classical limiting distribution and
+    ks_2samp's 'asymp' mode (kstwo.sf, Marsaglia et al.) disagree by tens of percent
+    in p even at n in the hundreds. A silent switch to kstwo would also fail the
+    abs=1e-6 match in test_ks_neg_log_p_matches_kstwobign; this test says *why*."""
     rng = np.random.default_rng(42)
     group = rng.normal(loc=1.5, size=100).tolist()
     ref = rng.normal(loc=0.0, size=100).tolist()
@@ -221,11 +217,9 @@ def test_ks_neg_log_p_is_kstwobign_not_ks_2samp_asymp() -> None:
 
 
 def test_ks_neg_log_p_strong_separation_is_finite_and_large() -> None:
-    """Exercises the logsumexp underflow-safe path: naively summing the
-    alternating series in linear space underflows to exactly 0.0 well
-    before D is this large, which would otherwise silently produce
-    -inf/null instead of a large finite score. This is the entire reason
-    _neg_log10_kolmogorov_pvalue_expr works in log space."""
+    """Naively summing the alternating series in linear space underflows to 0.0 well
+    before D is this large, which would give -inf/null instead of a large finite
+    score; the reason _neg_log10_kolmogorov_pvalue_expr works in log space."""
     rng = np.random.default_rng(7)
     n = 200
     group = rng.normal(loc=10.0, size=n).tolist()
@@ -288,7 +282,6 @@ def test_auroc_aggregator_matches_sklearn_unsymmetrized(
 
 
 def test_auroc_aggregator_directional_higher_approaches_one() -> None:
-    """Variant consistently higher than reference -> AUROC near 1.0."""
     df = pl.DataFrame(
         {
             "meta_aa_changes": ["WT"] * 5 + ["A"] * 5,
@@ -301,10 +294,8 @@ def test_auroc_aggregator_directional_higher_approaches_one() -> None:
 
 
 def test_auroc_aggregator_directional_lower_approaches_zero() -> None:
-    """Variant consistently lower than reference -> AUROC near 0.0.
-
-    Regression guard for symmetrization: an `if auroc < 0.5: auroc = 1 -
-    auroc` implementation would have folded this to ~1.0 instead.
+    """Regression guard for symmetrization: an `if auroc < 0.5: auroc = 1 - auroc`
+    implementation would fold this to ~1.0.
     """
     df = pl.DataFrame(
         {
@@ -318,7 +309,6 @@ def test_auroc_aggregator_directional_lower_approaches_zero() -> None:
 
 
 def test_auroc_aggregator_fully_overlapping_near_half() -> None:
-    """Variant and reference drawn from the identical set of values -> AUROC near 0.5."""
     df = pl.DataFrame(
         {
             "meta_aa_changes": ["WT"] * 6 + ["A"] * 6,
@@ -378,10 +368,9 @@ def test_auroc_neg_log_p_matches_mannwhitneyu_no_continuity(
 
 
 def test_auroc_neg_log_p_strong_separation_is_finite_and_large() -> None:
-    """Exercises the log-space erfc tail: computing Phi(z) in linear space
-    and then -log10(2*(1-Phi(|z|))) underflows to exactly 0.0 for |z| this
-    large, which would silently produce -inf/null instead of a large
-    finite score."""
+    """Computing Phi(z) in linear space and then -log10(2*(1-Phi(|z|))) underflows to
+    0.0 for |z| this large, which would give -inf/null instead of a large finite
+    score."""
     rng = np.random.default_rng(11)
     n = 200
     group = rng.normal(loc=10.0, size=n).tolist()
@@ -527,12 +516,10 @@ def test_all_aggregators_exclude_control_rows() -> None:
 
 
 def test_wt_label_is_not_treated_as_control() -> None:
-    """A literal 'WT' variant_classification never marks control -- only
-    Synonymous-classified, untagged labels are (see filter.py's
-    variant_classification). This fixture models that: a distinct
-    all-control synonymous group plus a separate row explicitly labeled
-    "WT" with meta_is_control=False, confirming WT still gets its own
-    aggregate row."""
+    """A literal 'WT' variant_classification never marks control -- only untagged
+    Synonymous labels do. A distinct all-control synonymous group plus a separate row
+    labeled "WT" with meta_is_control=False confirms WT still gets its own aggregate
+    row."""
     df = pl.DataFrame(
         {
             "meta_aa_changes": ["A1A", "A1A", "WT", "WT"],
@@ -678,8 +665,7 @@ def test_base_aggregator_default_feature_selector_ignores_cp_style_columns(
     cp_style_df: pl.DataFrame,
 ) -> None:
     """With the embeddings pipeline's feature_selector (EMBEDDING_SELECTOR), a frame
-    with only CellProfiler-style columns has zero feature columns to
-    aggregate -- confirms the default is unchanged by the new parameter."""
+    with only CellProfiler-style columns has zero feature columns to aggregate."""
     result = (
         m.MedianAggregator(feature_selector=EMBEDDING_SELECTOR)
         .aggregate(cp_style_df.lazy())
@@ -807,13 +793,10 @@ def test_include_metadata_false_does_not_change_the_statistics(
 def test_aggregators_pool_all_cells_directly_not_per_barcode(
     simple_df: pl.DataFrame,
 ) -> None:
-    """There is no barcode column anywhere in an aggregator's input schema
-    or output computation -- mean/median are taken directly across every
-    cell sharing a variant label, never grouped by barcode first. Adding a
-    `meta_barcode` column with an uneven per-barcode cell count and
-    asserting the result still matches a straight pool-all-cells median
-    (not a median-of-per-barcode-medians, which this lopsided split would
-    make numerically different) demonstrates that directly."""
+    """No aggregator input has a barcode column: mean/median pool every cell sharing a
+    variant label, never per barcode first. A `meta_barcode` column with an uneven
+    per-barcode cell count must not change the result (a median-of-per-barcode-medians
+    would differ on this lopsided split)."""
     df = simple_df.with_columns(
         pl.Series("meta_barcode", ["bc1", "bc1", "bc1", "bc2", "bc2", "bc3"])
     )
