@@ -117,6 +117,20 @@ def test_clinvar(tmp_path, monkeypatch):
         ["criteria provided, single submitter"] * 9,
         allele_id=["a", "b", "c", "d", "e", "f", "g", "h", "i"],
     )  # fmt: skip
+    # a protein variant with two nucleotide variants, as variant-annotation lists them
+    listed = {
+        "clinical_significance": "|Benign",
+        "review_status": "|criteria provided, single submitter",
+        "allele_id": "x|h",
+        "variation_id": "|1007",
+    }
+    clinvar = clinvar.with_columns(
+        pl.when(pl.int_range(pl.len()) == 7)
+        .then(pl.lit(value))
+        .otherwise(pl.col(f"clinvar.202601.{field}"))
+        .alias(f"clinvar.202601.{field}")
+        for field, value in listed.items()
+    )
     path = tmp_path / "annotated.tsv"
     clinvar.write_csv(path, separator="\t")
     requested = []

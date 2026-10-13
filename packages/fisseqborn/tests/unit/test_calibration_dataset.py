@@ -160,6 +160,26 @@ def test_variant_annotation_releases():
     assert _inputs.variant_annotation_records(blank)["key"].to_list() == ["A1V"]
 
 
+def test_variant_annotation_lists():
+    # one row per protein variant; DNA-level fields list its nucleotide variants
+    table = pl.DataFrame(
+        {
+            "mapped_hgvs_p": ["NP_733821.1:p.Met1Ile", "NP_733821.1:p.Met1Leu", "NP_733821.1:p.Pro4Arg"],
+            "clinvar.202601.clinical_significance": ["Pathogenic|Benign", "|Pathogenic||", "||"],
+            "clinvar.202601.stars": ["2|1", "|1", None],
+            "clinvar.202601.variation_id": ["10|11", "|12||", "||"],
+        }
+    )  # fmt: skip
+    records = _inputs.variant_annotation_records(table)
+    assert records.select(
+        "key", "clinvar_clinical_significance", "clinvar_stars", "clinvar_variation_id"
+    ).rows() == [
+        ("M1I", "Pathogenic", 2, "10"),
+        ("M1I", "Benign", 1, "11"),
+        ("M1L", "Pathogenic", 1, "12"),
+    ]
+
+
 def test_assign_groups_skips_tagged_and_multi_codon():
     df = pl.DataFrame(
         {"meta_aa_changes": ["A1V", "A1V:tag", "A1V|L2L", "A3A", "A3A:tag"]}

@@ -305,8 +305,12 @@ def variant_annotation_records(
     """ClinVar records from the output of bbi-lab/variant-annotation
     (https://github.com/bbi-lab/variant-annotation): its ``clinvar.<YYYYMM>.<field>``
     columns become ``clinvar_<field>`` (with `CLINVAR_SCHEMA`'s types), the release goes in
-    ``clinvar_release`` (``"YYYY-MM"``), and ``key`` comes from ``protein_col``. Rows
-    without a ClinVar record are dropped. With several releases in the table the latest is
+    ``clinvar_release`` (``"YYYY-MM"``), and ``key`` comes from ``protein_col``.
+
+    Each row is one protein variant, and its ClinVar fields are ``|``-separated lists
+    with one element per candidate nucleotide variant (``"|Pathogenic||"``); they are
+    split into one record per nucleotide variant, and those without a ClinVar record are
+    dropped. With several releases in the table the latest is
     used, unless ``release`` (``"YYYYMM"`` or ``"YYYY-MM"``) picks one.
     """
     fields: dict[str, dict[str, str]] = {}
@@ -330,10 +334,23 @@ def variant_annotation_records(
     columns = fields[release]
     if "clinvar_clinical_significance" not in columns.values():
         raise ValueError(f"No clinvar.{release}.clinical_significance column")
+    lists = table.select(
+        hgvs_key_expr(protein_col).alias("key"),
+        *(
+            pl.col(c).cast(pl.String).str.split("|").alias(new)
+            for c, new in columns.items()
+        ),
+    )
+    n = pl.max_horizontal(pl.col(new).list.len() for new in columns.values())
     records = _blank_to_null(
-        table.select(
-            hgvs_key_expr(protein_col).alias("key"),
-            *(pl.col(c).alias(new) for c, new in columns.items()),
+        lists.with_columns(pl.int_ranges(0, n.fill_null(0)).alias("__i"))
+        .explode("__i")
+        .select(
+            "key",
+            *(
+                pl.col(new).list.get(pl.col("__i"), null_on_oob=True)
+                for new in columns.values()
+            ),
         )
     ).with_columns(pl.lit(f"{release[:4]}-{release[4:]}").alias("clinvar_release"))
     for column, dtype in CLINVAR_SCHEMA.items():
