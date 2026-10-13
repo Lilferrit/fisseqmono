@@ -1,4 +1,4 @@
-"""`Dataset.calibrate` and `Dataset.apply_calibration`: the polars side of calibration."""
+"""`Dataset.excalibr` and `Dataset.apply_calibration`: the polars side of calibration."""
 
 import dataclasses
 from os import PathLike
@@ -32,7 +32,7 @@ def _check_unique(df: pl.DataFrame, variant_col: str) -> None:
         shown = ", ".join(map(str, dups.head(5).to_list()))
         more = " ..." if dups.len() > 5 else ""
         raise ValueError(
-            f"calibrate needs one row per {variant_col!r}, but {dups.len()} variant(s) "
+            f"excalibr needs one row per {variant_col!r}, but {dups.len()} variant(s) "
             f"appear more than once ({shown}{more}). Pool them first: "
             ".per_variant() on OvwtScores or .median_across_batches() on Profiles (or "
             "filter to a single batch to calibrate it alone)."
@@ -63,20 +63,16 @@ def _scores(df: pl.DataFrame, score: str) -> np.ndarray:
     return df[score].cast(pl.Float64).fill_nan(None).to_numpy().astype(float)
 
 
-def calibrate(
+def excalibr(
     ds: D,
     score: str,
     *,
-    gnomad: "str | PathLike | pl.DataFrame",
-    clinvar: "str | PathLike | pl.DataFrame | pl.LazyFrame | None" = None,
     direction: str = "auto",
     benign_method: str = "avg",
     n_components: int | str = "auto",
     n_bootstrap: int = 1000,
     n_restarts: int = 8,
     prior: float | None = None,
-    splice_max: float | None = None,
-    min_stars: int | None = 1,
     strict_constraint: bool = False,
     out_of_bag: bool = True,
     seed: int = 0,
@@ -87,15 +83,7 @@ def calibrate(
     df = ds.df
     _check_unique(df, ds.variant_col)
     notes: list[str] = []
-    gnomad_table = _inputs.read_gnomad(gnomad, splice_max=splice_max, notes=notes)
-    clinvar_table = (
-        None
-        if clinvar is None
-        else _inputs.read_clinvar(clinvar, min_stars=min_stars, notes=notes)
-    )
-    groups = _inputs.assign_groups(
-        df, ds.variant_col, gnomad_table, clinvar_table, notes
-    )
+    groups, class_col = _inputs.assign_groups(df, ds.variant_col, notes)
     scores = _scores(df, score)
     member = (
         groups.select(f"in_{g}" for g in _inputs.GROUP_LABELS).to_numpy().astype(bool)
@@ -118,9 +106,8 @@ def calibrate(
     calibration = _with_settings(
         calibration,
         score=score,
-        clinvar="table" if clinvar is not None else "gnomad",
-        splice_max=splice_max,
-        min_stars=min_stars,
+        clinvar="clinvar" if class_col == "meta_clinvar_class" else "gnomad",
+        annotations={k: dict(v) for k, v in ds.annotations.items()},
     )
     out = df.with_columns(
         groups["group"].alias(f"{prefix}_group"),

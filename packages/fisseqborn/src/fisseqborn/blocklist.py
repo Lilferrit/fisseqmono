@@ -9,7 +9,7 @@ import polars as pl
 
 from fisseq_common.global_aggregation import blocklist_vote
 
-from . import _pipeline
+from . import _cache, _pipeline
 from .dataset import Dataset
 
 
@@ -50,7 +50,7 @@ class Blocklists(Dataset):
         *,
         batches: Sequence[str] | None = None,
         exclude: "_pipeline.Patterns | None" = None,
-        download_dir: str | PathLike | None = None,
+        cache: "_cache.Cache" = False,
         refresh: bool = False,
         layout: "_pipeline.LayoutSpec" = None,
         track: "_pipeline.Track" = "embeddings",
@@ -63,7 +63,7 @@ class Blocklists(Dataset):
         `Profiles.from_pipeline`: with ``types=None`` the blocklists are listed with one
         ssh call, and only they are downloaded. The embeddings pipeline's CellProfiler
         track has no blocklists."""
-        src = _pipeline.source(pipeline_dir, download_dir, refresh, layout, track)
+        src = _pipeline.source(pipeline_dir, cache, refresh, layout, track)
         lay = src.layout
         names = src.batches("feature_select", batches, exclude)
         if types is not None:

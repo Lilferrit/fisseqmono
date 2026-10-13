@@ -13,7 +13,7 @@ import numpy as np
 import polars as pl
 import polars.selectors as cs
 
-from . import _data, _pipeline, _transforms
+from . import _cache, _data, _pipeline, _transforms
 from .dataset import Dataset
 
 if TYPE_CHECKING:
@@ -59,7 +59,7 @@ class Profiles(Dataset):
     ...     fb.Profiles.from_pipeline(run_dir, types=["median"], passthrough=["KSnegLogP"])
     ...       .median_across_batches(paired={"_median": "_KSnegLogP"})
     ...       .variant_type()
-    ...       .clinvar("clinvar_converted.parquet")
+    ...       .clinvar("annotated.tsv")
     ... )
     >>> fb.VolcanoPlot.from_wide(profiles).save("vis/volcano.png")
 
@@ -116,7 +116,7 @@ class Profiles(Dataset):
         exclude: "_pipeline.Patterns | None" = None,
         features: Literal["union", "intersection"] = "union",
         metadata: bool | Sequence[str] = False,
-        download_dir: str | PathLike | None = None,
+        cache: "_cache.Cache" = False,
         refresh: bool = False,
         layout: "_pipeline.LayoutSpec" = None,
         track: "_pipeline.Track" = "embeddings",
@@ -127,8 +127,9 @@ class Profiles(Dataset):
 
         ``pipeline_dir`` is a local run directory or a remote one, ``"user@host:/path"``.
         A remote run is listed over ssh and only the files read here are copied with scp,
-        into ``download_dir`` (default: a temporary directory kept for the session), where
-        later calls reuse them unless ``refresh=True``.
+        into ``cache`` (``<cache>/remote/<host>/<path>``; ``True`` for the user cache
+        directory; default: a temporary directory kept for the session), where later calls
+        reuse them unless ``refresh=True``.
 
         Either pipeline's run can be read. Its layout (`fisseq_common.layout`) is detected
         from the run's directories, or given as ``layout="data"`` / ``"embeddings"``;
@@ -166,7 +167,7 @@ class Profiles(Dataset):
             raise ValueError(
                 f"features must be 'union' or 'intersection', got {features!r}"
             )
-        src = _pipeline.source(pipeline_dir, download_dir, refresh, layout, track)
+        src = _pipeline.source(pipeline_dir, cache, refresh, layout, track)
         names = src.batches("feature_select", batches, exclude)
         frames, meta_paths = batch_aggregates(
             src, names, types, passthrough, variant_col, metadata=metadata is not False

@@ -9,7 +9,7 @@ from typing import Any, Literal, Self
 
 import polars as pl
 
-from . import _pipeline, _transforms, _variants
+from . import _cache, _pipeline, _transforms, _variants
 from .dataset import Dataset
 
 logger = logging.getLogger(__name__)
@@ -79,7 +79,7 @@ class OvwtScores(Dataset):
         *,
         batches: Sequence[str] | None = None,
         exclude: "_pipeline.Patterns | None" = None,
-        download_dir: str | PathLike | None = None,
+        cache: "_cache.Cache" = False,
         refresh: bool = False,
         layout: "_pipeline.LayoutSpec" = None,
         track: "_pipeline.Track" = "embeddings",
@@ -90,7 +90,7 @@ class OvwtScores(Dataset):
         embeddings pipeline's CellProfiler track: ``ovwt_batchwise_cp_features/<batch>/``)
         for every batch (or ``batches``, minus those matching ``exclude``), tagging each
         row with its batch in ``batch_col``. A remote ``pipeline_dir``
-        (``"user@host:/path"``, with ``download_dir`` and ``refresh``), ``layout`` and
+        (``"user@host:/path"``, with ``cache`` and ``refresh``), ``layout`` and
         ``track`` are handled as in `Profiles.from_pipeline`.
 
         Columns are those the pipeline writes: ``auroc_pooled``,
@@ -103,7 +103,7 @@ class OvwtScores(Dataset):
         by `LEGACY_RENAMES`, while the score columns keep their names, e.g.
         ``profiles.distinguishability(ovwt, score="test_auroc")``.
         """
-        src = _pipeline.source(pipeline_dir, download_dir, refresh, layout, track)
+        src = _pipeline.source(pipeline_dir, cache, refresh, layout, track)
         names = src.batches("ovwt", batches, exclude)
         paths = src.files([src.layout.ovwt_results(b) for b in names])
         frames = [

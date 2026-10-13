@@ -34,13 +34,13 @@ class CalibrationPlot(Plot):
     """Score distributions of the calibration's control groups, over shaded bands for the
     score range of each evidence point (as Fig. 4a of Tejura et al.).
 
-    >>> cal = scores.calibrate("auroc_pooled_corrected", gnomad="gnomad_LMNA.csv")
+    >>> cal = scores.variant_type().gnomad().clinvar().excalibr("auroc_pooled_corrected")
     >>> fb.CalibrationPlot(cal).save("vis/calibration.png")
 
     Parameters
     ----------
     data : Dataset | pl.DataFrame
-        Usually the dataset `Dataset.calibrate` returned: its ``calibration`` is used and
+        Usually the dataset `Dataset.excalibr` returned: its ``calibration`` is used and
         its ``<prefix>_groups`` column says which group each variant is in.
     score : str | None
         Score column; defaults to the one the calibration was fit on.
@@ -86,7 +86,7 @@ class CalibrationPlot(Plot):
         if calibration is None:
             raise ValueError(
                 "No calibration: pass calibration=, or the dataset returned by "
-                ".calibrate() / .apply_calibration()"
+                ".excalibr() / .apply_calibration()"
             )
         super().__init__(data, title=title, figsize=figsize, dpi=dpi)
         self.calibration = calibration

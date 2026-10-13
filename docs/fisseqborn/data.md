@@ -14,7 +14,7 @@ profiles = (
     fb.Profiles.from_pipeline(run, types=["median"], passthrough=["KSnegLogP"])
       .variant_type()                                  # meta_variant_type + meta_is_control
       .median_across_batches(paired={"_median": "_KSnegLogP"})  # already z-scored per batch
-      .clinvar("clinvar/clinvar_converted.parquet")    # meta_clinvar_annotation
+      .clinvar("clinvar/annotated.tsv")                # meta_clinvar_annotation
       .domain()                                        # meta_domain
       .distinguishability(fb.OvwtScores.from_pipeline(run))
 )
@@ -102,8 +102,8 @@ A run that lives on a remote machine can be loaded in place. Pass an scp-style
 
 ```python
 run = "me@cluster:/data/fisseq/2026-10-01"
-profiles = fb.Profiles.from_pipeline(run, types=["median"], download_dir="data/2026-10-01")
-scores = fb.OvwtScores.from_pipeline(run, exclude="T10_*", download_dir="data/2026-10-01")
+profiles = fb.Profiles.from_pipeline(run, types=["median"], cache="data")
+scores = fb.OvwtScores.from_pipeline(run, exclude="T10_*", cache=True)
 ```
 
 The loaders list the run with `ssh ... ls`, then copy **only the files they read** with scp. They
@@ -118,12 +118,14 @@ outputs that can add up to tens of GB, so this matters.
 | `Dataset.read("host:/path/file.parquet")` | that single file (globs aren't supported remotely) |
 
 - `batches=` and `exclude=` are applied before anything is copied.
-- Files land in `download_dir`, which mirrors the run's layout:
-  `data/2026-10-01/feature_select_batchwise/T1_R1/aggregates/median.parquet`.
-- Without `download_dir`, they go to a temporary directory (`fisseqborn-*`). The same run reuses that
-  directory for the rest of the Python session. It isn't deleted automatically, because the lazy
-  frames read from it. Its path is logged at `INFO` level.
-- A file that is already in the download directory is reused. Pass `refresh=True` to copy it again.
+- With `cache`, files land under `<cache>/remote/<host>/<path>`, mirroring the run's layout:
+  `data/remote/me@cluster/data/fisseq/2026-10-01/feature_select_batchwise/T1_R1/aggregates/median.parquet`.
+  `cache=True` uses the user cache directory (`~/Library/Caches/fisseqborn` on macOS,
+  `~/.cache/fisseqborn` on Linux), shared with the gnomAD and ClinVar downloads.
+- Without `cache` (the default), they go to a temporary directory (`fisseqborn-*`). The same run
+  reuses that directory for the rest of the Python session. It isn't deleted automatically, because
+  the lazy frames read from it. Its path is logged at `INFO` level.
+- A file that is already in the cache or temporary directory is reused. Pass `refresh=True` to copy it again.
   Each copy lands in a staging folder first, so an interrupted download is never mistaken for a
   cached file.
 - A file that doesn't exist on the remote raises `FileNotFoundError`. Any other scp failure raises
@@ -134,10 +136,10 @@ outputs that can add up to tens of GB, so this matters.
 - Paths are passed to scp unquoted, so remote paths with spaces aren't supported.
 
 `fisseqborn-global` and `fb.write_global` accept a remote run too. All their loaders share
-`--download-dir` / `download_dir`:
+`--cache [DIR]` / `cache` (a bare `--cache` is the user cache directory):
 
 ```bash
-fisseqborn-global me@cluster:/data/fisseq/2026-10-01 --out global --download-dir data/2026-10-01
+fisseqborn-global me@cluster:/data/fisseq/2026-10-01 --out global --cache data
 ```
 
 ## Laziness
@@ -276,8 +278,9 @@ Every dataset has these methods. They read the `meta_aa_changes` labels:
 | `position()` | `meta_position`, the leading position of the first codon. Use `strict=True` for single substitutions only. |
 | `domain()` | `meta_domain`, from `fisseq.LMNA_DOMAIN_REGIONS`, for single substitutions |
 | `tile()` | `meta_tile`, from `fisseq.LMNA_TILES`. Use `allow_multiple=True` to list both tiles in an overlap. |
-| `clinvar(path)` | `meta_clinvar_*` columns (every ClinVar call, the most severe record per variant) and `meta_clinvar_annotation`: `fisseq.PATHOGENIC` (pathogenic or likely pathogenic), `fisseq.UNCERTAIN` (uncertain significance), else the variant type |
-| `calibrate(score, gnomad=...)` | ACMG/AMP evidence points for a score: `meta_excalibr_group(s)`, `_lr`, `_posterior`, `_points`, `_oob`, and the fitted `Calibration` on `.calibration`. Needs one row per variant. See [Evidence calibration](calibration.md). |
+| `gnomad(source=None)` | `meta_gnomad_in`, `_allele_count`, `_allele_number`, `_allele_frequency`, `_spliceai_ds_max` (and `_clinvar_class` from a browser CSV), for single substitutions. Downloads the gene from the gnomAD API without a `source`. |
+| `clinvar(source=None)` | From [variant-annotation](https://github.com/bbi-lab/variant-annotation)'s output, or downloaded from the gnomAD API without a `source`: the most severe record's `meta_clinvar_*` fields, `meta_clinvar_conditions` (diseases, from NCBI), `meta_clinvar_class` (the calibration control class) and `meta_clinvar_annotation`: `fisseq.PATHOGENIC` (pathogenic or likely pathogenic), `fisseq.UNCERTAIN` (uncertain significance), else the variant type |
+| `excalibr(score)` | ACMG/AMP evidence points for a score: `meta_excalibr_group(s)`, `_lr`, `_posterior`, `_points`, `_oob`, and the fitted `Calibration` on `.calibration`. Needs one row per variant. See [Evidence calibration](calibration.md). |
 
 ## OvWT distinguishability
 
@@ -385,12 +388,12 @@ once per group, leaving the others out with `--exclude`.
 | `group_by("meta_aa_changes").agg((~cs.starts_with("meta")).median())` | `.median_across_batches()` |
 | `median_with_p(feature)` | `.median_across_batches(paired={"_median": "_KSnegLogP"})` |
 | per-batch blocklists → `n_ok == 15` | `Blocklists.from_pipeline(run).consensus()` |
-| `scp -r cluster:/run .` | `from_pipeline("me@cluster:/run", download_dir=...)` (only the needed files) |
+| `scp -r cluster:/run .` | `from_pipeline("me@cluster:/run", cache=...)` (only the needed files) |
 | `global/<channel>/...` from the pipeline | `fisseqborn-global run --out global` or `fb.write_global(run, "global")` |
 | `bad_mask = ... is_null() \| is_nan() \| is_infinite()` | `.drop_nonfinite()` |
 | `pycytominer.feature_select(profiles=..., operation=[...])` | `.feature_select(operations=[...])` |
 | `map_elements(variant_classification, ...)` | `.variant_type()` |
-| `add_clinvar_annotation(df, path)` / `add_domain(df, LMNA_DOMAIN_REGIONS)` / `get_tile` | `.clinvar(path)` / `.domain()` / `.tile()` |
+| `add_clinvar_annotation(df, path)` / `add_domain(df, LMNA_DOMAIN_REGIONS)` / `get_tile` | `.clinvar(path)` (variant-annotation output) / `.domain()` / `.tile()` |
 | `add_distinguishability_score(df, ovwt_dir)` | `.distinguishability(fb.OvwtScores.from_pipeline(run))` |
 | `compute_impact_score(lf)` | `.impact_score()` |
 | `PCA(n_components=None)` + `searchsorted(...)` | `.pca_reduce(variance=0.9)` |

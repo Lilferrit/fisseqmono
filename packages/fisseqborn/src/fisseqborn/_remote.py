@@ -16,6 +16,8 @@ from collections import defaultdict
 from collections.abc import Sequence
 from os import PathLike
 
+from . import _cache
+
 logger = logging.getLogger(__name__)
 
 #: ``[user@]host:path``, as scp writes it. ``host`` can't contain ``/``, so ``/abs/path`` and
@@ -33,7 +35,7 @@ SSH_OPTIONS: tuple[str, ...] = (
     "ControlPersist=60",
 )
 
-#: Download dirs created for remote runs without a ``download_dir``, reused for the session.
+#: Download dirs created for remote runs without a ``cache``, reused for the session.
 _TEMP_DIRS: dict[tuple[str, str], pathlib.Path] = {}
 
 
@@ -58,6 +60,16 @@ def temp_dir(host: str, root: str) -> pathlib.Path:
         _TEMP_DIRS[key] = pathlib.Path(tempfile.mkdtemp(prefix="fisseqborn-"))
         logger.info("Downloading %s:%s to %s", host, root, _TEMP_DIRS[key])
     return _TEMP_DIRS[key]
+
+
+def local_dir(host: str, root: str, cache: "_cache.Cache") -> pathlib.Path:
+    """Where the files of ``host:root`` are copied: ``<cache>/remote/<host>/<root>`` (a
+    relative ``root``, which scp reads from the remote home, under ``~/``), or without a
+    ``cache`` the session's `temp_dir`."""
+    remote = pathlib.PurePosixPath(root)
+    parts = remote.parts[1:] if remote.is_absolute() else ("~", *remote.parts)
+    local = _cache.cache_dir(cache, "remote", host, *parts)
+    return temp_dir(host, root) if local is None else local
 
 
 def _run(argv: Sequence[str]) -> subprocess.CompletedProcess[str]:

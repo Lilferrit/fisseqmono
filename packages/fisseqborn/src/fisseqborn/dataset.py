@@ -8,14 +8,16 @@ DataFrame).
 """
 
 import copy
+import logging
 import pathlib
 from collections.abc import Callable, Mapping, Sequence
 from os import PathLike
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Self
 
 import polars as pl
 
-from . import _data, _remote, _variants, fisseq
+from . import _cache, _data, _remote, _variants, fisseq
 
 if TYPE_CHECKING:
     from .calibration import Calibration
@@ -28,6 +30,10 @@ _META = "meta_"
 _PATHOGENIC_CALL = r"(?i)^(likely )?pathogenic(/(likely )?pathogenic)*$"
 _CALL = "__clinvar_call"
 _RANK = "__clinvar_rank"
+_KEY = "__variant_key"
+_GNOMAD = "meta_gnomad_"
+
+logger = logging.getLogger(__name__)
 
 
 class Dataset:
@@ -47,8 +53,11 @@ class Dataset:
         Column holding variant labels such as ``"A12V"``, used by the annotation methods.
     """
 
-    #: The `Calibration` set by `calibrate` or `apply_calibration` (else ``None``).
+    #: The `Calibration` set by `excalibr` or `apply_calibration` (else ``None``).
     calibration: "Calibration | None" = None
+    #: The settings of `gnomad` and `clinvar` (source, release, filters), by method, as
+    #: recorded in a `Calibration`'s ``settings``.
+    annotations: Mapping[str, Mapping[str, Any]] = MappingProxyType({})
 
     def __init__(
         self,
@@ -73,21 +82,22 @@ class Dataset:
         cls,
         path: str | PathLike,
         *,
-        download_dir: str | PathLike | None = None,
+        cache: _cache.Cache = False,
         refresh: bool = False,
         **kw: Any,
     ) -> Self:
         """Lazily read a parquet file (or glob). ``kw`` is passed to the constructor.
 
         ``path`` can also be a single remote file, ``"user@host:/path/file.parquet"``. It is
-        copied with scp into ``download_dir`` (default: a temporary directory kept for the
-        session) unless it is already there and ``refresh`` is false.
+        copied with scp into ``cache`` (``<cache>/remote/<host>/<path>``; ``True`` for the
+        user cache directory; default: a temporary directory kept for the session) unless
+        it is already there and ``refresh`` is false.
         """
         spec = _remote.parse(path)
         if spec is None:
-            if download_dir is not None:
+            if cache is not False:
                 raise ValueError(
-                    f"download_dir is only used for remote files, but {path} is local"
+                    f"cache is only used for remote files, but {path} is local"
                 )
             return cls(pl.scan_parquet(path), **kw)
         host, remote_path = spec
@@ -95,10 +105,7 @@ class Dataset:
             raise ValueError("Remote paths can't be globs; pass a single file")
         remote_file = pathlib.PurePosixPath(remote_path)
         root = str(remote_file.parent)
-        if download_dir is None:
-            local = _remote.temp_dir(host, root)
-        else:
-            local = pathlib.Path(download_dir)
+        local = _remote.local_dir(host, root, cache)
         [file] = _remote.Remote(host, root, local, refresh=refresh).fetch(
             [remote_file.name]
         )
@@ -238,36 +245,146 @@ class Dataset:
             )
         )
 
+    def _join_on_key(self, table: pl.LazyFrame, columns: Sequence[str]) -> pl.LazyFrame:
+        """Left-join ``table`` (a ``key`` column plus ``columns``) on the key of
+        `variant_col`, replacing any ``columns`` already there."""
+        from .calibration import _inputs
+
+        return (
+            self._lf.drop(columns, strict=False)
+            .with_columns(_inputs.dataset_key_expr(self.variant_col).alias(_KEY))
+            .join(
+                table.select("key", *columns),
+                left_on=_KEY,
+                right_on="key",
+                how="left",
+                maintain_order="left",
+            )
+            .drop(_KEY)
+        )
+
+    def _annotated(
+        self, data: pl.LazyFrame, name: str, settings: dict[str, Any]
+    ) -> Self:
+        new = self._replace(data)
+        new.annotations = {**self.annotations, name: settings}
+        return new
+
+    def gnomad(
+        self,
+        source: "str | PathLike | pl.DataFrame | None" = None,
+        *,
+        gene: str = "LMNA",
+        dataset: str = "gnomad_r4",
+        splice_max: float | None = None,
+        cache: _cache.Cache = False,
+        refresh: bool = False,
+    ) -> Self:
+        """Add gnomAD population data for each single substitution, the gnomAD columns
+        `excalibr` needs.
+
+        ``source`` is the gnomAD browser's "Export variants to CSV" for the gene (a path or
+        a frame), or ``None`` to download ``gene``'s variants in ``dataset`` from the gnomAD
+        API (one request). Downloads are cached under ``cache`` (``True`` for the user
+        cache directory; ``False`` downloads every time) and fetched again with
+        ``refresh``.
+
+        gnomAD's nucleotide variants are matched by their protein change on the canonical
+        transcript (``p.Arg123Trp`` → ``R123W``) and collapsed per amino-acid change. A
+        nucleotide variant counts when it passes gnomAD's joint filters and, with
+        ``splice_max``, has ``spliceai_ds_max`` at most ``splice_max`` (0.2 in Zeiberg et
+        al. v2, for assays blind to splicing) or missing. Columns, null for labels gnomAD
+        has no record of and for multi-codon or ``:<tag>`` labels:
+
+        - ``meta_gnomad_in``: at least one nucleotide variant counts (the gnomAD
+          control group of `excalibr`).
+        - ``meta_gnomad_allele_count`` / ``_allele_number`` / ``_allele_frequency``:
+          summed allele count over the counted variants / their largest allele number.
+        - ``meta_gnomad_spliceai_ds_max``: the largest SpliceAI delta score.
+        - ``meta_gnomad_clinvar_class``: ``"pathogenic"`` / ``"benign"`` from the browser
+          export's ClinVar column (CSV only), used by `excalibr` without `clinvar`.
+        """
+        from .calibration import _inputs
+
+        self._require(self.variant_col)
+        rows, origin = _inputs.gnomad_rows(
+            source,
+            gene=gene,
+            dataset=dataset,
+            splice_max=splice_max,
+            cache=cache,
+            refresh=refresh,
+        )
+        table = _inputs.gnomad_table(rows, splice_max=splice_max).rename(
+            lambda c: c if c == "key" else f"{_GNOMAD}{c}"
+        )
+        table = table.rename({f"{_GNOMAD}in_gnomad": f"{_GNOMAD}in"})
+        columns = [c for c in table.columns if c != "key"]
+        settings = {"source": origin, "splice_max": splice_max}
+        return self._annotated(
+            self._join_on_key(table.lazy(), columns), "gnomad", settings
+        )
+
     def clinvar(
         self,
-        clinvar: "str | PathLike | pl.DataFrame | pl.LazyFrame",
+        source: "str | PathLike | pl.DataFrame | pl.LazyFrame | None" = None,
         *,
+        gene: str = "LMNA",
+        protein_col: str = "mapped_hgvs_p",
+        release: str | None = None,
+        min_stars: int | None = 1,
+        conditions: bool = True,
+        cache: _cache.Cache = False,
+        refresh: bool = False,
         variant_type_col: str = "meta_variant_type",
         output_col: str = "meta_clinvar_annotation",
     ) -> Self:
-        """Join ClinVar clinical significance calls and build a combined annotation column.
+        """Join ClinVar calls and conditions, and build a combined annotation column.
 
-        ``clinvar`` is the converted ClinVar table (a parquet path or a frame) with a
-        ``variant`` column in the same ``"A12V"`` format and a
-        ``clinvar_clinical_significance`` column. Every call is kept, one record per
-        variant: the most severe one (pathogenic or likely pathogenic, then uncertain
-        significance, then any other call), the first in the table among equals. Its
-        columns are joined in with a ``meta_`` prefix.
+        ``source`` is the output of bbi-lab/variant-annotation
+        (https://github.com/bbi-lab/variant-annotation) after its ClinVar step: a TSV
+        (or CSV / parquet) path or a frame with ``clinvar.<YYYYMM>.<field>`` columns and
+        the HGVS protein change in ``protein_col`` (``NP_000268.1:p.Arg406Gln``). The
+        latest release in the table is used unless ``release`` (``"YYYYMM"``) picks one.
+        ``None`` downloads ``gene``'s ClinVar variants from the gnomAD API instead (the
+        ClinVar release gnomAD currently mirrors). Downloads are cached under ``cache``
+        (``True`` for the user cache directory) and fetched again with ``refresh``.
+
+        Records are matched to single substitutions by protein change. Every call is
+        kept, one record per variant: the most severe one (pathogenic or likely
+        pathogenic, then uncertain significance, then any other call), the first in the
+        table among equals. Its fields are joined in as ``meta_clinvar_*``
+        (``clinical_significance``, ``review_status``, ``stars``, ``variation_id``,
+        ``release``, ...). With ``conditions``, ``meta_clinvar_conditions`` lists the
+        diseases of its germline classification, fetched from NCBI E-utilities by
+        variation ID (NCBI's current ClinVar, cached under ``cache`` too).
+
+        ``meta_clinvar_class`` is the ExCALIBR control class `excalibr` reads:
+        ``"pathogenic"`` or ``"benign"`` over every record of the variant with at least
+        ``min_stars`` review stars, null for anything else, including variants with both
+        pathogenic and benign calls.
 
         ``output_col`` is `fisseq.PATHOGENIC` for pathogenic and likely pathogenic calls,
         `fisseq.UNCERTAIN` for uncertain significance, and the variant type otherwise
         (including conflicting, benign and missing calls). Run `variant_type` first.
         """
+        from . import _clinvar_api
+        from .calibration import _inputs
+
         self._require(self.variant_col, variant_type_col)
-        if isinstance(clinvar, (str, PathLike)):
-            table = pl.scan_parquet(clinvar)
-        else:
-            table = clinvar.lazy()
-        schema = table.collect_schema()
-        _data.require_columns(
-            pl.DataFrame(schema=schema), "variant", "clinvar_clinical_significance"
+        records, origin = _inputs.clinvar_records(
+            source,
+            gene=gene,
+            protein_col=protein_col,
+            release=release,
+            cache=cache,
+            refresh=refresh,
         )
-        columns = schema.names()
+        records = records.filter(pl.col("key").is_not_null())
+        notes: list[str] = []
+        classes = _inputs.clinvar_classes(records, min_stars=min_stars, notes=notes)
+        for note in notes:
+            logger.warning(note)
         significance = pl.col("clinvar_clinical_significance")
         call = (
             pl.when(significance.str.contains(_PATHOGENIC_CALL))
@@ -282,49 +399,49 @@ class Dataset:
             .then(1)
             .otherwise(2)
         )
-        table = (
-            table.with_columns(call.alias(_CALL), rank.alias(_RANK))
+        chosen = (
+            records.with_columns(call.alias(_CALL), rank.alias(_RANK))
             .sort(_RANK, maintain_order=True)
-            .unique(subset=["variant"], keep="first", maintain_order=True)
+            .unique(subset=["key"], keep="first", maintain_order=True)
             .drop(_RANK)
-            .rename(
-                {
-                    c: f"{_META}{c}"
-                    for c in columns
-                    if c != "variant" and not c.startswith(_META)
-                }
-            )
         )
-        return self._replace(
-            self._lf.join(
-                table,
-                left_on=self.variant_col,
-                right_on="variant",
-                how="left",
-                maintain_order="left",
+        if conditions:
+            found = _clinvar_api.fetch_conditions(
+                chosen["clinvar_variation_id"], cache=cache, refresh=refresh
             )
+            chosen = chosen.join(
+                found, on="clinvar_variation_id", how="left", maintain_order="left"
+            )
+        table = chosen.join(
+            classes, on="key", how="left", maintain_order="left"
+        ).rename(lambda c: c if c in ("key", _CALL) else f"{_META}{c}")
+        columns = [c for c in table.columns if c != "key"]
+        settings = {
+            "source": origin,
+            "release": next(iter(records["clinvar_release"].drop_nulls()), None),
+            "min_stars": min_stars,
+        }
+        data = (
+            self._join_on_key(table.lazy(), columns)
             .with_columns(
                 pl.coalesce(_CALL, pl.col(variant_type_col)).alias(output_col)
             )
             .drop(_CALL)
         )
+        return self._annotated(data, "clinvar", settings)
 
     # ----- calibration ----------------------------------------------------------------
 
-    def calibrate(
+    def excalibr(
         self,
         score: str,
         *,
-        gnomad: "str | PathLike | pl.DataFrame",
-        clinvar: "str | PathLike | pl.DataFrame | pl.LazyFrame | None" = None,
         direction: str = "auto",
         benign_method: str = "avg",
         n_components: int | str = "auto",
         n_bootstrap: int = 1000,
         n_restarts: int = 8,
         prior: float | None = None,
-        splice_max: float | None = None,
-        min_stars: int | None = 1,
         strict_constraint: bool = False,
         out_of_bag: bool = True,
         seed: int = 0,
@@ -338,6 +455,15 @@ class Dataset:
         the prior probability of pathogenicity from gnomAD, and turns the local
         likelihood ratio into points from -8 (benign) to +8 (pathogenic). See the
         calibration guide in the docs for the method and its limits.
+
+        The control groups come from columns added earlier in the chain: gnomAD from
+        `gnomad` (``meta_gnomad_in``, required: it is the population sample the prior
+        comes from), P/LP and B/LB from `clinvar` (``meta_clinvar_class``, with its
+        ``min_stars`` review filter), or without it from the gnomAD browser export's
+        ClinVar column, which only covers variants gnomAD observed and has no review-star
+        filter. Their settings are recorded in ``calibration.settings``:
+
+        >>> ds.variant_type().gnomad(cache=True).clinvar("annotated.tsv").excalibr("score")
 
         Unlike the rest of the chain this is **eager**: it collects the data once, fits,
         and returns a dataset wrapping the result. The fitted `Calibration` is on the
@@ -358,14 +484,6 @@ class Dataset:
         score : str
             Numeric score column, e.g. ``"auroc_pooled_corrected"`` after
             `OvwtScores.per_variant`, or ``"meta_distinguishability_score"``.
-        gnomad : path | pl.DataFrame
-            The gnomAD browser CSV export for the gene (required: it is the population
-            sample the prior comes from).
-        clinvar : path | frame | None
-            ClinVar controls, in the table format `clinvar` reads (``variant``,
-            ``clinvar_clinical_significance``, optionally ``clinvar_review_status`` or
-            ``clinvar_stars``). ``None`` uses the gnomAD export's ClinVar column, which
-            only covers variants gnomAD observed and has no review-star filter.
         direction : {"auto", "lower_pathogenic", "higher_pathogenic", "both"}
             Which end of the score is pathogenic. ``"auto"`` compares the control means
             and detects bidirectional (both ends pathogenic) assays.
@@ -381,11 +499,6 @@ class Dataset:
             look and 1000 for anything reported.
         prior : float | None
             Use this prior probability of pathogenicity instead of estimating it.
-        splice_max : float | None
-            Leave gnomAD variants with ``spliceai_ds_max`` above this out of the gnomAD
-            sample (0.2 in Zeiberg et al. v2), for assays blind to splicing effects.
-        min_stars : int | None
-            Minimum ClinVar review stars for a ``clinvar`` table record to count.
         strict_constraint : bool
             Enforce the mixture density constraint over the whole score range, not just
             where the densities are non-negligible.
@@ -402,27 +515,24 @@ class Dataset:
         Raises
         ------
         ValueError
-            If a variant appears more than once (pool first with
+            If `gnomad` (or both `clinvar` and a gnomAD CSV's ClinVar column) was not
+            run, if a variant appears more than once (pool first with
             `OvwtScores.per_variant` or `Profiles.median_across_batches`), if gnomAD has
             fewer than 5 scored variants, or if no control group has at least 5. Smaller
             control groups (5 to 9) log a warning and give ``calibration.reliable ==
             False``.
         """
-        from .calibration._dataset import calibrate
+        from .calibration._dataset import excalibr
 
-        return calibrate(
+        return excalibr(
             self,
             score,
-            gnomad=gnomad,
-            clinvar=clinvar,
             direction=direction,
             benign_method=benign_method,
             n_components=n_components,
             n_bootstrap=n_bootstrap,
             n_restarts=n_restarts,
             prior=prior,
-            splice_max=splice_max,
-            min_stars=min_stars,
             strict_constraint=strict_constraint,
             out_of_bag=out_of_bag,
             seed=seed,
@@ -440,7 +550,7 @@ class Dataset:
         """Score ``score`` with a fitted `Calibration` (or a path to one saved with
         `Calibration.to_json`) without refitting. Adds ``<prefix>_lr``,
         ``<prefix>_posterior`` and ``<prefix>_points``; ``score`` defaults to the column
-        the calibration was fit on. Eager, like `calibrate`."""
+        the calibration was fit on. Eager, like `excalibr`."""
         from .calibration._dataset import apply_calibration
 
         return apply_calibration(self, calibration, score, prefix=prefix)
