@@ -32,6 +32,9 @@ Config file
     feature_allowlist_file: null      # optional, default null (no allowlist)
     feature_blocklist_file: null      # optional, default null (no blocklist)
     csv_schema_scan_rows: 100         # optional, default 100
+    barcode_col: upBarcode            # optional, raw name of the barcode column
+    aa_changes_col: aaChanges         # optional, raw name of the aa-changes column
+    edit_distance_col: editDistance   # optional, raw name of the edit-distance column
 
 ``feature_allowlist_file`` / ``feature_blocklist_file`` each point to a plain
 text file with one fnmatch-style glob pattern per line (e.g.
@@ -39,6 +42,12 @@ text file with one fnmatch-style glob pattern per line (e.g.
 is given, only feature columns matching at least one of its patterns are
 kept; if a blocklist is also given, matching columns are then dropped from
 what remains (allowlist is applied first).
+
+``barcode_col`` / ``aa_changes_col`` / ``edit_distance_col`` name the three identity
+columns in this experiment's raw files, for experiments that renamed them. Whatever they are
+called, the output has ``upBarcode`` and ``aaChanges`` (String) and ``editDistance`` (Int64):
+the columns are renamed to those and cast. A float edit distance (nulls allowed) is cast to
+Int64 if every non-null value is a whole number, and an error otherwise.
 
 ``csv_schema_scan_rows`` controls how many rows of each CSV ``input_paths``
 source are scanned to infer column dtypes (forwarded to polars
@@ -72,11 +81,11 @@ from .config import AppConfig
 
 logger = logging.getLogger(__name__)
 
-barcode_col = cs.by_name("upBarcode")
-aa_changes_col = cs.by_name("aaChanges")
-edit_distance_col = cs.by_name("editDistance")
+# The output's identity columns, which QC_FILTER reads (conf/modules.config).
+BARCODE_COL = "upBarcode"
+AA_CHANGES_COL = "aaChanges"
+EDIT_DISTANCE_COL = "editDistance"
 
-IDENTITY_COLUMNS = {"upBarcode", "editDistance", "aaChanges"}
 KNOWN_METADATA_COLUMNS = {
     "origin_file",
     "origin_row_idx",
@@ -163,28 +172,71 @@ def _matches_any(name: str, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatchcase(name, p) for p in patterns)
 
 
+def _canonical_identity_columns(
+    lf: pl.LazyFrame, barcode_col: str, aa_changes_col: str, edit_distance_col: str
+) -> pl.LazyFrame:
+    """
+    Rename the raw identity columns to ``upBarcode``/``aaChanges``/``editDistance`` and cast
+    them to String/String/Int64.
+
+    A non-integral edit distance raises rather than being truncated; nulls are kept (QC_FILTER's
+    edit-distance filter drops them).
+    """
+    raw = {
+        BARCODE_COL: barcode_col,
+        AA_CHANGES_COL: aa_changes_col,
+        EDIT_DISTANCE_COL: edit_distance_col,
+    }
+    schema_names = lf.collect_schema().names()
+    missing = [name for name in raw.values() if name not in schema_names]
+    if missing:
+        raise ValueError(f"Identity column(s) {missing} not found in the input columns")
+
+    edit_distance = pl.col(edit_distance_col)
+    if lf.collect_schema()[edit_distance_col].is_float():
+        fractional = lf.select((edit_distance != edit_distance.round()).any()).collect()
+        if fractional.item():
+            raise ValueError(
+                f"Edit distance column {edit_distance_col!r} has non-integer values"
+            )
+
+    return lf.with_columns(
+        pl.col(barcode_col).cast(pl.String).alias(BARCODE_COL),
+        pl.col(aa_changes_col).cast(pl.String).alias(AA_CHANGES_COL),
+        edit_distance.cast(pl.Int64).alias(EDIT_DISTANCE_COL),
+    )
+
+
 def select_output_columns(
     lf: pl.LazyFrame,
     feature_allowlist: list[str] | None = None,
     feature_blocklist: list[str] | None = None,
+    barcode_col: str = BARCODE_COL,
+    aa_changes_col: str = AA_CHANGES_COL,
+    edit_distance_col: str = EDIT_DISTANCE_COL,
 ) -> pl.LazyFrame:
     """
     Split columns into numeric feature columns vs. everything else. Barcode,
-    edit distance, and aaChanges are kept unprefixed; every other non-feature
-    column (including origin_file/origin_row_idx) is auto-prefixed with
-    'meta_'.
+    edit distance, and aaChanges are renamed to ``upBarcode``, ``editDistance`` and
+    ``aaChanges`` and cast to String, Int64 and String (see
+    :func:`_canonical_identity_columns`); every other non-feature column (including
+    origin_file/origin_row_idx) is auto-prefixed with 'meta_'.
+
+    ``barcode_col``, ``aa_changes_col`` and ``edit_distance_col`` are the raw names of the
+    three identity columns, for inputs that renamed them.
 
     If `feature_allowlist` is given, only feature columns matching at least
     one of its fnmatch glob patterns are kept. If `feature_blocklist` is also
     given, feature columns matching any of its patterns are then dropped from
     what remains (allowlist is applied first).
     """
+    identity_columns = {barcode_col, aa_changes_col, edit_distance_col}
     schema_names = lf.collect_schema().names()
 
     feature_cols = [
         c
         for c in schema_names
-        if c not in IDENTITY_COLUMNS
+        if c not in identity_columns
         and c not in KNOWN_METADATA_COLUMNS
         and not c.startswith("meta_")
     ]
@@ -197,11 +249,10 @@ def select_output_columns(
 
     metadata_cols = [c for c in schema_names if c in KNOWN_METADATA_COLUMNS]
 
+    lf = _canonical_identity_columns(lf, barcode_col, aa_changes_col, edit_distance_col)
     return lf.select(
         cs.by_name(*feature_cols),
-        barcode_col,
-        edit_distance_col,
-        aa_changes_col,
+        cs.by_name(BARCODE_COL, EDIT_DISTANCE_COL, AA_CHANGES_COL),
         cs.by_name(*metadata_cols).name.prefix("meta_"),
     )
 
@@ -254,7 +305,14 @@ def main(cfg: DictConfig) -> None:
     data_lf = load_and_concat(input_paths, infer_schema_length=csv_schema_scan_rows)
 
     logger.info("Selecting output columns")
-    combined_lf = select_output_columns(data_lf, feature_allowlist, feature_blocklist)
+    combined_lf = select_output_columns(
+        data_lf,
+        feature_allowlist,
+        feature_blocklist,
+        barcode_col=config.get("barcode_col") or BARCODE_COL,
+        aa_changes_col=config.get("aa_changes_col") or AA_CHANGES_COL,
+        edit_distance_col=config.get("edit_distance_col") or EDIT_DISTANCE_COL,
+    )
 
     prefix = f"{in_cfg.output_root}." if in_cfg.output_root is not None else ""
     output_path = output_dir / f"{prefix}output.parquet"

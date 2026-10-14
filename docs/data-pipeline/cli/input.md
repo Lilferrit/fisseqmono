@@ -31,6 +31,9 @@ input_paths: [/path/to/file1.parquet, /path/to/file2.csv]
 feature_allowlist_file: null      # optional, default null (no allowlist)
 feature_blocklist_file: null      # optional, default null (no blocklist)
 csv_schema_scan_rows: 100         # optional, default 100
+barcode_col: upBarcode            # optional, raw name of the barcode column
+aa_changes_col: aaChanges         # optional, raw name of the aa-changes column
+edit_distance_col: editDistance   # optional, raw name of the edit-distance column
 ```
 
 - `input_paths` — one or more raw cell-score files (CSV or Parquet), concatenated.
@@ -50,9 +53,16 @@ csv_schema_scan_rows: 100         # optional, default 100
   instead — slower, but avoids mis-inferred dtypes on columns whose
   non-null/non-integer values only appear after the scanned prefix. Has no
   effect on parquet sources.
+- `barcode_col` / `aa_changes_col` / `edit_distance_col` — optional, the raw
+  names of the three identity columns, for experiments whose files renamed
+  them. Whatever they are called, the output has `upBarcode` and `aaChanges`
+  (String) and `editDistance` (Int64): the columns are renamed and cast. A
+  float edit distance (nulls allowed) is cast if every non-null value is a
+  whole number, and is an error otherwise.
 Except for `input_paths`, every field above is also a
 plain `params.yaml` pipeline-wide default (`params.feature_allowlist_file`,
-`params.feature_blocklist_file`, `params.csv_schema_scan_rows`) — set one on
+`params.feature_blocklist_file`, `params.csv_schema_scan_rows`, `params.barcode_col`, `params.aa_changes_col`,
+`params.edit_distance_col`) — set one on
 the command line or in `params.yaml` to apply it to every experiment, and/or
 override it for one experiment in its `experiments:` entry. See
 [Declaring experiments](../configuration.md#declaring-experiments).

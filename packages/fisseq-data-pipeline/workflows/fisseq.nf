@@ -17,7 +17,7 @@ nextflow.enable.dsl = 2
 // Experiments are declared as a list of maps under `experiments:` in
 // params.yaml (loaded with -params-file); there is no <pipeline_dir>/configs/
 // directory and no per-experiment override of arbitrary pipeline params. Each
-// entry carries only batch_stem, input_paths, and the three optional INPUT-stage fields, which fall back to their
+// entry carries only batch_stem, input_paths, and the optional INPUT-stage fields, which fall back to their
 // pipeline-wide defaults when omitted. Every other parameter -- including
 // every run gate and the single params.random_seed -- is pipeline-wide.
 
@@ -47,6 +47,9 @@ def experimentKeys() {
         'feature_allowlist_file',
         'feature_blocklist_file',
         'csv_schema_scan_rows',
+        'barcode_col',
+        'aa_changes_col',
+        'edit_distance_col',
     ] as Set
 }
 
@@ -219,6 +222,9 @@ workflow FisseqPipeline {
             feature_allowlist_file: entry.containsKey('feature_allowlist_file') ? entry.feature_allowlist_file : params.feature_allowlist_file,
             feature_blocklist_file: entry.containsKey('feature_blocklist_file') ? entry.feature_blocklist_file : params.feature_blocklist_file,
             csv_schema_scan_rows  : entry.containsKey('csv_schema_scan_rows') ? entry.csv_schema_scan_rows : params.csv_schema_scan_rows,
+            barcode_col           : entry.containsKey('barcode_col') ? entry.barcode_col : params.barcode_col,
+            aa_changes_col        : entry.containsKey('aa_changes_col') ? entry.aa_changes_col : params.aa_changes_col,
+            edit_distance_col     : entry.containsKey('edit_distance_col') ? entry.edit_distance_col : params.edit_distance_col,
         ]
     }
     def batch_stems = params.experiments.collect { experiment -> experiment.batch_stem }
@@ -232,7 +238,8 @@ workflow FisseqPipeline {
     config_ch = channel.fromList(resolvedExperiments.keySet() as List).map { batch_stem ->
         def cfg = resolvedExperiments[batch_stem]
         tuple(batch_stem, cfg.input_paths, cfg.feature_allowlist_file,
-              cfg.feature_blocklist_file, cfg.csv_schema_scan_rows)
+              cfg.feature_blocklist_file, cfg.csv_schema_scan_rows,
+              cfg.barcode_col, cfg.aa_changes_col, cfg.edit_distance_col)
     }
     input_ch = INPUT(config_ch)
 
