@@ -52,6 +52,7 @@ An entry may set **only** these keys:
 | `feature_allowlist_file` | no | INPUT-stage; falls back to the pipeline-wide default. |
 | `feature_blocklist_file` | no | Likewise. |
 | `csv_schema_scan_rows` | no | Likewise. |
+| `barcode_col`, `aa_changes_col`, `edit_distance_col` | no | Likewise; the raw names of the identity columns, when an experiment renamed them. |
 
 Any other key is **rejected with an error naming it**, rather than silently
 ignored. If you want to change a QC threshold or an OvWT hyperparameter, set it
@@ -124,6 +125,9 @@ All pipeline-wide.
 | `feature_allowlist_file` | `null` | Restrict to these feature columns. |
 | `feature_blocklist_file` | `null` | Drop these feature columns. |
 | `csv_schema_scan_rows` | `100` | Rows scanned to infer CSV dtypes; `null` scans every row. No effect on parquet sources. |
+| `barcode_col` | `"upBarcode"` | Raw name of the barcode column. INPUT renames it to `upBarcode` and casts it to String. |
+| `aa_changes_col` | `"aaChanges"` | Raw name of the aa-changes column; renamed to `aaChanges`, String. |
+| `edit_distance_col` | `"editDistance"` | Raw name of the edit-distance column; renamed to `editDistance` and cast to Int64 (whole-number floats and nulls are fine). |
 
 ### QC_FILTER
 

@@ -32,6 +32,9 @@ experiments: []
 #   feature_allowlist_file  OPTIONAL, INPUT-stage. Falls back to the
 #   feature_blocklist_file  pipeline-wide default below when omitted; an
 #   csv_schema_scan_rows    entry's own value always wins.
+#   barcode_col             OPTIONAL, INPUT-stage: the raw names of the barcode,
+#   aa_changes_col          aa-changes and edit-distance columns, for experiments that
+#   edit_distance_col       renamed them. Same fallback rule.
 #
 # Any other key is rejected with an error naming it, rather than silently
 # ignored -- if you want to change a QC threshold or an OvWT hyperparameter,
@@ -86,6 +89,13 @@ feature_blocklist_file: null
 # (slower, but avoids mis-inferred dtypes on sparse/late-appearing values). No
 # effect on parquet sources.
 csv_schema_scan_rows: 100
+# Raw names of the three identity columns. INPUT renames them to upBarcode /
+# aaChanges / editDistance and casts them (String / String / Int64), so an
+# experiment whose files use other names or odd dtypes overrides them in its
+# own experiments: entry.
+barcode_col: "upBarcode"
+aa_changes_col: "aaChanges"
+edit_distance_col: "editDistance"
 
 # ── QC filtering (QC_FILTER) ────────────────────────────────────────────────
 barcode_count_threshold: 10

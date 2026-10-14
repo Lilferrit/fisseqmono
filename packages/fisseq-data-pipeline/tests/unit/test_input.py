@@ -386,3 +386,58 @@ def test_main_csv_schema_scan_rows_override_infers_correct_dtype(tmp_path):
 
     result = pl.read_parquet(tmp_path / "out" / "output.parquet")
     assert result["b"].dtype == pl.Float64
+
+
+# ---------------------------------------------------------------------------
+# per-experiment identity column names and dtypes
+# ---------------------------------------------------------------------------
+
+
+def test_select_output_columns_renames_and_casts_identity_columns():
+    lf = pl.DataFrame(
+        {
+            "upBarcode": ["a", "b", "c"],
+            "aa_changes": ["WT", "M1K", "M1K"],
+            "edit_distance": [0.0, None, 1.0],
+            "Cells_Area": [1.0, 2.0, 3.0],
+        }
+    ).lazy()
+
+    out = select_output_columns(
+        lf, aa_changes_col="aa_changes", edit_distance_col="edit_distance"
+    ).collect()
+
+    assert out.columns == ["Cells_Area", "upBarcode", "editDistance", "aaChanges"]
+    assert out.schema["editDistance"] == pl.Int64
+    assert out["editDistance"].to_list() == [0, None, 1]
+    assert out["aaChanges"].to_list() == ["WT", "M1K", "M1K"]
+
+
+def test_select_output_columns_casts_default_named_columns():
+    lf = pl.DataFrame(
+        {"upBarcode": [1, 2], "aaChanges": ["WT", "M1K"], "editDistance": [0.0, 1.0]}
+    ).lazy()
+
+    out = select_output_columns(lf).collect()
+
+    assert out.schema == {
+        "upBarcode": pl.String,
+        "editDistance": pl.Int64,
+        "aaChanges": pl.String,
+    }
+
+
+def test_select_output_columns_rejects_fractional_edit_distance():
+    lf = pl.DataFrame(
+        {"upBarcode": ["a"], "aaChanges": ["WT"], "editDistance": [0.5]}
+    ).lazy()
+
+    with pytest.raises(ValueError, match="non-integer"):
+        select_output_columns(lf).collect()
+
+
+def test_select_output_columns_missing_identity_column():
+    lf = pl.DataFrame({"upBarcode": ["a"], "aaChanges": ["WT"]}).lazy()
+
+    with pytest.raises(ValueError, match="edit_distance"):
+        select_output_columns(lf, edit_distance_col="edit_distance")
