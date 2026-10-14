@@ -1,0 +1,3974 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="fisseq-common, fisseq-data-pipeline, fisseq-embeddings-pipeline and fisseqborn">
+      
+      
+      
+      
+        <link rel="prev" href="../cp_features/">
+      
+      
+        <link rel="next" href="../utils/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>config - FISSEQ</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../../data-pipeline/stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#api-config" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="FISSEQ" class="md-header__button md-logo" aria-label="FISSEQ" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            FISSEQ
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              config
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Lilferrit/fisseqmono" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Lilferrit/fisseqmono
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../common/" class="md-tabs__link">
+          
+  
+  
+  fisseq-common
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../data-pipeline/" class="md-tabs__link">
+          
+  
+  
+  Data pipeline
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../../" class="md-tabs__link">
+          
+  
+  
+  Embeddings pipeline
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../fisseqborn/" class="md-tabs__link">
+          
+  
+  
+  fisseqborn
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../diff-reports/" class="md-tabs__link">
+          
+  
+  
+  Diff reports
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="FISSEQ" class="md-nav__button md-logo" aria-label="FISSEQ" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    FISSEQ
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Lilferrit/fisseqmono" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Lilferrit/fisseqmono
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fisseq-common
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    fisseq-common
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../common/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../common/stages/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shared stages
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../common/nextflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shared Nextflow modules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../common/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data pipeline
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Data pipeline
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../data-pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../data-pipeline/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../data-pipeline/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../data-pipeline/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../data-pipeline/nextflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nextflow Workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../data-pipeline/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_7" id="__nav_3_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    CLI Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../data-pipeline/cli/input/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Input
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../data-pipeline/cli/aggregate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Standalone aggregate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_8" id="__nav_3_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../data-pipeline/api/input/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    input
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../data-pipeline/api/aggregate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    aggregate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../data-pipeline/api/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../data-pipeline/walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Embeddings pipeline
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Embeddings pipeline
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../nextflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nextflow Workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_7" id="__nav_4_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Stage Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/build_cell_images_prepare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cell Images, Phase 1: Prepare (BUILD_CELL_IMAGES)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/tile_shard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cell Images, Phase 2: Cell Shards (make_cell_shard, inside BUILD_CELL_IMAGES)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/well_shards/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cell Images, Phase 2: Well Shards (make_well_shards, inside BUILD_CELL_IMAGES)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/build_cell_images_table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cell Images, Phase 3: Build Table (BUILD_CELL_IMAGES)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/cell_metadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cell Metadata (BUILD_CELL_METADATA)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/embed/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cell Embeddings (EMBED_CELLS)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/cp_features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CellProfiler Feature Dataset (BUILD_CP_FEATURES)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_8" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4_8" id="__nav_4_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_8_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../build_cell_images_prepare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    build_cell_images_prepare
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tile_shard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    tile_shard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../well_shards/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    well_shards
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../build_cell_images_table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    build_cell_images_table
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cell_metadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    cell_metadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../embed/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    embed
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cp_features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    cp_features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#params-validation-and-routing-plan_experiments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Params validation and routing (PLAN_EXPERIMENTS)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Params validation and routing (PLAN_EXPERIMENTS)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fisseq_embeddings_pipeline.config.experiments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        experiments
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="experiments">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fisseq_embeddings_pipeline.config.experiments.cell_images_overrides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        cell_images_overrides
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fisseq_embeddings_pipeline.config.experiments.cell_table_overrides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        cell_table_overrides
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fisseq_embeddings_pipeline.config.experiments.hydra_overrides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        hydra_overrides
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fisseq_embeddings_pipeline.config.experiments.main" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        main
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fisseq_embeddings_pipeline.config.experiments.plan_experiments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        plan_experiments
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fisseq_embeddings_pipeline.config.experiments.validate_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        validate_config
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    utils
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fisseqborn
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    fisseqborn
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../fisseqborn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_2" id="__nav_5_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../fisseqborn/concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../fisseqborn/theme/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The fisseq theme
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../fisseqborn/data/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loading pipeline outputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../fisseqborn/calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evidence calibration (ExCALIBR)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_3" id="__nav_5_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plots
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Plots
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../fisseqborn/plots/box/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boxplots
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../fisseqborn/plots/embedding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Embeddings (UMAP / PCA)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../fisseqborn/plots/correlation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Correlation scatter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../fisseqborn/plots/roc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ROC curves
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../fisseqborn/plots/heatmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Heatmaps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../fisseqborn/plots/clustermap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Clustermaps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../fisseqborn/plots/variant-map/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Variant effect maps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../fisseqborn/plots/explained-variance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Explained variance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../fisseqborn/plots/pairplot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pair plots
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../fisseqborn/plots/volcano/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Volcano plots
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../fisseqborn/plots/calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../fisseqborn/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Diff reports
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Diff reports
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../diff-reports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../diff-reports/01-metadata-counts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    01 Metadata counts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../diff-reports/02-normalize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    02 Normalize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../diff-reports/03-feature-selection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    03 Feature selection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../diff-reports/04-fisseqborn-global/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    04 fisseqborn global
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../diff-reports/05-row-order/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    05 Row order
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../diff-reports/06-no-pycytominer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    06 No pycytominer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../diff-reports/07-unified-pipelines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    07 Unify the embeddings pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../diff-reports/08-well-shards/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    08 Per-well shards
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../diff-reports/09-cell-table-parity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    09 Cell table parity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#params-validation-and-routing-plan_experiments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Params validation and routing (PLAN_EXPERIMENTS)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Params validation and routing (PLAN_EXPERIMENTS)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fisseq_embeddings_pipeline.config.experiments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        experiments
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="experiments">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fisseq_embeddings_pipeline.config.experiments.cell_images_overrides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        cell_images_overrides
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fisseq_embeddings_pipeline.config.experiments.cell_table_overrides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        cell_table_overrides
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fisseq_embeddings_pipeline.config.experiments.hydra_overrides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        hydra_overrides
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fisseq_embeddings_pipeline.config.experiments.main" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        main
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fisseq_embeddings_pipeline.config.experiments.plan_experiments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        plan_experiments
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fisseq_embeddings_pipeline.config.experiments.validate_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        validate_config
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="api-config">API: config<a class="headerlink" href="#api-config" title="Permanent link">&para;</a></h1>
+<p>Shared Hydra structured config base classes -- see
+<a href="../../architecture/">Architecture</a> for the design behind <code>random_seed</code>
+being defined once here rather than per-stage.</p>
+<p>See <a href="../../../common/api/#fisseq_common.stages.config"><code>fisseq_common.stages.config</code></a> (fisseq-common).</p>
+<h2 id="params-validation-and-routing-plan_experiments">Params validation and routing (<code>PLAN_EXPERIMENTS</code>)<a class="headerlink" href="#params-validation-and-routing-plan_experiments" title="Permanent link">&para;</a></h2>
+
+
+<div class="doc doc-object doc-module">
+
+
+
+<h3 id="fisseq_embeddings_pipeline.config.experiments" class="doc doc-heading">
+            <span class="doc doc-object-name doc-module-name">fisseq_embeddings_pipeline.config.experiments</span>
+
+
+<a href="#fisseq_embeddings_pipeline.config.experiments" class="headerlink" title="Permanent link">&para;</a></h3>
+
+    <div class="doc doc-contents first">
+
+        <p>Validation and per-experiment field routing for <code>params.yaml</code>.</p>
+<p>The workflow's first task (<code>PLAN_EXPERIMENTS</code>, <code>modules/local/
+plan_experiments</code>) runs this module's :func:<code>main</code> over the run's params,
+serialized to JSON, and gets back one plan per experiment: every stage's
+Hydra override string, already rendered. Keeping validation and routing
+here rather than in <code>workflows/embeddings.nf</code>'s Groovy makes it ordinary,
+unit-testable Python, and running it as a task (rather than at workflow
+parse time) means it runs inside the pipeline image like everything else.</p>
+<p>The routing contract:</p>
+<ul>
+<li><code>BUILD_CELL_IMAGES</code> is the only stage that touches starcall-workflow's
+  tree, so every starcall-facing key (:data:<code>CELL_IMAGES_FIELDS</code>) routes
+  to it and to nothing else. That includes the <code>*_col_name</code> overrides
+  naming the reads tables' genotype columns: <code>BUILD_CELL_IMAGES</code> renames
+  them to <code>meta_*</code> in both <code>cell_table.parquet</code> and the shards.</li>
+<li><code>BUILD_CELL_METADATA</code> and <code>BUILD_CP_FEATURES</code> both get whatever
+  keys are left after excluding the starcall-facing set plus
+  <code>batch_stem</code> and <code>cp_features</code> -- none of their own fields today, so
+  a stray key fails there. <code>cell_table</code>/<code>cell_images_dir</code> are injected
+  by the workflow from <code>BUILD_CELL_IMAGES</code>' own output, never set by the
+  user.</li>
+<li><code>window</code>, <code>cellprofiler_pipeline</code> and <code>cellprofiler_cycle</code> each
+  have a pipeline-wide default in <code>params.yaml</code>; an entry that doesn't
+  set its own value inherits it. An entry's own value always wins.
+  <code>window</code> is the crop size each tile's shard is cut at, so it routes to
+  <code>BUILD_CELL_IMAGES</code> -- it names the shard target. <code>shard_size</code>
+  (cells per WebDataset shard) works the same way.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="fisseq_embeddings_pipeline.config.experiments.cell_images_overrides" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">cell_images_overrides</span>
+
+
+<a href="#fisseq_embeddings_pipeline.config.experiments.cell_images_overrides" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">cell_images_overrides</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">entry</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The <code>BUILD_CELL_IMAGES</code>-bound Hydra overrides for one experiment.</p>
+<p>:data:<code>CELL_IMAGES_FIELDS</code> only, with the <code>window</code>/<code>shard_size</code>/
+<code>cellprofiler_pipeline</code>/<code>cellprofiler_cycle</code> global fallbacks
+applied.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>packages/fisseq-embeddings-pipeline/src/fisseq_embeddings_pipeline/config/experiments.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-396">396</a></span>
+<span class="normal"><a href="#__codelineno-0-397">397</a></span>
+<span class="normal"><a href="#__codelineno-0-398">398</a></span>
+<span class="normal"><a href="#__codelineno-0-399">399</a></span>
+<span class="normal"><a href="#__codelineno-0-400">400</a></span>
+<span class="normal"><a href="#__codelineno-0-401">401</a></span>
+<span class="normal"><a href="#__codelineno-0-402">402</a></span>
+<span class="normal"><a href="#__codelineno-0-403">403</a></span>
+<span class="normal"><a href="#__codelineno-0-404">404</a></span>
+<span class="normal"><a href="#__codelineno-0-405">405</a></span>
+<span class="normal"><a href="#__codelineno-0-406">406</a></span>
+<span class="normal"><a href="#__codelineno-0-407">407</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-396" name="__codelineno-0-396"></a><span class="k">def</span><span class="w"> </span><span class="nf">cell_images_overrides</span><span class="p">(</span>
+<a id="__codelineno-0-397" name="__codelineno-0-397"></a>    <span class="n">entry</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+<a id="__codelineno-0-398" name="__codelineno-0-398"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<a id="__codelineno-0-399" name="__codelineno-0-399"></a><span class="w">    </span><span class="sd">"""</span>
+<a id="__codelineno-0-400" name="__codelineno-0-400"></a><span class="sd">    The ``BUILD_CELL_IMAGES``-bound Hydra overrides for one experiment.</span>
+<a id="__codelineno-0-401" name="__codelineno-0-401"></a>
+<a id="__codelineno-0-402" name="__codelineno-0-402"></a><span class="sd">    :data:`CELL_IMAGES_FIELDS` only, with the ``window``/``shard_size``/</span>
+<a id="__codelineno-0-403" name="__codelineno-0-403"></a><span class="sd">    ``cellprofiler_pipeline``/``cellprofiler_cycle`` global fallbacks</span>
+<a id="__codelineno-0-404" name="__codelineno-0-404"></a><span class="sd">    applied.</span>
+<a id="__codelineno-0-405" name="__codelineno-0-405"></a><span class="sd">    """</span>
+<a id="__codelineno-0-406" name="__codelineno-0-406"></a>    <span class="n">overrides</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">entry</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">CELL_IMAGES_FIELDS</span><span class="p">}</span>
+<a id="__codelineno-0-407" name="__codelineno-0-407"></a>    <span class="k">return</span> <span class="n">_with_fallbacks</span><span class="p">(</span><span class="n">overrides</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">_CELL_IMAGES_FALLBACKS</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="fisseq_embeddings_pipeline.config.experiments.cell_table_overrides" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">cell_table_overrides</span>
+
+
+<a href="#fisseq_embeddings_pipeline.config.experiments.cell_table_overrides" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">cell_table_overrides</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">entry</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The Hydra overrides for one experiment's two <code>cell_table.parquet</code>
+readers, <code>BUILD_CELL_METADATA</code> and <code>BUILD_CP_FEATURES</code>.</p>
+<p>Everything the starcall-facing set and :data:<code>_NON_STAGE_FIELDS</code> don't
+claim. Neither stage has a per-experiment field of its own any more
+(the <code>*_col_name</code> overrides moved to <code>BUILD_CELL_IMAGES</code>), so in
+practice this is empty, and a key nothing claims fails in those
+stages' Hydra config. <code>cell_table</code>/<code>cell_images_dir</code> are injected by
+the workflow, not here.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>packages/fisseq-embeddings-pipeline/src/fisseq_embeddings_pipeline/config/experiments.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-410">410</a></span>
+<span class="normal"><a href="#__codelineno-0-411">411</a></span>
+<span class="normal"><a href="#__codelineno-0-412">412</a></span>
+<span class="normal"><a href="#__codelineno-0-413">413</a></span>
+<span class="normal"><a href="#__codelineno-0-414">414</a></span>
+<span class="normal"><a href="#__codelineno-0-415">415</a></span>
+<span class="normal"><a href="#__codelineno-0-416">416</a></span>
+<span class="normal"><a href="#__codelineno-0-417">417</a></span>
+<span class="normal"><a href="#__codelineno-0-418">418</a></span>
+<span class="normal"><a href="#__codelineno-0-419">419</a></span>
+<span class="normal"><a href="#__codelineno-0-420">420</a></span>
+<span class="normal"><a href="#__codelineno-0-421">421</a></span>
+<span class="normal"><a href="#__codelineno-0-422">422</a></span>
+<span class="normal"><a href="#__codelineno-0-423">423</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-410" name="__codelineno-0-410"></a><span class="k">def</span><span class="w"> </span><span class="nf">cell_table_overrides</span><span class="p">(</span><span class="n">entry</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<a id="__codelineno-0-411" name="__codelineno-0-411"></a><span class="w">    </span><span class="sd">"""</span>
+<a id="__codelineno-0-412" name="__codelineno-0-412"></a><span class="sd">    The Hydra overrides for one experiment's two ``cell_table.parquet``</span>
+<a id="__codelineno-0-413" name="__codelineno-0-413"></a><span class="sd">    readers, ``BUILD_CELL_METADATA`` and ``BUILD_CP_FEATURES``.</span>
+<a id="__codelineno-0-414" name="__codelineno-0-414"></a>
+<a id="__codelineno-0-415" name="__codelineno-0-415"></a><span class="sd">    Everything the starcall-facing set and :data:`_NON_STAGE_FIELDS` don't</span>
+<a id="__codelineno-0-416" name="__codelineno-0-416"></a><span class="sd">    claim. Neither stage has a per-experiment field of its own any more</span>
+<a id="__codelineno-0-417" name="__codelineno-0-417"></a><span class="sd">    (the ``*_col_name`` overrides moved to ``BUILD_CELL_IMAGES``), so in</span>
+<a id="__codelineno-0-418" name="__codelineno-0-418"></a><span class="sd">    practice this is empty, and a key nothing claims fails in those</span>
+<a id="__codelineno-0-419" name="__codelineno-0-419"></a><span class="sd">    stages' Hydra config. ``cell_table``/``cell_images_dir`` are injected by</span>
+<a id="__codelineno-0-420" name="__codelineno-0-420"></a><span class="sd">    the workflow, not here.</span>
+<a id="__codelineno-0-421" name="__codelineno-0-421"></a><span class="sd">    """</span>
+<a id="__codelineno-0-422" name="__codelineno-0-422"></a>    <span class="n">excluded</span> <span class="o">=</span> <span class="n">CELL_IMAGES_FIELDS</span> <span class="o">|</span> <span class="n">_NON_STAGE_FIELDS</span>
+<a id="__codelineno-0-423" name="__codelineno-0-423"></a>    <span class="k">return</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">entry</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">k</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">excluded</span><span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="fisseq_embeddings_pipeline.config.experiments.hydra_overrides" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">hydra_overrides</span>
+
+
+<a href="#fisseq_embeddings_pipeline.config.experiments.hydra_overrides" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">hydra_overrides</span><span class="p">(</span><span class="n">mapping</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Render a mapping as a space-separated Hydra CLI override string.</p>
+<p>Lists become Hydra's bracket syntax, single-quoted so the shell
+doesn't split or glob them; booleans are lowercased to match YAML/Hydra
+spelling (Python's <code>True</code> is not a valid Hydra boolean). Scalars are
+passed through bare, matching the Groovy idiom this replaces.</p>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">hydra_overrides</span><span class="p">({</span><span class="s2">"wells"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"w1"</span><span class="p">,</span> <span class="s2">"w2"</span><span class="p">],</span> <span class="s2">"grid_size"</span><span class="p">:</span> <span class="mi">8</span><span class="p">})</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="go">"'wells=[w1,w2]' grid_size=8"</span>
+</code></pre></div>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>packages/fisseq-embeddings-pipeline/src/fisseq_embeddings_pipeline/config/experiments.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-426">426</a></span>
+<span class="normal"><a href="#__codelineno-0-427">427</a></span>
+<span class="normal"><a href="#__codelineno-0-428">428</a></span>
+<span class="normal"><a href="#__codelineno-0-429">429</a></span>
+<span class="normal"><a href="#__codelineno-0-430">430</a></span>
+<span class="normal"><a href="#__codelineno-0-431">431</a></span>
+<span class="normal"><a href="#__codelineno-0-432">432</a></span>
+<span class="normal"><a href="#__codelineno-0-433">433</a></span>
+<span class="normal"><a href="#__codelineno-0-434">434</a></span>
+<span class="normal"><a href="#__codelineno-0-435">435</a></span>
+<span class="normal"><a href="#__codelineno-0-436">436</a></span>
+<span class="normal"><a href="#__codelineno-0-437">437</a></span>
+<span class="normal"><a href="#__codelineno-0-438">438</a></span>
+<span class="normal"><a href="#__codelineno-0-439">439</a></span>
+<span class="normal"><a href="#__codelineno-0-440">440</a></span>
+<span class="normal"><a href="#__codelineno-0-441">441</a></span>
+<span class="normal"><a href="#__codelineno-0-442">442</a></span>
+<span class="normal"><a href="#__codelineno-0-443">443</a></span>
+<span class="normal"><a href="#__codelineno-0-444">444</a></span>
+<span class="normal"><a href="#__codelineno-0-445">445</a></span>
+<span class="normal"><a href="#__codelineno-0-446">446</a></span>
+<span class="normal"><a href="#__codelineno-0-447">447</a></span>
+<span class="normal"><a href="#__codelineno-0-448">448</a></span>
+<span class="normal"><a href="#__codelineno-0-449">449</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-426" name="__codelineno-0-426"></a><span class="k">def</span><span class="w"> </span><span class="nf">hydra_overrides</span><span class="p">(</span><span class="n">mapping</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-0-427" name="__codelineno-0-427"></a><span class="w">    </span><span class="sd">"""</span>
+<a id="__codelineno-0-428" name="__codelineno-0-428"></a><span class="sd">    Render a mapping as a space-separated Hydra CLI override string.</span>
+<a id="__codelineno-0-429" name="__codelineno-0-429"></a>
+<a id="__codelineno-0-430" name="__codelineno-0-430"></a><span class="sd">    Lists become Hydra's bracket syntax, single-quoted so the shell</span>
+<a id="__codelineno-0-431" name="__codelineno-0-431"></a><span class="sd">    doesn't split or glob them; booleans are lowercased to match YAML/Hydra</span>
+<a id="__codelineno-0-432" name="__codelineno-0-432"></a><span class="sd">    spelling (Python's ``True`` is not a valid Hydra boolean). Scalars are</span>
+<a id="__codelineno-0-433" name="__codelineno-0-433"></a><span class="sd">    passed through bare, matching the Groovy idiom this replaces.</span>
+<a id="__codelineno-0-434" name="__codelineno-0-434"></a>
+<a id="__codelineno-0-435" name="__codelineno-0-435"></a><span class="sd">    Examples</span>
+<a id="__codelineno-0-436" name="__codelineno-0-436"></a><span class="sd">    --------</span>
+<a id="__codelineno-0-437" name="__codelineno-0-437"></a><span class="sd">    &gt;&gt;&gt; hydra_overrides({"wells": ["w1", "w2"], "grid_size": 8})</span>
+<a id="__codelineno-0-438" name="__codelineno-0-438"></a><span class="sd">    "'wells=[w1,w2]' grid_size=8"</span>
+<a id="__codelineno-0-439" name="__codelineno-0-439"></a><span class="sd">    """</span>
+<a id="__codelineno-0-440" name="__codelineno-0-440"></a>    <span class="n">parts</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-441" name="__codelineno-0-441"></a>    <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">mapping</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+<a id="__codelineno-0-442" name="__codelineno-0-442"></a>        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)):</span>
+<a id="__codelineno-0-443" name="__codelineno-0-443"></a>            <span class="n">joined</span> <span class="o">=</span> <span class="s2">","</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">value</span><span class="p">)</span>
+<a id="__codelineno-0-444" name="__codelineno-0-444"></a>            <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"'</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">=[</span><span class="si">{</span><span class="n">joined</span><span class="si">}</span><span class="s2">]'"</span><span class="p">)</span>
+<a id="__codelineno-0-445" name="__codelineno-0-445"></a>        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">bool</span><span class="p">):</span>
+<a id="__codelineno-0-446" name="__codelineno-0-446"></a>            <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<a id="__codelineno-0-447" name="__codelineno-0-447"></a>        <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-448" name="__codelineno-0-448"></a>            <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<a id="__codelineno-0-449" name="__codelineno-0-449"></a>    <span class="k">return</span> <span class="s2">" "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="fisseq_embeddings_pipeline.config.experiments.main" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">main</span>
+
+
+<a href="#fisseq_embeddings_pipeline.config.experiments.main" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">main</span><span class="p">(</span><span class="n">argv</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p><code>python -m fisseq_embeddings_pipeline.config.experiments PARAMS OUT</code>.</p>
+<p>Reads the run's params as JSON, writes the plan list (see
+:func:<code>plan_experiments</code>) as JSON. A validation failure prints just its
+message and exits 1, so it reads cleanly in the Nextflow task log.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>packages/fisseq-embeddings-pipeline/src/fisseq_embeddings_pipeline/config/experiments.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-497">497</a></span>
+<span class="normal"><a href="#__codelineno-0-498">498</a></span>
+<span class="normal"><a href="#__codelineno-0-499">499</a></span>
+<span class="normal"><a href="#__codelineno-0-500">500</a></span>
+<span class="normal"><a href="#__codelineno-0-501">501</a></span>
+<span class="normal"><a href="#__codelineno-0-502">502</a></span>
+<span class="normal"><a href="#__codelineno-0-503">503</a></span>
+<span class="normal"><a href="#__codelineno-0-504">504</a></span>
+<span class="normal"><a href="#__codelineno-0-505">505</a></span>
+<span class="normal"><a href="#__codelineno-0-506">506</a></span>
+<span class="normal"><a href="#__codelineno-0-507">507</a></span>
+<span class="normal"><a href="#__codelineno-0-508">508</a></span>
+<span class="normal"><a href="#__codelineno-0-509">509</a></span>
+<span class="normal"><a href="#__codelineno-0-510">510</a></span>
+<span class="normal"><a href="#__codelineno-0-511">511</a></span>
+<span class="normal"><a href="#__codelineno-0-512">512</a></span>
+<span class="normal"><a href="#__codelineno-0-513">513</a></span>
+<span class="normal"><a href="#__codelineno-0-514">514</a></span>
+<span class="normal"><a href="#__codelineno-0-515">515</a></span>
+<span class="normal"><a href="#__codelineno-0-516">516</a></span>
+<span class="normal"><a href="#__codelineno-0-517">517</a></span>
+<span class="normal"><a href="#__codelineno-0-518">518</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-497" name="__codelineno-0-497"></a><span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">argv</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<a id="__codelineno-0-498" name="__codelineno-0-498"></a><span class="w">    </span><span class="sd">"""``python -m fisseq_embeddings_pipeline.config.experiments PARAMS OUT``.</span>
+<a id="__codelineno-0-499" name="__codelineno-0-499"></a>
+<a id="__codelineno-0-500" name="__codelineno-0-500"></a><span class="sd">    Reads the run's params as JSON, writes the plan list (see</span>
+<a id="__codelineno-0-501" name="__codelineno-0-501"></a><span class="sd">    :func:`plan_experiments`) as JSON. A validation failure prints just its</span>
+<a id="__codelineno-0-502" name="__codelineno-0-502"></a><span class="sd">    message and exits 1, so it reads cleanly in the Nextflow task log.</span>
+<a id="__codelineno-0-503" name="__codelineno-0-503"></a><span class="sd">    """</span>
+<a id="__codelineno-0-504" name="__codelineno-0-504"></a>    <span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="vm">__doc__</span><span class="o">.</span><span class="n">splitlines</span><span class="p">()[</span><span class="mi">0</span><span class="p">])</span>
+<a id="__codelineno-0-505" name="__codelineno-0-505"></a>    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">"params_json"</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">"The run's params, as JSON."</span><span class="p">)</span>
+<a id="__codelineno-0-506" name="__codelineno-0-506"></a>    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">"output_json"</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">"Where to write the experiment plans."</span><span class="p">)</span>
+<a id="__codelineno-0-507" name="__codelineno-0-507"></a>    <span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">(</span><span class="n">argv</span><span class="p">)</span>
+<a id="__codelineno-0-508" name="__codelineno-0-508"></a>
+<a id="__codelineno-0-509" name="__codelineno-0-509"></a>    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">params_json</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+<a id="__codelineno-0-510" name="__codelineno-0-510"></a>        <span class="n">config</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+<a id="__codelineno-0-511" name="__codelineno-0-511"></a>    <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-512" name="__codelineno-0-512"></a>        <span class="n">plans</span> <span class="o">=</span> <span class="n">plan_experiments</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+<a id="__codelineno-0-513" name="__codelineno-0-513"></a>    <span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>
+<a id="__codelineno-0-514" name="__codelineno-0-514"></a>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"ERROR: </span><span class="si">{</span><span class="n">err</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span> <span class="n">file</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+<a id="__codelineno-0-515" name="__codelineno-0-515"></a>        <span class="k">return</span> <span class="mi">1</span>
+<a id="__codelineno-0-516" name="__codelineno-0-516"></a>    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">output_json</span><span class="p">,</span> <span class="s2">"w"</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+<a id="__codelineno-0-517" name="__codelineno-0-517"></a>        <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">plans</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+<a id="__codelineno-0-518" name="__codelineno-0-518"></a>    <span class="k">return</span> <span class="mi">0</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="fisseq_embeddings_pipeline.config.experiments.plan_experiments" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">plan_experiments</span>
+
+
+<a href="#fisseq_embeddings_pipeline.config.experiments.plan_experiments" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">plan_experiments</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Validate <code>config</code> and render each experiment's per-stage overrides.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="list">list</span>[<span title="dict">dict</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>One dict per experiment, in <code>experiments:</code> order: <code>batch_stem</code>,
+<code>cp_features</code> (bool), <code>starcall_workflow_dir</code>, <code>bind_paths</code>
+(see :func:<code>_starcall_bind_paths</code>), and <code>cell_images_args</code>/
+<code>cell_table_args</code> -- Hydra override strings for
+BUILD_CELL_IMAGES' prepare phase, and for BUILD_CELL_METADATA and
+BUILD_CP_FEATURES.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>packages/fisseq-embeddings-pipeline/src/fisseq_embeddings_pipeline/config/experiments.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-466">466</a></span>
+<span class="normal"><a href="#__codelineno-0-467">467</a></span>
+<span class="normal"><a href="#__codelineno-0-468">468</a></span>
+<span class="normal"><a href="#__codelineno-0-469">469</a></span>
+<span class="normal"><a href="#__codelineno-0-470">470</a></span>
+<span class="normal"><a href="#__codelineno-0-471">471</a></span>
+<span class="normal"><a href="#__codelineno-0-472">472</a></span>
+<span class="normal"><a href="#__codelineno-0-473">473</a></span>
+<span class="normal"><a href="#__codelineno-0-474">474</a></span>
+<span class="normal"><a href="#__codelineno-0-475">475</a></span>
+<span class="normal"><a href="#__codelineno-0-476">476</a></span>
+<span class="normal"><a href="#__codelineno-0-477">477</a></span>
+<span class="normal"><a href="#__codelineno-0-478">478</a></span>
+<span class="normal"><a href="#__codelineno-0-479">479</a></span>
+<span class="normal"><a href="#__codelineno-0-480">480</a></span>
+<span class="normal"><a href="#__codelineno-0-481">481</a></span>
+<span class="normal"><a href="#__codelineno-0-482">482</a></span>
+<span class="normal"><a href="#__codelineno-0-483">483</a></span>
+<span class="normal"><a href="#__codelineno-0-484">484</a></span>
+<span class="normal"><a href="#__codelineno-0-485">485</a></span>
+<span class="normal"><a href="#__codelineno-0-486">486</a></span>
+<span class="normal"><a href="#__codelineno-0-487">487</a></span>
+<span class="normal"><a href="#__codelineno-0-488">488</a></span>
+<span class="normal"><a href="#__codelineno-0-489">489</a></span>
+<span class="normal"><a href="#__codelineno-0-490">490</a></span>
+<span class="normal"><a href="#__codelineno-0-491">491</a></span>
+<span class="normal"><a href="#__codelineno-0-492">492</a></span>
+<span class="normal"><a href="#__codelineno-0-493">493</a></span>
+<span class="normal"><a href="#__codelineno-0-494">494</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-466" name="__codelineno-0-466"></a><span class="k">def</span><span class="w"> </span><span class="nf">plan_experiments</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<a id="__codelineno-0-467" name="__codelineno-0-467"></a><span class="w">    </span><span class="sd">"""</span>
+<a id="__codelineno-0-468" name="__codelineno-0-468"></a><span class="sd">    Validate ``config`` and render each experiment's per-stage overrides.</span>
+<a id="__codelineno-0-469" name="__codelineno-0-469"></a>
+<a id="__codelineno-0-470" name="__codelineno-0-470"></a><span class="sd">    Returns</span>
+<a id="__codelineno-0-471" name="__codelineno-0-471"></a><span class="sd">    -------</span>
+<a id="__codelineno-0-472" name="__codelineno-0-472"></a><span class="sd">    list[dict]</span>
+<a id="__codelineno-0-473" name="__codelineno-0-473"></a><span class="sd">        One dict per experiment, in ``experiments:`` order: ``batch_stem``,</span>
+<a id="__codelineno-0-474" name="__codelineno-0-474"></a><span class="sd">        ``cp_features`` (bool), ``starcall_workflow_dir``, ``bind_paths``</span>
+<a id="__codelineno-0-475" name="__codelineno-0-475"></a><span class="sd">        (see :func:`_starcall_bind_paths`), and ``cell_images_args``/</span>
+<a id="__codelineno-0-476" name="__codelineno-0-476"></a><span class="sd">        ``cell_table_args`` -- Hydra override strings for</span>
+<a id="__codelineno-0-477" name="__codelineno-0-477"></a><span class="sd">        BUILD_CELL_IMAGES' prepare phase, and for BUILD_CELL_METADATA and</span>
+<a id="__codelineno-0-478" name="__codelineno-0-478"></a><span class="sd">        BUILD_CP_FEATURES.</span>
+<a id="__codelineno-0-479" name="__codelineno-0-479"></a><span class="sd">    """</span>
+<a id="__codelineno-0-480" name="__codelineno-0-480"></a>    <span class="n">plans</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-481" name="__codelineno-0-481"></a>    <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">validate_config</span><span class="p">(</span><span class="n">config</span><span class="p">):</span>
+<a id="__codelineno-0-482" name="__codelineno-0-482"></a>        <span class="n">plans</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+<a id="__codelineno-0-483" name="__codelineno-0-483"></a>            <span class="p">{</span>
+<a id="__codelineno-0-484" name="__codelineno-0-484"></a>                <span class="s2">"batch_stem"</span><span class="p">:</span> <span class="n">entry</span><span class="p">[</span><span class="s2">"batch_stem"</span><span class="p">],</span>
+<a id="__codelineno-0-485" name="__codelineno-0-485"></a>                <span class="s2">"cp_features"</span><span class="p">:</span> <span class="nb">bool</span><span class="p">(</span><span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"cp_features"</span><span class="p">,</span> <span class="kc">False</span><span class="p">)),</span>
+<a id="__codelineno-0-486" name="__codelineno-0-486"></a>                <span class="s2">"starcall_workflow_dir"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"starcall_workflow_dir"</span><span class="p">,</span> <span class="s2">""</span><span class="p">)),</span>
+<a id="__codelineno-0-487" name="__codelineno-0-487"></a>                <span class="s2">"bind_paths"</span><span class="p">:</span> <span class="n">_starcall_bind_paths</span><span class="p">(</span><span class="n">entry</span><span class="p">),</span>
+<a id="__codelineno-0-488" name="__codelineno-0-488"></a>                <span class="s2">"cell_images_args"</span><span class="p">:</span> <span class="n">hydra_overrides</span><span class="p">(</span>
+<a id="__codelineno-0-489" name="__codelineno-0-489"></a>                    <span class="n">cell_images_overrides</span><span class="p">(</span><span class="n">entry</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
+<a id="__codelineno-0-490" name="__codelineno-0-490"></a>                <span class="p">),</span>
+<a id="__codelineno-0-491" name="__codelineno-0-491"></a>                <span class="s2">"cell_table_args"</span><span class="p">:</span> <span class="n">hydra_overrides</span><span class="p">(</span><span class="n">cell_table_overrides</span><span class="p">(</span><span class="n">entry</span><span class="p">)),</span>
+<a id="__codelineno-0-492" name="__codelineno-0-492"></a>            <span class="p">}</span>
+<a id="__codelineno-0-493" name="__codelineno-0-493"></a>        <span class="p">)</span>
+<a id="__codelineno-0-494" name="__codelineno-0-494"></a>    <span class="k">return</span> <span class="n">plans</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="fisseq_embeddings_pipeline.config.experiments.validate_config" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">validate_config</span>
+
+
+<a href="#fisseq_embeddings_pipeline.config.experiments.validate_config" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">validate_config</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Validate a loaded <code>params.yaml</code> and return its <code>experiments</code> list.</p>
+<p>Fails fast with a specific message for every required-with-no-default
+param, rather than letting a missing-key error surface deep inside a
+task.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>config</code>
+            </td>
+            <td>
+                  <code><span title="typing.Mapping">Mapping</span>[<span title="str">str</span>, <span title="typing.Any">Any</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The run's params (<code>params.yaml</code> plus any command-line overrides).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="list">list</span>[<span title="dict">dict</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The validated <code>experiments</code> list, unchanged.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="ValueError">ValueError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If <code>pipeline_dir</code> or <code>cell_dino_checkpoint</code> is unset, if
+<code>experiments</code> is missing/empty/not a list, if any entry is not a
+mapping, if any entry lacks a non-blank string <code>batch_stem</code>, if
+any entry's <code>cp_features</code> is not a boolean, if two entries
+share a <code>batch_stem</code>, if <code>feature_select_types</code> /
+<code>feature_select_passthrough_types</code> name an unknown aggregator or
+overlap each other, if <code>feature_select_bootstrap_reps</code> is
+below 2, or if <code>ovwt_cv_mode</code> / <code>ovwt_n_folds</code> are invalid.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>packages/fisseq-embeddings-pipeline/src/fisseq_embeddings_pipeline/config/experiments.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-79"> 79</a></span>
+<span class="normal"><a href="#__codelineno-0-80"> 80</a></span>
+<span class="normal"><a href="#__codelineno-0-81"> 81</a></span>
+<span class="normal"><a href="#__codelineno-0-82"> 82</a></span>
+<span class="normal"><a href="#__codelineno-0-83"> 83</a></span>
+<span class="normal"><a href="#__codelineno-0-84"> 84</a></span>
+<span class="normal"><a href="#__codelineno-0-85"> 85</a></span>
+<span class="normal"><a href="#__codelineno-0-86"> 86</a></span>
+<span class="normal"><a href="#__codelineno-0-87"> 87</a></span>
+<span class="normal"><a href="#__codelineno-0-88"> 88</a></span>
+<span class="normal"><a href="#__codelineno-0-89"> 89</a></span>
+<span class="normal"><a href="#__codelineno-0-90"> 90</a></span>
+<span class="normal"><a href="#__codelineno-0-91"> 91</a></span>
+<span class="normal"><a href="#__codelineno-0-92"> 92</a></span>
+<span class="normal"><a href="#__codelineno-0-93"> 93</a></span>
+<span class="normal"><a href="#__codelineno-0-94"> 94</a></span>
+<span class="normal"><a href="#__codelineno-0-95"> 95</a></span>
+<span class="normal"><a href="#__codelineno-0-96"> 96</a></span>
+<span class="normal"><a href="#__codelineno-0-97"> 97</a></span>
+<span class="normal"><a href="#__codelineno-0-98"> 98</a></span>
+<span class="normal"><a href="#__codelineno-0-99"> 99</a></span>
+<span class="normal"><a href="#__codelineno-0-100">100</a></span>
+<span class="normal"><a href="#__codelineno-0-101">101</a></span>
+<span class="normal"><a href="#__codelineno-0-102">102</a></span>
+<span class="normal"><a href="#__codelineno-0-103">103</a></span>
+<span class="normal"><a href="#__codelineno-0-104">104</a></span>
+<span class="normal"><a href="#__codelineno-0-105">105</a></span>
+<span class="normal"><a href="#__codelineno-0-106">106</a></span>
+<span class="normal"><a href="#__codelineno-0-107">107</a></span>
+<span class="normal"><a href="#__codelineno-0-108">108</a></span>
+<span class="normal"><a href="#__codelineno-0-109">109</a></span>
+<span class="normal"><a href="#__codelineno-0-110">110</a></span>
+<span class="normal"><a href="#__codelineno-0-111">111</a></span>
+<span class="normal"><a href="#__codelineno-0-112">112</a></span>
+<span class="normal"><a href="#__codelineno-0-113">113</a></span>
+<span class="normal"><a href="#__codelineno-0-114">114</a></span>
+<span class="normal"><a href="#__codelineno-0-115">115</a></span>
+<span class="normal"><a href="#__codelineno-0-116">116</a></span>
+<span class="normal"><a href="#__codelineno-0-117">117</a></span>
+<span class="normal"><a href="#__codelineno-0-118">118</a></span>
+<span class="normal"><a href="#__codelineno-0-119">119</a></span>
+<span class="normal"><a href="#__codelineno-0-120">120</a></span>
+<span class="normal"><a href="#__codelineno-0-121">121</a></span>
+<span class="normal"><a href="#__codelineno-0-122">122</a></span>
+<span class="normal"><a href="#__codelineno-0-123">123</a></span>
+<span class="normal"><a href="#__codelineno-0-124">124</a></span>
+<span class="normal"><a href="#__codelineno-0-125">125</a></span>
+<span class="normal"><a href="#__codelineno-0-126">126</a></span>
+<span class="normal"><a href="#__codelineno-0-127">127</a></span>
+<span class="normal"><a href="#__codelineno-0-128">128</a></span>
+<span class="normal"><a href="#__codelineno-0-129">129</a></span>
+<span class="normal"><a href="#__codelineno-0-130">130</a></span>
+<span class="normal"><a href="#__codelineno-0-131">131</a></span>
+<span class="normal"><a href="#__codelineno-0-132">132</a></span>
+<span class="normal"><a href="#__codelineno-0-133">133</a></span>
+<span class="normal"><a href="#__codelineno-0-134">134</a></span>
+<span class="normal"><a href="#__codelineno-0-135">135</a></span>
+<span class="normal"><a href="#__codelineno-0-136">136</a></span>
+<span class="normal"><a href="#__codelineno-0-137">137</a></span>
+<span class="normal"><a href="#__codelineno-0-138">138</a></span>
+<span class="normal"><a href="#__codelineno-0-139">139</a></span>
+<span class="normal"><a href="#__codelineno-0-140">140</a></span>
+<span class="normal"><a href="#__codelineno-0-141">141</a></span>
+<span class="normal"><a href="#__codelineno-0-142">142</a></span>
+<span class="normal"><a href="#__codelineno-0-143">143</a></span>
+<span class="normal"><a href="#__codelineno-0-144">144</a></span>
+<span class="normal"><a href="#__codelineno-0-145">145</a></span>
+<span class="normal"><a href="#__codelineno-0-146">146</a></span>
+<span class="normal"><a href="#__codelineno-0-147">147</a></span>
+<span class="normal"><a href="#__codelineno-0-148">148</a></span>
+<span class="normal"><a href="#__codelineno-0-149">149</a></span>
+<span class="normal"><a href="#__codelineno-0-150">150</a></span>
+<span class="normal"><a href="#__codelineno-0-151">151</a></span>
+<span class="normal"><a href="#__codelineno-0-152">152</a></span>
+<span class="normal"><a href="#__codelineno-0-153">153</a></span>
+<span class="normal"><a href="#__codelineno-0-154">154</a></span>
+<span class="normal"><a href="#__codelineno-0-155">155</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-79" name="__codelineno-0-79"></a><span class="k">def</span><span class="w"> </span><span class="nf">validate_config</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<a id="__codelineno-0-80" name="__codelineno-0-80"></a><span class="w">    </span><span class="sd">"""</span>
+<a id="__codelineno-0-81" name="__codelineno-0-81"></a><span class="sd">    Validate a loaded ``params.yaml`` and return its ``experiments`` list.</span>
+<a id="__codelineno-0-82" name="__codelineno-0-82"></a>
+<a id="__codelineno-0-83" name="__codelineno-0-83"></a><span class="sd">    Fails fast with a specific message for every required-with-no-default</span>
+<a id="__codelineno-0-84" name="__codelineno-0-84"></a><span class="sd">    param, rather than letting a missing-key error surface deep inside a</span>
+<a id="__codelineno-0-85" name="__codelineno-0-85"></a><span class="sd">    task.</span>
+<a id="__codelineno-0-86" name="__codelineno-0-86"></a>
+<a id="__codelineno-0-87" name="__codelineno-0-87"></a><span class="sd">    Parameters</span>
+<a id="__codelineno-0-88" name="__codelineno-0-88"></a><span class="sd">    ----------</span>
+<a id="__codelineno-0-89" name="__codelineno-0-89"></a><span class="sd">    config : Mapping[str, Any]</span>
+<a id="__codelineno-0-90" name="__codelineno-0-90"></a><span class="sd">        The run's params (``params.yaml`` plus any command-line overrides).</span>
+<a id="__codelineno-0-91" name="__codelineno-0-91"></a>
+<a id="__codelineno-0-92" name="__codelineno-0-92"></a><span class="sd">    Returns</span>
+<a id="__codelineno-0-93" name="__codelineno-0-93"></a><span class="sd">    -------</span>
+<a id="__codelineno-0-94" name="__codelineno-0-94"></a><span class="sd">    list[dict]</span>
+<a id="__codelineno-0-95" name="__codelineno-0-95"></a><span class="sd">        The validated ``experiments`` list, unchanged.</span>
+<a id="__codelineno-0-96" name="__codelineno-0-96"></a>
+<a id="__codelineno-0-97" name="__codelineno-0-97"></a><span class="sd">    Raises</span>
+<a id="__codelineno-0-98" name="__codelineno-0-98"></a><span class="sd">    ------</span>
+<a id="__codelineno-0-99" name="__codelineno-0-99"></a><span class="sd">    ValueError</span>
+<a id="__codelineno-0-100" name="__codelineno-0-100"></a><span class="sd">        If ``pipeline_dir`` or ``cell_dino_checkpoint`` is unset, if</span>
+<a id="__codelineno-0-101" name="__codelineno-0-101"></a><span class="sd">        ``experiments`` is missing/empty/not a list, if any entry is not a</span>
+<a id="__codelineno-0-102" name="__codelineno-0-102"></a><span class="sd">        mapping, if any entry lacks a non-blank string ``batch_stem``, if</span>
+<a id="__codelineno-0-103" name="__codelineno-0-103"></a><span class="sd">        any entry's ``cp_features`` is not a boolean, if two entries</span>
+<a id="__codelineno-0-104" name="__codelineno-0-104"></a><span class="sd">        share a ``batch_stem``, if ``feature_select_types`` /</span>
+<a id="__codelineno-0-105" name="__codelineno-0-105"></a><span class="sd">        ``feature_select_passthrough_types`` name an unknown aggregator or</span>
+<a id="__codelineno-0-106" name="__codelineno-0-106"></a><span class="sd">        overlap each other, if ``feature_select_bootstrap_reps`` is</span>
+<a id="__codelineno-0-107" name="__codelineno-0-107"></a><span class="sd">        below 2, or if ``ovwt_cv_mode`` / ``ovwt_n_folds`` are invalid.</span>
+<a id="__codelineno-0-108" name="__codelineno-0-108"></a><span class="sd">    """</span>
+<a id="__codelineno-0-109" name="__codelineno-0-109"></a>    <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"pipeline_dir"</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-110" name="__codelineno-0-110"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"pipeline_dir is required (--pipeline_dir ...)."</span><span class="p">)</span>
+<a id="__codelineno-0-111" name="__codelineno-0-111"></a>    <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"cell_dino_checkpoint"</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-112" name="__codelineno-0-112"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-113" name="__codelineno-0-113"></a>            <span class="s2">"cell_dino_checkpoint is required (path to a Cell-DINO .pth checkpoint)."</span>
+<a id="__codelineno-0-114" name="__codelineno-0-114"></a>        <span class="p">)</span>
+<a id="__codelineno-0-115" name="__codelineno-0-115"></a>
+<a id="__codelineno-0-116" name="__codelineno-0-116"></a>    <span class="n">experiments</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"experiments"</span><span class="p">)</span>
+<a id="__codelineno-0-117" name="__codelineno-0-117"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">experiments</span><span class="p">,</span> <span class="nb">list</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">experiments</span><span class="p">:</span>
+<a id="__codelineno-0-118" name="__codelineno-0-118"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-119" name="__codelineno-0-119"></a>            <span class="s2">"experiments must be a non-empty list of experiment maps (see params.yaml)."</span>
+<a id="__codelineno-0-120" name="__codelineno-0-120"></a>        <span class="p">)</span>
+<a id="__codelineno-0-121" name="__codelineno-0-121"></a>
+<a id="__codelineno-0-122" name="__codelineno-0-122"></a>    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">entry</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">experiments</span><span class="p">):</span>
+<a id="__codelineno-0-123" name="__codelineno-0-123"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">entry</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">):</span>
+<a id="__codelineno-0-124" name="__codelineno-0-124"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-125" name="__codelineno-0-125"></a>                <span class="sa">f</span><span class="s2">"experiments[</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">] must be a map, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">."</span>
+<a id="__codelineno-0-126" name="__codelineno-0-126"></a>            <span class="p">)</span>
+<a id="__codelineno-0-127" name="__codelineno-0-127"></a>        <span class="n">batch_stem</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"batch_stem"</span><span class="p">)</span>
+<a id="__codelineno-0-128" name="__codelineno-0-128"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">batch_stem</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">batch_stem</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
+<a id="__codelineno-0-129" name="__codelineno-0-129"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-130" name="__codelineno-0-130"></a>                <span class="sa">f</span><span class="s2">"experiments[</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">] is missing a required, non-empty 'batch_stem' field."</span>
+<a id="__codelineno-0-131" name="__codelineno-0-131"></a>            <span class="p">)</span>
+<a id="__codelineno-0-132" name="__codelineno-0-132"></a>        <span class="k">if</span> <span class="s2">"cp_features"</span> <span class="ow">in</span> <span class="n">entry</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">"cp_features"</span><span class="p">],</span> <span class="nb">bool</span><span class="p">):</span>
+<a id="__codelineno-0-133" name="__codelineno-0-133"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-134" name="__codelineno-0-134"></a>                <span class="sa">f</span><span class="s2">"experiments[</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">].cp_features must be a boolean (true/false), "</span>
+<a id="__codelineno-0-135" name="__codelineno-0-135"></a>                <span class="sa">f</span><span class="s2">"got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s1">'cp_features'</span><span class="p">])</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">."</span>
+<a id="__codelineno-0-136" name="__codelineno-0-136"></a>            <span class="p">)</span>
+<a id="__codelineno-0-137" name="__codelineno-0-137"></a>
+<a id="__codelineno-0-138" name="__codelineno-0-138"></a>    <span class="n">stems</span> <span class="o">=</span> <span class="p">[</span><span class="n">entry</span><span class="p">[</span><span class="s2">"batch_stem"</span><span class="p">]</span> <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">experiments</span><span class="p">]</span>
+<a id="__codelineno-0-139" name="__codelineno-0-139"></a>    <span class="n">duplicates</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">({</span><span class="n">s</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">stems</span> <span class="k">if</span> <span class="n">stems</span><span class="o">.</span><span class="n">count</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">})</span>
+<a id="__codelineno-0-140" name="__codelineno-0-140"></a>    <span class="k">if</span> <span class="n">duplicates</span><span class="p">:</span>
+<a id="__codelineno-0-141" name="__codelineno-0-141"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-142" name="__codelineno-0-142"></a>            <span class="sa">f</span><span class="s2">"experiments has duplicate batch_stem value(s): </span><span class="si">{</span><span class="s1">', '</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">duplicates</span><span class="p">)</span><span class="si">}</span><span class="s2">. "</span>
+<a id="__codelineno-0-143" name="__codelineno-0-143"></a>            <span class="s2">"Every experiment's batch_stem must be unique."</span>
+<a id="__codelineno-0-144" name="__codelineno-0-144"></a>        <span class="p">)</span>
+<a id="__codelineno-0-145" name="__codelineno-0-145"></a>
+<a id="__codelineno-0-146" name="__codelineno-0-146"></a>    <span class="n">_validate_aggregate_methods</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+<a id="__codelineno-0-147" name="__codelineno-0-147"></a>    <span class="n">_validate_reproducibility</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+<a id="__codelineno-0-148" name="__codelineno-0-148"></a>    <span class="n">_warn_removed_global_params</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+<a id="__codelineno-0-149" name="__codelineno-0-149"></a>    <span class="n">_warn_renamed_params</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+<a id="__codelineno-0-150" name="__codelineno-0-150"></a>    <span class="n">_validate_ovwt</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+<a id="__codelineno-0-151" name="__codelineno-0-151"></a>    <span class="n">_validate_starcall_profile</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+<a id="__codelineno-0-152" name="__codelineno-0-152"></a>    <span class="n">_validate_starcall_retries</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+<a id="__codelineno-0-153" name="__codelineno-0-153"></a>    <span class="n">_validate_shard_sizes</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">experiments</span><span class="p">)</span>
+<a id="__codelineno-0-154" name="__codelineno-0-154"></a>
+<a id="__codelineno-0-155" name="__codelineno-0-155"></a>    <span class="k">return</span> <span class="p">[</span><span class="nb">dict</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span> <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">experiments</span><span class="p">]</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "toc.follow", "content.code.copy"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

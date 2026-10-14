@@ -1,0 +1,4044 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="fisseq-common, fisseq-data-pipeline, fisseq-embeddings-pipeline and fisseqborn">
+      
+      
+      
+      
+        <link rel="prev" href="../architecture/">
+      
+      
+        <link rel="next" href="../configuration/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Nextflow Workflow - FISSEQ</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../data-pipeline/stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#nextflow-workflow-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="FISSEQ" class="md-header__button md-logo" aria-label="FISSEQ" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            FISSEQ
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Nextflow Workflow
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Lilferrit/fisseqmono" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Lilferrit/fisseqmono
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../common/" class="md-tabs__link">
+          
+  
+  
+  fisseq-common
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../data-pipeline/" class="md-tabs__link">
+          
+  
+  
+  Data pipeline
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
+          
+  
+  
+  Embeddings pipeline
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../fisseqborn/" class="md-tabs__link">
+          
+  
+  
+  fisseqborn
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../diff-reports/" class="md-tabs__link">
+          
+  
+  
+  Diff reports
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="FISSEQ" class="md-nav__button md-logo" aria-label="FISSEQ" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    FISSEQ
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Lilferrit/fisseqmono" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Lilferrit/fisseqmono
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fisseq-common
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    fisseq-common
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../common/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../common/stages/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shared stages
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../common/nextflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shared Nextflow modules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../common/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data pipeline
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Data pipeline
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data-pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data-pipeline/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data-pipeline/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data-pipeline/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data-pipeline/nextflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nextflow Workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data-pipeline/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_7" id="__nav_3_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    CLI Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data-pipeline/cli/input/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Input
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data-pipeline/cli/aggregate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Standalone aggregate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_8" id="__nav_3_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data-pipeline/api/input/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    input
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data-pipeline/api/aggregate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    aggregate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data-pipeline/api/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data-pipeline/walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Embeddings pipeline
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Embeddings pipeline
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nextflow Workflow
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nextflow Workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#entry-point" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Entry point
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Entry point">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#validation-plan_experiments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation: PLAN_EXPERIMENTS
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#per-experiment-configs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-experiment configs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stage-graph" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage graph
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Stage graph">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#feature-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature selection
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cellprofiler-feature-track" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CellProfiler-feature track
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CellProfiler-feature track">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#track-independence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Track independence
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#profiles-and-containers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Profiles and containers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Profiles and containers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bind-mounts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bind mounts
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-on-a-cluster-bring-your-own-profiles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running on a cluster: bring your own profiles
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Running on a cluster: bring your own profiles">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-outer-pipeline-c-siteconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The outer pipeline: -c site.config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-nested-starcall-run-starcall_profile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The nested starcall run: starcall_profile
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shared-modules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared modules
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Modules
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Modules">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-resume" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        -resume
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#output-directory-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output directory layout
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_7" id="__nav_4_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Stage Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/build_cell_images_prepare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cell Images, Phase 1: Prepare (BUILD_CELL_IMAGES)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/tile_shard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cell Images, Phase 2: Cell Shards (make_cell_shard, inside BUILD_CELL_IMAGES)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/well_shards/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cell Images, Phase 2: Well Shards (make_well_shards, inside BUILD_CELL_IMAGES)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/build_cell_images_table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cell Images, Phase 3: Build Table (BUILD_CELL_IMAGES)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/cell_metadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cell Metadata (BUILD_CELL_METADATA)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/embed/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cell Embeddings (EMBED_CELLS)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/cp_features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CellProfiler Feature Dataset (BUILD_CP_FEATURES)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_8" id="__nav_4_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/build_cell_images_prepare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    build_cell_images_prepare
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/tile_shard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    tile_shard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/well_shards/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    well_shards
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/build_cell_images_table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    build_cell_images_table
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/cell_metadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    cell_metadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/embed/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    embed
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/cp_features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    cp_features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    utils
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fisseqborn
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    fisseqborn
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fisseqborn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_2" id="__nav_5_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fisseqborn/concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fisseqborn/theme/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The fisseq theme
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fisseqborn/data/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loading pipeline outputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fisseqborn/calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evidence calibration (ExCALIBR)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_3" id="__nav_5_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plots
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Plots
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fisseqborn/plots/box/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boxplots
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fisseqborn/plots/embedding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Embeddings (UMAP / PCA)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fisseqborn/plots/correlation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Correlation scatter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fisseqborn/plots/roc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ROC curves
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fisseqborn/plots/heatmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Heatmaps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fisseqborn/plots/clustermap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Clustermaps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fisseqborn/plots/variant-map/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Variant effect maps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fisseqborn/plots/explained-variance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Explained variance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fisseqborn/plots/pairplot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pair plots
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fisseqborn/plots/volcano/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Volcano plots
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fisseqborn/plots/calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fisseqborn/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Diff reports
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Diff reports
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../diff-reports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../diff-reports/01-metadata-counts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    01 Metadata counts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../diff-reports/02-normalize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    02 Normalize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../diff-reports/03-feature-selection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    03 Feature selection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../diff-reports/04-fisseqborn-global/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    04 fisseqborn global
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../diff-reports/05-row-order/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    05 Row order
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../diff-reports/06-no-pycytominer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    06 No pycytominer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../diff-reports/07-unified-pipelines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    07 Unify the embeddings pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../diff-reports/08-well-shards/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    08 Per-well shards
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../diff-reports/09-cell-table-parity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    09 Cell table parity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#entry-point" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Entry point
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Entry point">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#validation-plan_experiments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation: PLAN_EXPERIMENTS
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#per-experiment-configs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-experiment configs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stage-graph" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage graph
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Stage graph">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#feature-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature selection
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cellprofiler-feature-track" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CellProfiler-feature track
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CellProfiler-feature track">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#track-independence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Track independence
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#profiles-and-containers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Profiles and containers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Profiles and containers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bind-mounts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bind mounts
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-on-a-cluster-bring-your-own-profiles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running on a cluster: bring your own profiles
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Running on a cluster: bring your own profiles">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-outer-pipeline-c-siteconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The outer pipeline: -c site.config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-nested-starcall-run-starcall_profile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The nested starcall run: starcall_profile
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shared-modules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared modules
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Modules
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Modules">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-resume" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        -resume
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#output-directory-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output directory layout
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="nextflow-workflow-reference">Nextflow workflow reference<a class="headerlink" href="#nextflow-workflow-reference" title="Permanent link">&para;</a></h1>
+<h2 id="entry-point">Entry point<a class="headerlink" href="#entry-point" title="Permanent link">&para;</a></h2>
+<p><code>main.nf</code> runs the single <code>EmbeddingsPipeline</code> workflow
+(<code>workflows/embeddings.nf</code>). The cellDINO-specific processes live in this package's
+<code>modules/local/&lt;name&gt;/main.nf</code>; every process downstream of them is a shared module,
+<code>packages/fisseq-common/nextflow/modules/local/&lt;stage&gt;/main.nf</code> (see
+<a href="#shared-modules">Shared modules</a>).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>nextflow<span class="w"> </span>run<span class="w"> </span>.<span class="w"> </span>-params-file<span class="w"> </span>params.yaml<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span>--pipeline_dir<span class="w"> </span>/path/to/run<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span>--cell_dino_checkpoint<span class="w"> </span>/path/to/checkpoint.pth<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="o">[</span>-profile<span class="w"> </span>apptainer<span class="p">|</span>local<span class="o">]</span><span class="w"> </span><span class="o">[</span>-c<span class="w"> </span>site.config<span class="o">]</span><span class="w"> </span><span class="o">[</span>-resume<span class="o">]</span><span class="w"> </span><span class="o">[</span>--key<span class="w"> </span>value<span class="w"> </span>...<span class="o">]</span>
+</code></pre></div>
+<p><code>--key value</code> on the command line wins over <code>-params-file</code>. Nextflow's own
+<code>work/</code> directory and <code>.nextflow/</code> state land in the directory you launch
+from, not in <code>pipeline_dir</code>; published results go to <code>pipeline_dir</code> (see the
+<a href="#output-directory-layout">output tree</a>).</p>
+<h3 id="validation-plan_experiments">Validation: <code>PLAN_EXPERIMENTS</code><a class="headerlink" href="#validation-plan_experiments" title="Permanent link">&para;</a></h3>
+<p>The workflow's first task is <code>PLAN_EXPERIMENTS</code>. The workflow serializes the
+run's <code>params</code> to JSON (<code>&lt;workDir&gt;/fisseq_params.json</code>) and the task runs
+<code>python -m fisseq_embeddings_pipeline.config.experiments</code> over it, which
+validates everything and writes back one plan per experiment: every stage's
+Hydra override string, already rendered, plus the host paths
+<code>BUILD_CELL_IMAGES</code> needs bound (see <a href="#bind-mounts">Bind mounts</a>).</p>
+<p>A missing <code>pipeline_dir</code> or <code>cell_dino_checkpoint</code>, an empty <code>experiments</code>
+list, an unknown or overlapping aggregator name, fewer than two bootstrap
+replicates, an <code>ovwt_cv_mode</code> outside <code>kfold</code>/<code>barcode_holdout</code> (or an
+<code>ovwt_n_folds</code> below 2, or <code>null</code> outside <code>barcode_holdout</code>), or a
+<code>starcall_profile</code> without a <code>starcall_job_image</code> all fail
+there, with a specific <code>ERROR: ...</code> message in the task's error output,
+before any other task is scheduled. <code>PLAN_EXPERIMENTS</code> is the one process
+without <code>errorStrategy 'ignore'</code>: a bad params file stops the run.</p>
+<p>Keeping validation and routing in <code>config/experiments.py</code> rather than in
+<code>workflows/embeddings.nf</code>'s Groovy keeps it ordinary, unit-tested Python
+(<code>tests/unit/test_experiments.py</code>), and running it as a task means it runs
+in the pipeline image like everything else. The launching host needs
+nothing but Nextflow.</p>
+<h2 id="per-experiment-configs">Per-experiment configs<a class="headerlink" href="#per-experiment-configs" title="Permanent link">&para;</a></h2>
+<p>Every entry in <code>params.yaml</code>'s <code>experiments:</code> list supplies fields for
+<code>BUILD_CELL_IMAGES</code> (starcall-workflow-facing: <code>starcall_workflow_dir</code>,
+<code>phenotyping_dir</code>, <code>segmentation_dir</code>, <code>sequencing_dir</code>, <code>wells</code>,
+<code>grid_size</code>, <code>use_corrected</code>, <code>window</code>, the <code>*_col_name</code> overrides naming
+the reads tables' genotype columns, ...). The two stages reading its
+<code>cell_table.parquet</code>, <code>BUILD_CELL_METADATA</code> and <code>BUILD_CP_FEATURES</code>
+(<code>BUILD_CP_FEATURES</code> runs only for <code>cp_features: true</code> entries), have no
+per-experiment fields of their own. <code>batch_stem</code> is a required key inside
+each entry and must be unique across the list.</p>
+<p><code>config/experiments.py</code> routes each key to the stage(s) owning it and
+renders the plan's <code>cell_images_args</code> and <code>cell_table_args</code> as Hydra CLI
+overrides; <code>cell_table_args</code> goes to both cell-table readers and is empty
+today, since <code>BUILD_CELL_IMAGES</code> already renames the genotype columns to
+<code>meta_*</code> in both the table and the shards. <code>window</code> has a
+pipeline-wide default (<code>params.window</code>) filled into an entry's
+<code>BUILD_CELL_IMAGES</code>-bound overrides when the entry doesn't set its own --
+it's the crop size each tile's shard is cut at, and it names the shard
+target. <code>shard_size</code> (cells per WebDataset shard) and
+<code>cellprofiler_pipeline</code>/<code>cellprofiler_cycle</code> work the same way. An
+entry's own value always wins.</p>
+<h2 id="stage-graph">Stage graph<a class="headerlink" href="#stage-graph" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>PLAN_EXPERIMENTS  (validates params; one plan per experiment)
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    │
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    ▼
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>BUILD_CELL_IMAGES  (nested starcall snakemake, incl. make_cell_shard/make_well_shards:
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    │               gzipped WebDataset shards per well; cell_table.parquet + shards.parquet)
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    │
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    ├──► BUILD_CELL_METADATA ──► QC_FILTER   (shared by BOTH tracks; see below)
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    │                                │
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    ▼                                │
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>EMBED_CELLS                          │
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>    │                                │
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>    ▼                                │
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>NORMALIZE  ◄─────────────────────────┘  (filtered_keys + WT-fitted normalizer)
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>    │
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>    ├──► OVWT_BATCHWISE                                       (params.run_ovwt)
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>    │
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>    └──► feature selection                                    (params.run_feature_selection)
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>           AGGREGATE_FEATURE_TYPE_BATCHWISE    (x methods; z-scored to the synonymous variants)
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>           AGGREGATE_FEATURE_TYPE_PASSTHROUGH  (x passthrough methods; raw)
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>           GENERATE_SPLIT_BATCHWISE            (x reps)
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>             └► AGGREGATE_HALF_BATCHWISE       (x reps x 2 halves x methods)
+<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>                  └► CORRELATE_FEATURES_BATCHWISE   (x reps x methods)
+<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>                       └► BLOCKLIST_BATCHWISE       (x methods; gathers every replicate)
+<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>                            └► COMBINE_BLOCKLISTS_BATCHWISE
+<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a>                                 └► FINALIZE_FEATURE_SELECT_BATCHWISE  (aggregates + blocklist
+<a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a>                                                                         + passthrough -&gt; output.parquet)
+</code></pre></div>
+<p>Downstream of <code>EMBED_CELLS</code> this is fisseq-data-pipeline's graph: the same shared modules,
+process names, parameters and publish layout. Only the cell table differs (embedding
+dimensions instead of CellProfiler features), and with it the cell identity (<code>join_keys</code>) and
+<code>feature_selector</code>, which <code>conf/modules.config</code> sets. See <a href="../../common/stages/">Shared stages</a>.</p>
+<p>Every process runs per experiment. Pooling experiments is done afterwards by
+<code>fisseqborn-global</code> (the fisseqborn package), from the published outputs.</p>
+<p><code>BUILD_CELL_IMAGES</code> runs unconditionally for every experiment (not gated
+on <code>cp_features</code>) -- both the cellDINO track above and the CellProfiler
+track below depend on its output.</p>
+<p><code>QC_FILTER</code> runs off <code>BUILD_CELL_METADATA</code>, not the image-reading
+cellDINO track.
+<code>BUILD_CELL_METADATA</code> (<code>cell_metadata.py</code>) is a flat projection of
+<code>BUILD_CELL_IMAGES</code>' <code>cell_table.parquet</code> down to the seven <code>meta_*</code>
+columns QC reads (<code>meta_batch</code>/<code>meta_well</code>/<code>meta_tile</code>/<code>meta_cell_index</code> --
+the pipeline's <code>join_keys</code> -- plus <code>meta_barcode</code>/<code>meta_aa_changes</code>/
+<code>meta_edit_distance</code>). That makes <code>QC_FILTER</code> the point where the two
+tracks fan out: see
+<a href="#track-independence">Track independence</a> below. <code>QC_FILTER</code> is the data
+pipeline's, including <code>qc_n_variants</code> and the pseudo-variant downsampling
+(<code>qc_downsample_amounts</code>); both are off by default.</p>
+<p><code>EMBED_CELLS</code> streams every well's WebDataset shards (cut and packed
+inside <code>BUILD_CELL_IMAGES</code>' nested snakemake by <code>make_cell_shard</code> and
+<code>make_well_shards</code> -- see <a href="../cli/tile_shard/">Cell Shards</a> and
+<a href="../cli/well_shards/">Well Shards</a>) and has no dependency on <code>QC_FILTER</code> --
+the whole point of building the shards up front is that this expensive
+GPU pass runs once per experiment regardless of how many times QC
+thresholds get retuned afterward. Each shard sample's <code>meta.json</code> carries
+the cell's key, QC fields and variant class, so <code>EMBED_CELLS</code> takes its
+<code>meta_*</code> columns from there (adding <code>meta_batch</code> from <code>batch_stem</code>) and
+doesn't wait for <code>BUILD_CELL_METADATA</code>: it starts as soon as
+<code>BUILD_CELL_IMAGES</code> finishes.
+<code>NORMALIZE</code> joins <code>EMBED_CELLS</code>' output against <code>QC_FILTER</code>'s
+<code>filtered_cells.parquet</code> (only that one of <code>QC_FILTER</code>'s three outputs;
+the other two are informational QC-report files) and fits the normalizer on the wildtype
+cells. Every later stage takes the same three inputs (<code>embeddings.parquet</code>,
+<code>filtered_keys.parquet</code>, <code>normalizer.parquet</code>) and rebuilds the QC-passed, normalized table
+itself; none reads a pre-normalized file.</p>
+<p><code>params.embeddings_only: true</code> stops the cellDINO track after
+<code>EMBED_CELLS</code> and skips everything downstream of it, the CellProfiler
+track included -- for when all you want is the embeddings. The
+containerized real-starcall integration tests use it.</p>
+<h3 id="feature-selection">Feature selection<a class="headerlink" href="#feature-selection" title="Permanent link">&para;</a></h3>
+<p><code>AGGREGATE_FEATURE_TYPE_BATCHWISE</code> through <code>FINALIZE_FEATURE_SELECT_BATCHWISE</code> are the data
+pipeline's bootstrap feature selection, on the cellDINO track only (see
+<a href="../../common/stages/#aggregate">Shared stages</a> for what each computes). About the wiring:</p>
+<ul>
+<li><strong>The fan-out is channel combinatorics.</strong> <code>GENERATE_SPLIT_BATCHWISE</code> gets one task per
+  <code>channel.of(1..feature_select_bootstrap_reps)</code>; each split's two halves are combined with
+  <code>feature_select_types</code> into one <code>AGGREGATE_HALF_BATCHWISE</code> task per (replicate, half,
+  method). <code>PLAN_EXPERIMENTS</code> has already rejected an unknown or overlapping method name,
+  because both lists are interpolated straight into task scripts and publish paths.</li>
+<li><strong><code>BLOCKLIST_BATCHWISE</code> is the one gather across replicates</strong>, and
+  <code>COMBINE_BLOCKLISTS_BATCHWISE</code> the gather across methods. Both use <code>groupTuple</code> keyed on
+  the experiment (and method), so a failed member task leaves its group short: that method's
+  blocklist is computed from the replicates that finished.</li>
+<li><strong>Passthrough methods</strong> (<code>feature_select_passthrough_types</code>, default <code>[]</code>) are aggregated
+  on every cell, raw, and joined onto <code>output.parquet</code> by <code>FINALIZE_FEATURE_SELECT_BATCHWISE</code>
+  last. With an empty list no <code>AGGREGATE_FEATURE_TYPE_PASSTHROUGH</code> task runs.</li>
+</ul>
+<p>Across experiments, <code>fisseqborn-global</code> reads each experiment's per-method
+<code>aggregates/&lt;method&gt;.parquet</code> plus its <code>blocklist.parquet</code> and votes; it does not read
+<code>output.parquet</code>, whose columns are already filtered per experiment.</p>
+<h2 id="cellprofiler-feature-track">CellProfiler-feature track<a class="headerlink" href="#cellprofiler-feature-track" title="Permanent link">&para;</a></h2>
+<p>An optional, parallel second track processes the same experiments'
+hand-engineered CellProfiler measurements. There's no separate list to
+keep in sync with <code>experiments:</code> -- an entry opts itself in by setting
+<code>cp_features: true</code>, which does two things: <code>BUILD_CELL_IMAGES</code> (always
+run, for every experiment) additionally forces that experiment's
+CellProfiler CSV to exist and folds its columns into <code>cell_table.parquet</code>,
+and <code>BUILD_CP_FEATURES</code> runs against that same output, selecting them back
+out. No entry setting <code>cp_features: true</code> -- the default -- skips
+<code>BUILD_CP_FEATURES</code> onward entirely. This track reuses that same
+experiment's <code>QC_FILTER</code> output rather than running QC a second time, and
+gets no bootstrap feature selection: its columns are hand-engineered and
+meant to stay comparable to the published CellProfiler analysis.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>experiments with cp_features: true  +  BUILD_CELL_IMAGES' cell_table.parquet
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    │
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    ▼
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>BUILD_CP_FEATURES
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    │
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>QC_FILTER ──┐  (the SAME QC_FILTER output NORMALIZE uses -- no
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>             │   second QC pass)
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>             ▼
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>      NORMALIZE_CP_FEATURES
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>             │
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>    ┌────────┴──────────────────────────┐
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>    ▼                                    ▼
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>AGGREGATE_FEATURE_TYPE_CP_FEATURES   OVWT_BATCHWISE_CP_FEATURES (params.run_ovwt)
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>(x feature_select_types_cp_features; z-scored to the synonymous variants)
+</code></pre></div>
+<p><code>BUILD_CP_FEATURES</code> is a flat read + column-select against
+<code>BUILD_CELL_IMAGES</code>' <code>cell_table.parquet</code> (no tile discovery, no CSV
+reads of its own -- see
+<a href="../architecture/#cell-images-build_cell_images-output-from-starcall-workflow">Architecture</a>).
+The other three processes are the same shared modules as the cellDINO track's, run with
+<code>feature_selector=features</code> and publishing under <code>*_cp_features</code> directories.</p>
+<h3 id="track-independence">Track independence<a class="headerlink" href="#track-independence" title="Permanent link">&para;</a></h3>
+<p><code>BUILD_CELL_IMAGES</code> is the only stage both tracks depend on. Everything
+after it is two independent chains meeting nowhere, joined only by the
+<code>QC_FILTER</code> output they both consume -- and <code>QC_FILTER</code> itself depends on
+neither, since <code>BUILD_CELL_METADATA</code> feeds it straight from
+<code>cell_table.parquet</code>. Combined with every per-experiment process's
+<code>errorStrategy 'ignore'</code>, a failure anywhere in the cellDINO track
+(<code>EMBED_CELLS</code>, <code>NORMALIZE</code>, ...) leaves the CellProfiler track
+running to completion, and vice versa.
+<code>tests/integration/test_integration.py::test_cp_track_survives_embedding_failure</code>
+pins this by failing <code>EMBED_CELLS</code> outright and asserting the
+CellProfiler outputs still land.</p>
+<p><code>errorStrategy 'ignore'</code> also means <code>nextflow run</code> <strong>exits 0</strong> when a task
+failed; the failure shows up as an <code>Error executing process</code> line and as
+missing output files, not as an exit code.</p>
+<p>QC sees every row of <code>cell_table.parquet</code>, so <code>filtered_cells.parquet</code>
+can cover cells that never reached <code>embeddings.parquet</code> (say, a tile whose
+shard job failed). Every consumer inner-joins it back on the pipeline's
+<code>join_keys</code>, so the extra rows drop out where they don't apply -- and QC
+thresholds don't shift depending on whether the embedding pass
+succeeded.</p>
+<h2 id="profiles-and-containers">Profiles and containers<a class="headerlink" href="#profiles-and-containers" title="Permanent link">&para;</a></h2>
+<p><code>nextflow.config</code> carries only container and profile settings -- no
+executor, queue or resource settings, and no default parameter values
+(those are all in <code>params.yaml</code>). Three profiles:</p>
+<ul>
+<li><strong>default (no <code>-profile</code>)</strong> -- Docker, running every task in
+  <code>params.container_image</code> as the invoking user
+  (<code>docker.runOptions = '-u $(id -u):$(id -g)'</code>, so published outputs
+  aren't root-owned).</li>
+<li><strong><code>-profile apptainer</code></strong> -- the same <code>docker://</code> image through Apptainer
+  (<code>apptainer.autoMounts = true</code>); the usual choice on an HPC cluster.</li>
+<li><strong><code>-profile local</code></strong> -- no container at all: every task runs its <code>python -m</code>
+  module against the invoking environment
+  (this repo's own <code>uv</code> venv). What <code>tests/integration/</code> and CI use. There
+  is no <code>ops</code> env here, so the nested starcall <code>snakemake</code> is whatever
+  <code>snakemake</code> is on <code>PATH</code> -- the test suite puts a stub there.</li>
+</ul>
+<p><code>process.ext.snakemake_bin</code> (<code>/opt/conda/envs/ops/bin/snakemake</code>) points
+<code>BUILD_CELL_IMAGES</code> at the image's <code>ops</code> env by absolute path, and
+<code>process.ext.fisseq_snakefile</code>
+(<code>/opt/fisseq-embeddings-pipeline/snakemake/Snakefile</code>) at the Snakefile it
+runs -- starcall's own, cloned into the image at a pinned commit,
+plus <code>make_cell_shard</code>/<code>make_well_shards</code>. That env is deliberately kept off
+<code>PATH</code> so bare <code>python</code> always resolves to this repo's own Python 3.13
+venv. Conda's base <code>bin</code> (<code>/opt/conda/bin</code>, which holds <code>conda</code> itself) is
+on the image's <code>PATH</code>, after the venv, because <code>--use-conda</code> shells out to
+a bare <code>conda</code> -- in the nested snakemake and in every starcall child job
+(see <a href="#the-nested-starcall-run-starcall_profile">The nested starcall run</a>).
+<code>-profile local</code> resets <code>snakemake_bin</code> to the <code>snakemake</code> on <code>PATH</code>, and
+points <code>fisseq_snakefile</code> at <code>${projectDir}/snakemake/Snakefile</code>.</p>
+<h3 id="bind-mounts">Bind mounts<a class="headerlink" href="#bind-mounts" title="Permanent link">&para;</a></h3>
+<p>Nextflow mounts each task's own work directory into its container; any
+other host path a task reaches has to be bound explicitly. Two processes
+need that, via <code>containerOptions</code> closures in <code>nextflow.config</code> (<code>-v</code> under
+Docker, <code>-B</code> under Apptainer):</p>
+<ul>
+<li><strong><code>BUILD_CELL_IMAGES</code></strong> -- the plan's <code>bind_paths</code> (the experiment's
+  <code>starcall_workflow_dir</code> plus any data dir set explicitly in its entry),
+  the snakemake cache dir, and <code>starcall_profile</code> if set. Plus <code>--nv</code> /
+  <code>--gpus all</code> when <code>starcall_gpu</code> is true.</li>
+<li><strong><code>EMBED_CELLS</code></strong> -- <code>cell_dino_checkpoint</code>, and the experiment's
+  resolved <code>phenotyping_dir</code> (emitted by <code>BUILD_CELL_IMAGES</code> as an
+  <code>env("phenotyping_dir")</code> output): <code>shards.parquet</code> names each shard
+  by its real path there, and the shards are read in place. Plus <code>--nv</code> /
+  <code>--gpus all</code> unless <code>cell_dino_device</code> is <code>cpu</code>.</li>
+</ul>
+<p>Every path is bound at its own unchanged absolute location (<code>src:src</code>).
+That is mandatory, not tidiness: starcall-workflow's rules build every
+output path by literal string concatenation onto
+<code>phenotyping_dir</code>/<code>segmentation_dir</code>/<code>sequencing_dir</code>.</p>
+<p>A data dir resolved from the starcall project's own <code>config.yaml</code> to
+somewhere <em>outside</em> <code>starcall_workflow_dir</code> isn't known before the run, so
+isn't in <code>bind_paths</code>: either set it explicitly on the experiment entry, or
+bind its storage root in your site config (<code>apptainer.runOptions = '-B
+/shared/storage'</code>, or <code>docker.runOptions</code>).</p>
+<div class="admonition warning">
+<p class="admonition-title">Docker's <code>--gpus</code> fails on a GPU-less host</p>
+<p><code>apptainer exec --nv</code> on a GPU-less host warns and proceeds;
+<code>docker run --gpus all</code> fails outright before the container starts.
+<code>starcall_gpu</code> defaults to <code>true</code>, so set it to <code>false</code> (and
+<code>cell_dino_device</code> to <code>cpu</code>) when running under Docker without a GPU.</p>
+</div>
+<h2 id="running-on-a-cluster-bring-your-own-profiles">Running on a cluster: bring your own profiles<a class="headerlink" href="#running-on-a-cluster-bring-your-own-profiles" title="Permanent link">&para;</a></h2>
+<p>Nothing scheduler-specific lives in this repo. A cluster run takes two
+pieces of site configuration, both yours:</p>
+<ol>
+<li>a <strong>Nextflow config</strong> for the outer pipeline, passed with <code>-c</code>, and</li>
+<li>optionally, a <strong>snakemake 7 profile</strong> for the nested starcall run,
+   passed as <code>--starcall_profile</code>, so starcall's own rules fan out across
+   the cluster too.</li>
+</ol>
+<h3 id="the-outer-pipeline-c-siteconfig">The outer pipeline: <code>-c site.config</code><a class="headerlink" href="#the-outer-pipeline-c-siteconfig" title="Permanent link">&para;</a></h3>
+<p>Executor, queue, per-label resources, the Apptainer cache and any extra
+bind paths. Every module carries one of <code>process_single</code>/<code>process_low</code>/
+<code>process_medium</code>/<code>process_high</code> (plus <code>process_gpu</code> on <code>EMBED_CELLS</code>) for
+this purpose. A generic example:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1">// site.config -- pass with: nextflow run . -profile apptainer -c site.config ...</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">process</span><span class="w"> </span><span class="o">{</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="n">executor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'slurm'</span><span class="w">          </span><span class="c1">// or 'sge', 'pbspro', 'lsf', ...</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="n">queue</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="s1">'general'</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nl">withLabel:</span><span class="w"> </span><span class="s1">'process_low'</span><span class="w">    </span><span class="o">{</span><span class="w"> </span><span class="n">cpus</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span><span class="o">;</span><span class="w"> </span><span class="n">memory</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">8</span><span class="o">.</span><span class="na">GB</span><span class="w"> </span><span class="o">}</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="nl">withLabel:</span><span class="w"> </span><span class="s1">'process_medium'</span><span class="w"> </span><span class="o">{</span><span class="w"> </span><span class="n">cpus</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">4</span><span class="o">;</span><span class="w"> </span><span class="n">memory</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">32</span><span class="o">.</span><span class="na">GB</span><span class="w"> </span><span class="o">}</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="nl">withLabel:</span><span class="w"> </span><span class="s1">'process_high'</span><span class="w">   </span><span class="o">{</span><span class="w"> </span><span class="n">cpus</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">8</span><span class="o">;</span><span class="w"> </span><span class="n">memory</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">64</span><span class="o">.</span><span class="na">GB</span><span class="w"> </span><span class="o">}</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">    </span><span class="nl">withName:</span><span class="w">  </span><span class="s1">'EMBED_CELLS'</span><span class="w">    </span><span class="o">{</span><span class="w"> </span><span class="n">clusterOptions</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'--gres=gpu:1'</span><span class="w"> </span><span class="o">}</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">    </span><span class="c1">// BUILD_CELL_IMAGES is a babysitter for the nested snakemake in</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">    </span><span class="c1">// cluster mode, but runs every starcall rule itself in local mode.</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="w">    </span><span class="nl">withName:</span><span class="w">  </span><span class="s1">'BUILD_CELL_IMAGES'</span><span class="w"> </span><span class="o">{</span><span class="w"> </span><span class="n">cpus</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">4</span><span class="o">;</span><span class="w"> </span><span class="n">memory</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">32</span><span class="o">.</span><span class="na">GB</span><span class="o">;</span><span class="w"> </span><span class="n">time</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'72h'</span><span class="w"> </span><span class="o">}</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="o">}</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="n">apptainer</span><span class="w"> </span><span class="o">{</span>
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="w">    </span><span class="n">cacheDir</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s1">'/shared/apptainer-cache'</span>
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="w">    </span><span class="n">runOptions</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'-B /shared/storage'</span>
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="o">}</span>
+</code></pre></div>
+<p>Each task exports <code>POLARS_MAX_THREADS</code>/<code>OMP_NUM_THREADS</code>/... from its own
+<code>task.cpus</code> (see <a href="#modules">Modules</a>), so setting <code>cpus</code> per label is also
+what keeps several tasks on one node from oversubscribing it.</p>
+<h3 id="the-nested-starcall-run-starcall_profile">The nested starcall run: <code>starcall_profile</code><a class="headerlink" href="#the-nested-starcall-run-starcall_profile" title="Permanent link">&para;</a></h3>
+<p>By default <code>BUILD_CELL_IMAGES</code>' nested snakemake runs in <strong>local mode</strong>:
+<code>--cores {snakemake_cores}</code>, every starcall rule a subprocess of the one
+task. There is parallelism <em>across</em> experiments and none <em>within</em> one.</p>
+<p>Set three params (plus, optionally, <code>starcall_job_binds</code>) to fan starcall's rules out instead:</p>
+<table>
+<thead>
+<tr>
+<th>Param</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>starcall_profile</code></td>
+<td>A snakemake <strong>7</strong> profile directory (a <code>config.yaml</code> inside it) saying how to submit jobs: <code>cluster:</code>, <code>cluster-cancel:</code>, <code>jobs:</code>, and optionally <code>default-resources</code>/<code>set-resources</code>, <code>latency-wait</code>, <code>retries</code>. Bound into the task's container automatically. The workflow parses its <code>config.yaml</code> at launch and stops with an error if it is missing or not valid YAML.</td>
+</tr>
+<tr>
+<td><code>starcall_job_image</code></td>
+<td>A <code>.sif</code> of <code>container_image</code> on storage every compute node can read. Required with <code>starcall_profile</code> (<code>PLAN_EXPERIMENTS</code> fails fast without it).</td>
+</tr>
+<tr>
+<td><code>starcall_container_bin</code></td>
+<td>What a child job re-enters the image with. Default <code>apptainer</code>; some nodes only ship <code>singularity</code>.</td>
+</tr>
+<tr>
+<td><code>starcall_job_binds</code></td>
+<td>Optional. Extra host paths every child job binds (a list, or a comma-separated string on the command line), e.g. the shared-storage root your site config binds for the outer tasks, so data a starcall config reaches through a symlink elsewhere is visible too. Default <code>[]</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>A minimal profile looks like:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># my-starcall-profile/config.yaml -- snakemake 7 syntax</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="nt">cluster</span><span class="p">:</span><span class="w"> </span><span class="s">"submit-job</span><span class="nv"> </span><span class="s">--cpus</span><span class="nv"> </span><span class="s">{threads}</span><span class="nv"> </span><span class="s">--mem</span><span class="nv"> </span><span class="s">{resources.mem_mb}M"</span><span class="w">   </span><span class="c1"># your scheduler's submit command; must print the job id first</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="nt">cluster-cancel</span><span class="p">:</span><span class="w"> </span><span class="s">"cancel-job"</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="nt">jobs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">64</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="nt">latency-wait</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">120</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="nt">default-resources</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">cuda=0</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="c1"># starcall-workflow's devel branch has `cuda = 1` commented out on its</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="c1"># segmentation rules, so request the GPU explicitly if your submit</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="c1"># command keys off resources.cuda:</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="nt">set-resources</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">segment_nuclei</span><span class="p p-Indicator">:</span><span class="nv">cuda=1</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">segment_cells</span><span class="p p-Indicator">:</span><span class="nv">cuda=1</span><span class="p p-Indicator">]</span>
+</code></pre></div>
+<p>On SGE, start from starcall-workflow's own launcher (<code>run.sh</code> at the pinned
+commit): its <code>--cluster</code>, <code>--cluster-cancel</code>, <code>-j</code>, <code>--cores</code>, <code>--resources</code>,
+<code>--set-resource-scopes</code>, <code>--default-resources</code>, <code>--keep-incomplete</code> and
+<code>--latency-wait</code> carry over to the profile as they are. <code>cluster:</code> runs
+through a shell. <code>cluster-cancel:</code> doesn't (snakemake 7 runs it as one
+executable plus the job ids), so a cancel command that needs any setup
+first has to be a script.</p>
+<p>With <code>starcall_profile</code> set, the nested invocations become</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>snakemake --snakefile /opt/fisseq-embeddings-pipeline/snakemake/Snakefile --directory &lt;starcall_workflow_dir&gt; \
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    --profile &lt;starcall_profile&gt; --jobscript $PWD/starcall_jobscript.sh \
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    --use-conda --conda-frontend conda --rerun-triggers mtime --rerun-incomplete \
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    --configfile $PWD/snakemake_config.yaml -- &lt;target&gt;
+</code></pre></div>
+<p>once with <code>&lt;target&gt;</code> = <code>fisseq_shards</code> (every well's shards, alone), then
+with <code>$PWD/tiles_manifest.csv</code>. Building the shards in a pass of their own
+keeps snakemake from rerunning CellProfiler when, with <code>use_corrected</code>, it
+regenerates the <code>temp()</code> <code>corrected_tiles.tif</code> missing shards need; with
+raw images it's harmless (<a href="../architecture/">Architecture</a> decision 17).</p>
+<p>with no <code>--cores</code>: in cluster mode that's the budget across all submitted
+jobs and silently caps every rule's own <code>threads:</code>, so it belongs in the
+profile (or leave it to <code>jobs:</code>).</p>
+<p>How the pieces fit:</p>
+<ul>
+<li><strong>The submitter runs inside <code>BUILD_CELL_IMAGES</code>' container.</strong> snakemake
+  bakes its own <code>sys.executable</code> -- the image's
+  <code>/opt/conda/envs/ops/bin/python3.10</code> -- into every jobscript, so the
+  submitter has to be the in-image snakemake. That means your profile's
+  <code>cluster:</code> command runs <strong>inside the container</strong> too: the scheduler
+  client (<code>qsub</code>, <code>sbatch</code>, ...) and whatever environment it needs must be
+  reachable there. Bind its install and config in via your site config
+  (<code>apptainer.runOptions</code>), and set any environment it reads
+  (<code>apptainer.envWhitelist</code>, or <code>env</code> in the site config).</li>
+<li><strong>Every child job re-enters the image.</strong> A child job lands on a bare
+  node, but starcall's rules are overwhelmingly <code>run:</code> blocks, which
+  execute inside the child snakemake's own interpreter and import
+  numpy/tifffile/starcall/tensorflow -- snakemake never containerizes a
+  <code>run:</code> body. So <code>BUILD_CELL_IMAGES</code>' prepare phase writes
+  <code>starcall_jobscript.sh</code> (<code>render_starcall_jobscript</code> in
+  <code>build_cell_images_prepare.py</code>) and passes it as <code>--jobscript</code>. It
+  re-executes itself once inside <code>starcall_job_image</code> (<code>&lt;starcall_container_bin&gt;
+  exec [--nv] --bind ... &lt;image&gt; /bin/sh -c "$(cat "$0")" "$0"</code>, guarded by an environment
+  variable Apptainer passes through), then runs the job as usual. Inside the
+  image the job has the image's own <code>PATH</code>, not its submitter's, so the
+  <code>conda</code> that <code>--use-conda</code> rules (<code>run_cellprofiler</code>'s <code>cp4</code> env) need
+  comes from the image's <code>PATH</code> too.</li>
+<li><strong>Binds are baked in.</strong> The jobscript binds, at unchanged paths, the
+  resolved <code>phenotyping_dir</code>/<code>segmentation_dir</code>/<code>sequencing_dir</code>,
+  <code>starcall_workflow_dir</code>, the snakemake cache dir, <code>starcall_job_binds</code>
+  and the task's own work directory -- each also at its symlink-resolved
+  path. Snakemake prefixes every cluster job with <code>cd &lt;workdir&gt;</code>, and it
+  records that workdir with <code>os.getcwd()</code> after changing into
+  <code>--directory</code>, so a <code>starcall_workflow_dir</code> reached through a symlink
+  comes out resolved. The Nextflow work directory has to be on shared
+  storage, as it already must be for any cluster executor.</li>
+<li><strong>GPU.</strong> <code>starcall_gpu: true</code> adds <code>--nv</code> to every child job's re-entry;
+  Apptainer only warns on a GPU-less node. Which jobs get a GPU <em>node</em> is
+  your profile's business (<code>set-resources</code> above).</li>
+<li><strong>Stale locks.</strong> A killed run leaves a lock in
+  <code>&lt;starcall_workflow_dir&gt;/.snakemake/locks/</code>; every run clears it first
+  with a <code>snakemake --unlock</code>. That is safe only because each experiment
+  has its own <code>starcall_workflow_dir</code> and concurrent runs against one tree
+  are forbidden.</li>
+<li><strong>OOM retries.</strong> <code>starcall_retries: N</code> passes <code>--retries N</code>: a failed
+  child job is resubmitted up to N more times. The wrapper Snakefile
+  doubles every rule's <code>mem_mb</code> on each of snakemake's attempts
+  (<code>snakemake/fisseq_resources.py</code>): starcall's own lambdas, and your
+  profile's <code>default-resources</code>/<code>set-resources</code> alike. So a job SGE killed
+  for memory comes back asking for 2x, then 4x. Any failure is retried, not
+  just OOM, so keep N small.</li>
+<li><strong>No <code>cluster-status</code> needed.</strong> A child job's jobscript ends by touching
+  a <code>jobfinished</code> or <code>jobfailed</code> marker, which is how snakemake learns its
+  fate, starcall's own SGE launcher included. A job the scheduler kills
+  outright (<code>h_rt</code>, or one that never gets as far as its snakemake) writes
+  neither, and the submitter waits on it until its own <code>h_rt</code>. A
+  <code>cluster-status:</code> command would catch that, but it runs inside the
+  container as well, so whatever it reads (SGE's <code>qacct</code> and its
+  accounting file, for one) must be bound there.</li>
+<li><strong>Orphans.</strong> snakemake runs your profile's <code>cluster-cancel</code> on a
+  graceful shutdown; a SIGKILLed submitter can leave child jobs queued, to
+  sweep by hand with your scheduler's tools.</li>
+</ul>
+<p>The nested snakemake is pinned to <strong>7.32.4</strong> in the <code>Dockerfile</code>,
+deliberately: the <code>ops</code> env is Python 3.10 and every snakemake &gt;=8
+requires &gt;=3.11. <code>--cluster</code>/<code>--cluster-cancel</code>/<code>--jobscript</code> are 7.x
+features; snakemake 8 replaced them with the executor-plugin interface,
+which is out of reach until <code>ops</code> moves to Python &gt;=3.11. The integration
+suite's <code>test_real_starcall_profile_mode</code> exercises this path with real
+snakemake 7 and a fake "cluster" -- everything except a real <code>apptainer</code>
+re-entering the <code>.sif</code> on a node, which only a real cluster can check.</p>
+<h2 id="shared-modules">Shared modules<a class="headerlink" href="#shared-modules" title="Permanent link">&para;</a></h2>
+<p>The processes both pipelines run have one copy, in fisseq-common:
+<code>packages/fisseq-common/nextflow/modules/local/&lt;stage&gt;/main.nf</code> (QC_FILTER, FILTER,
+OVWT_BATCHWISE, AGGREGATE, GENERATE_SPLIT, CORRELATE_FEATURES, BLOCKLIST, COMBINE_BLOCKLISTS,
+FINALIZE_FEATURE_SELECT), plus <code>functions.nf</code> (<code>threadEnv</code>, <code>hydraList</code>). Each hardcodes its
+entry point, <code>python -m fisseq_common.stages.&lt;stage&gt;</code>, and passes what both pipelines pass
+alike. The workflow includes them under the data pipeline's process names
+(<code>include { FILTER as NORMALIZE } from '../../fisseq-common/nextflow/modules/local/filter/main.nf'</code>),
+and this pipeline's <code>conf/modules.config</code> sets, per process name, only:</p>
+<ul>
+<li><code>ext.args</code>: <code>join_keys</code> (<code>[meta_batch,meta_well,meta_tile,meta_cell_index]</code>),
+  <code>feature_selector</code> (<code>embeddings</code>; <code>features</code> on the CP track), QC_FILTER's
+  <code>sort_output_by</code>, the aggregate processes' <code>downsample_wt</code> and <code>normalize_to_synonymous</code>, and
+  BLOCKLIST's <code>minimum_correlation</code>;</li>
+<li><code>ext.seed</code>: <code>AGGREGATE_HALF_BATCHWISE</code>'s per-half seed, <code>random_seed + rep * 2 + half</code>;</li>
+<li><code>publishDir</code>: where its outputs go under <code>pipeline_dir</code>, matching
+  <code>fisseq_common.layout.EmbeddingsPipelineLayout</code> (<code>tests/unit/test_publish_layout.py</code> checks).</li>
+</ul>
+<p>See <a href="../../common/nextflow/">Shared Nextflow modules</a>.</p>
+<h2 id="modules">Modules<a class="headerlink" href="#modules" title="Permanent link">&para;</a></h2>
+<p>This pipeline's own modules (<code>PLAN_EXPERIMENTS</code>, <code>BUILD_CELL_IMAGES</code>, <code>BUILD_CELL_METADATA</code>,
+<code>EMBED_CELLS</code>, <code>BUILD_CP_FEATURES</code>) follow the same shape as the shared ones:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">include</span><span class="w"> </span><span class="o">{</span><span class="w"> </span><span class="n">threadEnv</span><span class="w"> </span><span class="o">}</span><span class="w"> </span><span class="n">from</span><span class="w"> </span><span class="s1">'../../../../fisseq-common/nextflow/modules/local/functions'</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">process</span><span class="w"> </span><span class="n">EMBED_CELLS</span><span class="w"> </span><span class="o">{</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span><span class="n">errorStrategy</span><span class="w"> </span><span class="s1">'ignore'</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span><span class="n">label</span><span class="w"> </span><span class="s1">'process_gpu'</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span><span class="n">container</span><span class="w"> </span><span class="s2">"${params.container_image}"</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">    </span><span class="n">publishDir</span><span class="w"> </span><span class="o">{</span><span class="w"> </span><span class="s2">"${params.pipeline_dir}/embeddings/${batch_stem}"</span><span class="w"> </span><span class="o">},</span><span class="w"> </span><span class="nl">mode:</span><span class="w"> </span><span class="s1">'copy'</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">    </span><span class="o">...</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">    </span><span class="nl">script:</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="w">    </span><span class="s2">"""</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="s2">    ${threadEnv(task.cpus)}</span>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="s2">    python -m fisseq_embeddings_pipeline.embed \\</span>
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="s2">        output_dir=. \\</span>
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="s2">        ... \\</span>
+<a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a><span class="s2">        random_seed=${params.random_seed}</span>
+<a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a><span class="s2">    """</span>
+<a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a><span class="o">}</span>
+</code></pre></div>
+<ul>
+<li><strong><code>errorStrategy 'ignore'</code></strong> on every per-experiment process, so
+  independent branches keep running when one fails (<code>PLAN_EXPERIMENTS</code> is
+  the exception).</li>
+<li><strong><code>publishDir ..., mode: 'copy'</code></strong> into <code>pipeline_dir</code>: real copies, so
+  results don't depend on <code>work/</code> surviving. <code>BUILD_CELL_IMAGES</code> publishes
+  only <code>cell_table.parquet</code>/<code>shards.parquet</code>; its scratch files
+  (<code>snakemake_config.yaml</code>, <code>tiles_manifest.csv</code>, <code>shards_manifest.csv</code>,
+  <code>resolved_dirs.env</code>, the
+  jobscript) stay in its work directory.</li>
+<li><strong><code>threadEnv(task.cpus)</code></strong> (fisseq-common's <code>functions.nf</code>) exports
+  <code>POLARS_MAX_THREADS</code>/<code>OMP_NUM_THREADS</code>/<code>OPENBLAS_NUM_THREADS</code>/... inside
+  the script itself -- not as a <code>beforeScript</code>, which runs on the host,
+  outside the container. <code>hydraList(key, values)</code> renders a list as one
+  shell-safe <code>'key=[a,b]'</code> override.</li>
+<li><strong><code>output_dir=.</code></strong> and a trailing <strong><code>random_seed=...</code></strong> on every stage invocation.</li>
+</ul>
+<p><code>BUILD_CELL_IMAGES</code> is the one exception to "one <code>python -m</code> call": three
+phases, the middle one a nested <code>snakemake</code> (which itself runs <code>python -m
+fisseq_embeddings_pipeline.tile_shard</code> once per tile, as
+<code>make_cell_shard</code>, and <code>python -m fisseq_embeddings_pipeline.well_shards</code>
+once per well, as <code>make_well_shards</code>). See
+<a href="../cli/build_cell_images_prepare/"><code>build_cell_images_prepare</code></a>,
+<a href="../cli/tile_shard/">Cell Shards</a> and <a href="../cli/well_shards/">Well Shards</a>.</p>
+<h3 id="-resume"><code>-resume</code><a class="headerlink" href="#-resume" title="Permanent link">&para;</a></h3>
+<p><code>-resume</code> reuses a task whenever its inputs hash the same. For
+<code>BUILD_CELL_IMAGES</code> the inputs are the experiment's plan -- values, not
+files -- so <code>-resume</code> won't notice new or changed data under
+<code>starcall_workflow_dir</code>. Rerun without <code>-resume</code> (or with
+<code>-resume</code> after deleting that task's work directory) to pick those up; the
+nested snakemake's own mtime-based rerun then recomputes only what
+changed.</p>
+<h2 id="output-directory-layout">Output directory layout<a class="headerlink" href="#output-directory-layout" title="Permanent link">&para;</a></h2>
+<p>The paths are <code>fisseq_common.layout.EmbeddingsPipelineLayout</code>'s. Everything from
+<code>qc_filter/</code> down is laid out exactly as in fisseq-data-pipeline.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>&lt;pipeline_dir&gt;/
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>  cell_images/&lt;batch&gt;/
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>    cell_table.parquet                    # the ONE self-sufficient cell table: key + QC meta_* columns + meta_variant_class (+ CellProfiler columns if cp_features)
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    shards.parquet                        # one row per shard: well, shard_tar -- a real path under phenotyping_dir
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>  cell_metadata/&lt;batch&gt;/
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>    metadata.parquet                      # QC_FILTER's input: meta_batch + the table's key and QC columns
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>  qc_filter/&lt;batch&gt;/
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>    filtered_cells.parquet                # QC-passed cells (+ pseudo-variant rows, if enabled)
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>    barcode_counts.parquet
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>    variants_per_barcode.parquet
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>  embeddings/&lt;batch&gt;/embeddings.parquet   # unfiltered, all cells
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>  normalization/&lt;batch&gt;/
+<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a>    filtered_keys.parquet                 # QC-passed cells' meta_* columns + meta_is_control -- no emb_* columns
+<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a>    normalizer.parquet                    # z-score stats fitted on the wildtype cells
+<a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a>  ovwt_batchwise/&lt;batch&gt;/
+<a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a>    results.parquet                       # auroc_pooled, auroc_median_barcode, auroc_folds, auroc_median_fold
+<a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a>    cell_scores.parquet                   # per-cell out-of-fold scores, one row per cell per variant scored against
+<a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a>    models.pkl                            # dict[variant] -&gt; list[(model, calibrator)], one pair per CV fold
+<a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a>  feature_select_batchwise/&lt;batch&gt;/
+<a id="__codelineno-7-20" name="__codelineno-7-20" href="#__codelineno-7-20"></a>    aggregates/&lt;method&gt;.parquet           # every cell, one method, z-scored to the synonymous variants
+<a id="__codelineno-7-21" name="__codelineno-7-21" href="#__codelineno-7-21"></a>    passthrough_aggregates/&lt;method&gt;.parquet   # one per feature_select_passthrough_types entry, raw
+<a id="__codelineno-7-22" name="__codelineno-7-22" href="#__codelineno-7-22"></a>    splits/bootstrap_&lt;N&gt;/half{1,2}.parquet    # which cells are in which half (row keys only)
+<a id="__codelineno-7-23" name="__codelineno-7-23" href="#__codelineno-7-23"></a>    half_aggregates/bootstrap_&lt;N&gt;/&lt;method&gt;/half&lt;K&gt;_agg.parquet   # lean: label + that method's stat columns
+<a id="__codelineno-7-24" name="__codelineno-7-24" href="#__codelineno-7-24"></a>    correlations/&lt;method&gt;/bootstrap_&lt;N&gt;.parquet   # feature, r, r_squared
+<a id="__codelineno-7-25" name="__codelineno-7-25" href="#__codelineno-7-25"></a>    blocklists/&lt;method&gt;.parquet           # feature, median_r, feature_ok -- per method
+<a id="__codelineno-7-26" name="__codelineno-7-26" href="#__codelineno-7-26"></a>    blocklist.parquet                     # the per-method blocklists concatenated
+<a id="__codelineno-7-27" name="__codelineno-7-27" href="#__codelineno-7-27"></a>    output.parquet                        # FINALIZE: blocklist applied, synonymous z-score, impact score, metadata, passthrough
+<a id="__codelineno-7-28" name="__codelineno-7-28" href="#__codelineno-7-28"></a>  cp_features/&lt;batch&gt;/cp_features.parquet # unfiltered, all cells -- CellProfiler feature columns
+<a id="__codelineno-7-29" name="__codelineno-7-29" href="#__codelineno-7-29"></a>  normalization_cp_features/&lt;batch&gt;/
+<a id="__codelineno-7-30" name="__codelineno-7-30" href="#__codelineno-7-30"></a>    filtered_keys.parquet
+<a id="__codelineno-7-31" name="__codelineno-7-31" href="#__codelineno-7-31"></a>    normalizer.parquet
+<a id="__codelineno-7-32" name="__codelineno-7-32" href="#__codelineno-7-32"></a>  ovwt_batchwise_cp_features/&lt;batch&gt;/
+<a id="__codelineno-7-33" name="__codelineno-7-33" href="#__codelineno-7-33"></a>    results.parquet
+<a id="__codelineno-7-34" name="__codelineno-7-34" href="#__codelineno-7-34"></a>    cell_scores.parquet
+<a id="__codelineno-7-35" name="__codelineno-7-35" href="#__codelineno-7-35"></a>    models.pkl
+<a id="__codelineno-7-36" name="__codelineno-7-36" href="#__codelineno-7-36"></a>  feature_select_batchwise_cp_features/&lt;batch&gt;/
+<a id="__codelineno-7-37" name="__codelineno-7-37" href="#__codelineno-7-37"></a>    aggregates/&lt;method&gt;.parquet           # one per feature_select_types_cp_features entry
+<a id="__codelineno-7-38" name="__codelineno-7-38" href="#__codelineno-7-38"></a>  .snakemake_cache/                       # the nested starcall snakemake's $XDG_CACHE_HOME/$HOME (snakemake_cache_dir)
+</code></pre></div>
+<p>Each stage's own <code>&lt;stage&gt;.log</code> (written by <code>fisseq_common.utils.log</code> into
+<code>output_dir</code>) stays in that task's hashed <code>work/</code> directory alongside
+Nextflow's <code>.command.log</code>/<code>.command.err</code>; it isn't published.</p>
+<p>The <code>cp_features/</code>, <code>normalization_cp_features/</code>, <code>ovwt_batchwise_cp_features/</code> and
+<code>feature_select_batchwise_cp_features/</code> directories only
+appear when at least one <code>params.experiments</code> entry sets <code>cp_features:
+true</code> (see <a href="#cellprofiler-feature-track">CellProfiler-feature track</a>
+above).</p>
+<p>The WebDataset shards -- per well,
+<code>&lt;well&gt;_grid&lt;N&gt;/&lt;segmentation_type&gt;_{raw|corrected}_shards_&lt;window&gt;_&lt;shard_size|all&gt;/well_&lt;n&gt;_shard_&lt;k&gt;.tar.gz</code>,
+<code>shard_size</code> cells each, all cells, unfiltered -- stay under starcall's
+<code>phenotyping_dir</code>, next to that well's tiles, not here: <code>EMBED_CELLS</code>
+reads them in place via <code>shards.parquet</code>, and snakemake's own mtime check
+reuses them on a rerun. The per-tile shards they're packed from are
+<code>temp()</code> outputs and not targets, so snakemake deletes them once the well
+is packed; the tile image and mask those are cut from are stitched in the
+job and never written under <code>phenotyping_dir</code> -- see
+<a href="../architecture/">Architecture</a> decision 17.</p>
+<p>See the <a href="../cli/tile_shard/">Stage Reference</a> pages and
+<a href="../../common/stages/">Shared stages</a> for each file's exact column set.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "toc.follow", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
