@@ -91,10 +91,10 @@ class TileShardConfig(AppConfig):
         Path of the shard to write.
     image_dtype : str
         dtype a floating-point ``image_tif`` is cast back to, after its NaN
-        pixels are set to 0. starcall stitches into float32 and marks
-        pixels no input image covers (outside the well) as NaN; the
-        microscope's images, and the crops before that, are ``uint16``.
-        An integer ``image_tif`` is used as is.
+        pixels are set to 0. starcall from 62414b0 on stitches into float32
+        and marks pixels no input image covers (outside the well) as NaN;
+        the microscope's images, and the pinned commit's stitching, are
+        ``uint16``. An integer ``image_tif`` is used as is.
     """
 
     image_tif: str = MISSING
@@ -175,9 +175,9 @@ def _read_tile_image(path: str, dtype: str = "uint16") -> np.ndarray:
     """A tile's phenotype image as ``(C, H, W)``. It is
     ``(cycles, channels, H, W)``, as starcall writes ``raw_pt.tif``; its own
     ``make_cell_images`` flattens the leading axes the same way. A
-    floating-point image (starcall's stitching, NaN where no input image
-    covers the tile) comes back as ``dtype`` with its NaN pixels 0, as
-    starcall stitched them before it used NaN."""
+    floating-point image (starcall's stitching from 62414b0 on, NaN where no
+    input image covers the tile) comes back as ``dtype`` with its NaN pixels
+    0, as the pinned commit stitches them."""
     image = tifffile.imread(path)
     if np.issubdtype(image.dtype, np.floating):
         image = np.nan_to_num(image, nan=0.0, copy=False).astype(dtype)

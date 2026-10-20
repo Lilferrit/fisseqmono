@@ -15,8 +15,7 @@ starcall_profile on a cluster). It stitches the tile's image and mask
 itself, in memory, with starcall's own stitch_well_section and
 stitch_segmentation_section, from the files starcall keeps (the input
 images, the stitching composites, the segmentation-grid masks), so it
-never asks for starcall's whole-tile raw_pt.tif / cells_mask.tif (temp()
-before the pinned commit, kept on disk since).
+never asks for starcall's temp() whole-tile raw_pt.tif / cells_mask.tif.
 make_well_shards then packs a well's tile shards, themselves temp(), into
 the well's gzipped shards of fisseq_shard_size cells each (one shard when
 it's unset). See docs/architecture.md decision 17.
@@ -26,8 +25,7 @@ well's shards), then for fisseq_tiles_manifest. The manifest rule's input
 function lists every tile file of every well (fisseq_targets.py), so the
 run builds its own DAG from the grid rather than from a target list. The
 first pass guards use_corrected: corrected tiles are stitched from
-starcall's corrected_tiles.tif (temp() before the pinned commit, which
-keeps it, so this only matters with an older pin), and once a well's shards are
+starcall's temp() corrected_tiles.tif, and once a well's shards are
 missing snakemake regenerates it -- in a DAG that also holds the
 CellProfiler and reads tables, it would rerun every job downstream of it,
 however complete their outputs. Built alone, the shards leave those jobs
@@ -72,19 +70,6 @@ for _fisseq_module in (constitch, starcall):
 # the pinned commit). run: bodies are compiled in this file's globals, and
 # every cluster child job re-parses it, so this import covers that branch.
 import pandas
-
-# Segmentation settings the pinned commit reads (as rule params, so while
-# parsing) that older experiment config.yamls don't have. The values are
-# the pinned commit's own config.yaml's; an experiment's config.yaml, loaded
-# by starcall's `configfile:` below, still overrides them.
-for _fisseq_key, _fisseq_value in (
-    ('nuclei_segmentation_filter_min_area', 27),
-    ('nuclei_segmentation_filter_min_bbox', 3),
-    ('cell_segmentation_filter_min_area', 35),
-    ('cell_segmentation_filter_min_bbox', 7),
-    ('use_cytoplasm_and_nuclei', False),
-):
-    config.setdefault('segmentation', {}).setdefault(_fisseq_key, _fisseq_value)
 
 include: "../starcall-workflow/workflow/Snakefile"
 
@@ -156,14 +141,14 @@ rule make_cell_shard:
     stitch_tile_segmentation (the pinned commit's rule bodies, line for
     line), from the files starcall keeps: the input images, the stitching
     and segmentation composites, the segmentation-grid masks and the
-    tile's cell table. So starcall's raw_pt.tif / cells_mask.tif are never
-    requested, and recutting a shard regenerates nothing CellProfiler
-    reads.
+    tile's cell table. So starcall's temp() raw_pt.tif / cells_mask.tif are
+    never requested, and recutting a shard regenerates nothing CellProfiler
+    reads. Only use_corrected's corrected_tiles.tif is itself temp().
 
-    starcall stitches into float32, NaN where no input image covers the
-    tile (outside the well); tile_shard casts the image back to uint16
-    with those pixels 0 (its image_dtype), so the crops are what they
-    were before starcall used NaN.
+    At the pinned commit starcall stitches in the images' own dtype
+    (uint16), zeros where no input image covers the tile. Later commits
+    (62414b0 on) stitch into float32 with NaN there; tile_shard casts such
+    an image back to uint16 with those pixels 0 (its image_dtype).
 
     Each sample's meta.json is the cell's key, QC fields and variant class,
     from the tile's segmentation and reads tables (tile_shard.py). Its

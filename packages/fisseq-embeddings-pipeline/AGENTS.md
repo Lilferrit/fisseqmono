@@ -64,7 +64,7 @@ snakemake/Snakefile               BUILD_CELL_IMAGES' nested run (starcall + make
 - `fisseq-common` (`packages/fisseq-common/`) — `fisseq_common.stages` (algorithm, Hydra
   config and entry point of every shared stage) and their Nextflow modules.
 - `starcall-workflow` — the Snakemake pipeline whose `origin/devel` line of history
-  (pinned to 62414b0 on `sense_analysis`, which branches off devel) produces this pipeline's raw input. This
+  (pinned to 0edcc1b on devel, the commit `LMNA_T3_R1_cp111925` ran) produces this pipeline's raw input. This
   package's `Dockerfile` clones it at **one pinned commit**
   (`ARG STARCALL_WORKFLOW_COMMIT`): the code `BUILD_CELL_IMAGES`' nested
   snakemake actually runs, through `snakemake/Snakefile`, and what the
@@ -76,8 +76,9 @@ into the sandbox at `/workspaces/starcall-workflow`. It's mounted read-only on p
 don't write into it; if starcall needs a fix upstream, note that in your commit message.
 
 **`starcall-workflow` gotcha:** this pipeline tracks `starcall-workflow`'s
-`origin/devel` line of history, not `master` (the pin is 62414b0 on `sense_analysis`,
-for its edge-tile fix — see the architecture doc's "A note on branches"). The authoritative version is the
+`origin/devel` line of history, not `master` (the pin is 0edcc1b on devel; blank
+well-edge tiles crash `find_dots` there, fixed only on `sense_analysis`'s 62414b0 — see the
+architecture doc's "A note on branches"). The authoritative version is the
 Dockerfile's `STARCALL_WORKFLOW_COMMIT` — read starcall's code at that
 commit (`git -C /workspaces/starcall-workflow show
 <commit>:workflow/rules/phenotyping.smk`). The bind-mounted sibling's own

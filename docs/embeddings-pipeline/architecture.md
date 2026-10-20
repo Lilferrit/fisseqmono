@@ -614,19 +614,18 @@ This pipeline tracks `starcall-workflow`'s `origin/devel` line of
 history, not `master`, which lays out its phenotyping outputs differently
 and has no `extract_embeddings` rule at all. The image is built at one
 commit, the `Dockerfile`'s `STARCALL_WORKFLOW_COMMIT` (decision 24):
-62414b0 on `origin/sense_analysis`, which branches off devel's tip
-(6e2dc8b, the previous pin). devel's tip crashes `find_dots` on tiles at
-the well's edge (a channel with zero variance becomes NaN, no dots are
-found, and `make_readset` fails with "cannot reshape array of size 0").
-At 62414b0, constitch stitches regions no input image covers as NaN, and
-dot calling ignores them. That changes dot calls on every tile with such
-a region, and `make_cell_shard`'s stitched image is now float32 with NaN
-there, which `tile_shard` turns back into the old uint16 with zeros. The
-commit also reads five new `segmentation` settings while parsing
-(`*_segmentation_filter_min_area`/`_min_bbox`,
-`use_cytoplasm_and_nuclei`); `snakemake/Snakefile` defaults them to that
-commit's own `config.yaml` values for experiments whose `config.yaml`
-predates them, and no longer marks most stitched tifs `temp()`.
+0edcc1b on `origin/devel`, the commit experiment `LMNA_T3_R1_cp111925`
+ran, two commits behind devel's tip (6e2dc8b). It was rolled back from
+62414b0 on `origin/sense_analysis` to match that run. **Known
+limitation:** at 0edcc1b, `find_dots` crashes on tiles at the well's edge
+(a channel with zero variance becomes NaN, no dots are found, and
+`make_readset` fails with "cannot reshape array of size 0"). 62414b0 fixes
+this by stitching regions no input image covers as NaN and ignoring them in
+dot calling, which also makes `make_cell_shard`'s stitched image float32.
+`tile_shard` still turns such an image back into uint16 with zeros, so a
+later pin needs no change there. At 0edcc1b the stitched image is uint16,
+and the stitched tifs (`corrected_tiles.tif`, `raw_pt.tif`,
+`cells_mask.tif`) are `temp()`.
 
 ### Cell Images (`BUILD_CELL_IMAGES` output, from `starcall-workflow`)
 
