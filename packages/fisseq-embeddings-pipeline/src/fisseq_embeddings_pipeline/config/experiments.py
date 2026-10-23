@@ -46,7 +46,6 @@ CELL_IMAGES_FIELDS = frozenset(
         "segmentation_dir",
         "sequencing_dir",
         "wells",
-        "grid_size",
         "segmentation_type",
         "use_corrected",
         "window",
@@ -65,6 +64,15 @@ CELL_IMAGES_FIELDS = frozenset(
 #: as Hydra overrides: ``batch_stem`` is passed explicitly and
 #: ``cp_features`` is a track selector rather than a stage field.
 _NON_STAGE_FIELDS = frozenset({"batch_stem", "cp_features"})
+
+#: Per-experiment fields that no longer do anything, and why. Each is
+#: warned about and routed nowhere.
+REMOVED_EXPERIMENT_FIELDS = {
+    "grid_size": (
+        "the tile grid is the starcall project config.yaml's "
+        "sequencing_grid_size (set it there)"
+    ),
+}
 
 #: Global ``params.yaml`` defaults an ``experiments:`` entry inherits when it
 #: doesn't set the key itself. See the module docstring.
@@ -134,6 +142,7 @@ def validate_config(config: Mapping[str, Any]) -> List[Dict[str, Any]]:
                 f"experiments[{i}].cp_features must be a boolean (true/false), "
                 f"got {type(entry['cp_features']).__name__}."
             )
+        _warn_removed_experiment_fields(i, entry)
 
     stems = [entry["batch_stem"] for entry in experiments]
     duplicates = sorted({s for s in stems if stems.count(s) > 1})
@@ -257,6 +266,13 @@ REMOVED_GLOBAL_PARAMS = {
     "global_variant_embeddings_cumulative_variance_explained": "--cumulative-variance-explained",
     "global_variant_cp_features_cumulative_variance_explained": "--cumulative-variance-explained",
 }
+
+
+def _warn_removed_experiment_fields(i: int, entry: Mapping[str, Any]) -> None:
+    """Warn about each set field of :data:`REMOVED_EXPERIMENT_FIELDS`."""
+    for key, reason in REMOVED_EXPERIMENT_FIELDS.items():
+        if key in entry:
+            logging.warning("experiments[%d].%s is ignored: %s.", i, key, reason)
 
 
 def _warn_removed_global_params(config: Mapping[str, Any]) -> None:
@@ -419,7 +435,7 @@ def cell_table_overrides(entry: Mapping[str, Any]) -> Dict[str, Any]:
     stages' Hydra config. ``cell_table``/``cell_images_dir`` are injected by
     the workflow, not here.
     """
-    excluded = CELL_IMAGES_FIELDS | _NON_STAGE_FIELDS
+    excluded = CELL_IMAGES_FIELDS | _NON_STAGE_FIELDS | REMOVED_EXPERIMENT_FIELDS.keys()
     return {k: v for k, v in entry.items() if k not in excluded}
 
 
@@ -434,8 +450,8 @@ def hydra_overrides(mapping: Mapping[str, Any]) -> str:
 
     Examples
     --------
-    >>> hydra_overrides({"wells": ["w1", "w2"], "grid_size": 8})
-    "'wells=[w1,w2]' grid_size=8"
+    >>> hydra_overrides({"wells": ["w1", "w2"], "window": 224})
+    "'wells=[w1,w2]' window=224"
     """
     parts = []
     for key, value in mapping.items():

@@ -296,10 +296,14 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
     in starcall's own `tile{x:02}x{y:02}y` naming, the way starcall's own
     grid-merging rules expand theirs), so snakemake builds the DAG itself and
     a run can start from raw input with nothing under `phenotyping_dir` yet.
-    `wells` and the grid size default to starcall's own (`wells`,
-    `phenotyping_grid_size`); this replaced a Python enumerate phase that
-    wrote a `targets.txt` of every tile file and globbed `phenotyping_dir`
-    to guess the grid size.
+    `wells` defaults to starcall's own, and the grid is always the project
+    config's `sequencing_grid_size` (the grid the reads tables are at);
+    this replaced a Python enumerate phase that wrote a `targets.txt` of
+    every tile file and globbed `phenotyping_dir` to guess the grid size.
+    (The grid used to fall back to `phenotyping_grid_size`, overridable by a
+    `grid_size` experiment field; a project whose phenotyping grid was
+    finer than its sequencing grid then requested tiles no reads table
+    existed for.)
 
     The shards are built in a pass of their own first, with the target
     `fisseq_shards` (only every well's shard directory), and the manifest
@@ -711,7 +715,7 @@ starcall columns (`bbox_*`, `orig_index`, `mask8`, the unrenamed genotype
 or other aux-table columns, `crop_index`).
 `BUILD_CELL_METADATA`/`BUILD_CP_FEATURES` read only `cell_table.parquet`,
 and `EMBED_CELLS` only `shards.parquet` (plus the shards it points at) --
-none of them needs `phenotyping_dir`/`wells`/`grid_size`/
+none of them needs `phenotyping_dir`/`wells`/the tile grid/
 `segmentation_type`/`use_corrected`.
 
 **A known `starcall-workflow` gotcha, not applicable here but worth

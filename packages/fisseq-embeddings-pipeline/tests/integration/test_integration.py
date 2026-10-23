@@ -162,8 +162,9 @@ def option(name):
 
 with open(option("--configfile")) as f:
     config = yaml.safe_load(f)
-# starcall's own fallbacks for wells/phenotyping_grid_size: the project's
-# config.yaml, else default-config.yaml (workflow/Snakefile's precedence).
+# starcall's own wells (the fallback) and sequencing_grid_size (always the
+# tile grid): the project's config.yaml, else default-config.yaml
+# (workflow/Snakefile's precedence).
 project = {}
 for name in ("config.yaml", "default-config.yaml"):
     path = os.path.join(option("--directory"), name)
@@ -179,9 +180,7 @@ spec = importlib.util.spec_from_file_location(
 targets = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(targets)
 wells = config.get("fisseq_wells") or project["wells"]
-grid_size = int(
-    config.get("fisseq_grid_size") or project.get("phenotyping_grid_size", 1)
-)
+grid_size = int(project.get("sequencing_grid_size", 1))
 shard_dirs = targets.well_shard_dirs(
     phenotyping_dir=config["phenotyping_dir"],
     wells=wells,
@@ -380,9 +379,9 @@ def _write_synthetic_experiment(
     track too) also under exp_dir, matching BUILD_CELL_IMAGES' real input
     contract closely enough to run end to end. Returns exp_dir.
 
-    grid_from_project_config=True omits wells and grid_size from the entry
-    and sets them in a starcall-workflow-shaped `config.yaml` under
-    starcall_workflow_dir instead (`wells`, `phenotyping_grid_size`),
+    grid_from_project_config=True omits wells from the entry and sets it,
+    with the tile grid, in a starcall-workflow-shaped `config.yaml` under
+    starcall_workflow_dir instead (`wells`, `sequencing_grid_size`),
     exercising the nested snakemake's fallback to starcall's own.
 
     omit_data_dirs=True places phenotyping_dir/segmentation_dir/
@@ -431,7 +430,7 @@ def _write_synthetic_experiment(
     )
     project_config = {k: f"{v}/" for k, v in project_config_dir_names.items()}
     if grid_from_project_config:
-        project_config.update(wells=["well1"], phenotyping_grid_size=1)
+        project_config.update(wells=["well1"], sequencing_grid_size=1)
     if project_config:
         (starcall_workflow_dir / "config.yaml").write_text(
             yaml.safe_dump(project_config)
@@ -473,7 +472,7 @@ def _write_synthetic_experiment(
         "cp_features": True,
     }
     if not grid_from_project_config:
-        batch_config.update(wells=["well1"], grid_size=1)
+        batch_config.update(wells=["well1"])
     for key, value in (
         ("phenotyping_dir", phenotyping_dir),
         ("segmentation_dir", segmentation_dir),
@@ -1103,11 +1102,12 @@ def test_run_ovwt_and_run_feature_selection_gate_their_stages(tmp_path_factory):
 def test_pipeline_takes_wells_and_grid_from_starcall_config_when_omitted(
     tmp_path_factory,
 ):
-    """wells and grid_size can be omitted from an experiment entry entirely:
-    the nested snakemake then takes starcall's own (`wells`,
-    `phenotyping_grid_size`). Proves BUILD_CELL_IMAGES leaves them out of
-    its --configfile rather than passing an empty override (the stub reads
-    the project config the way starcall's Snakefile does)."""
+    """wells can be omitted from an experiment entry entirely: the nested
+    snakemake then takes starcall's own `wells`, and the tile grid is
+    always its `sequencing_grid_size`. Proves BUILD_CELL_IMAGES leaves
+    wells out of its --configfile rather than passing an empty override
+    (the stub reads the project config the way starcall's Snakefile
+    does)."""
 
     exp_dir = tmp_path_factory.mktemp("nf_experiment_auto_grid")
     _write_synthetic_experiment(exp_dir, grid_from_project_config=True)
@@ -1525,7 +1525,6 @@ def _run_real_pipeline(
             "batch_stem": "lmna_t3",
             "starcall_workflow_dir": str(swd),
             "wells": [_MINI_WELL],
-            "grid_size": 1,
         }
     ]
     params_file = tmp_path / "params.yaml"
@@ -1608,8 +1607,8 @@ def test_real_starcall_local(real_starcall_local_run):
     """Real starcall, local mode: every starcall rule, and make_cell_shard
     and make_well_shards, run inside BUILD_CELL_IMAGES' own container,
     through snakemake/Snakefile (the image's pinned starcall Snakefile plus
-    our rules), from raw input (an explicit grid_size needs no pre-existing
-    tile directories)."""
+    our rules), from raw input (the tile grid, the fixture config.yaml's
+    sequencing_grid_size, needs no pre-existing tile directories)."""
     swd, _, pipeline_dir, result = real_starcall_local_run
     _assert_cells_embedded(pipeline_dir, result)
 

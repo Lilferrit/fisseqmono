@@ -53,12 +53,13 @@ once the well is packed. `make_cell_shard` stitches each tile's image and
 mask itself, so starcall's `temp()` whole-tile `raw_pt.tif`/mask are
 never requested -- see [Architecture](../architecture.md) decision 17.
 
-Every tile of the `grid_size` x `grid_size` grid is listed, in
-starcall-workflow's own naming (`{well}_grid{grid_size}/tile{x:02}x{y:02}y`),
-whether or not it exists yet -- the nested snakemake is what creates it.
-`wells` and `grid_size` default to starcall's own: the `wells` it reads
-from the project config (or detects from its input tree), and the project
-config's `phenotyping_grid_size`.
+Every tile of the project config's `sequencing_grid_size` x
+`sequencing_grid_size` grid is listed, in starcall-workflow's own naming
+(`{well}_grid{N}/tile{x:02}x{y:02}y`), whether or not it exists yet -- the
+nested snakemake is what creates it. The grid isn't a setting of this
+stage: every tile's reads table is at `sequencing_grid_size`, and a crop
+needs it. `wells` defaults to starcall's own: the `wells` it reads from
+the project config (or detects from its input tree).
 
 ## The cluster-mode jobscript
 
@@ -92,7 +93,6 @@ Extends the [common config fields](#common-config-fields) below.
 | `starcall_workflow_dir` | **required** | The experiment's starcall working directory (snakemake's `--directory`: its `config.yaml` and data trees -- not starcall's code, which comes from the image's pinned commit); the data dirs default under it, and its own `config.yaml`/`default-config.yaml` is consulted first. |
 | `phenotyping_dir`, `segmentation_dir`, `sequencing_dir` | `null` | Explicit data dirs; `null` resolves via the project config, then `{starcall_workflow_dir}/{phenotyping,segmentation,sequencing}`. |
 | `wells` | `null` | Wells to build cell images for; `null` takes starcall's own `wells`. |
-| `grid_size` | `null` | Tile grid size; `null` takes the project config's `phenotyping_grid_size`. |
 | `segmentation_type` | `"cells"` | Segmentation type name, threaded into every tile filename. |
 | `use_corrected` | `false` | Stitch each shard's tile from starcall's background-corrected `corrected_tiles.tif` instead of the raw input images (mirroring starcall's own `get_phenotyping_pt`; fails at the pinned commit, see [Configuration](../configuration.md)); names the shard directory `..._corrected_shards_...` rather than `..._raw_shards_...`. |
 | `window` | **required** | Crop size each cell is cut at, in the shard directory name. Must match `cell_dino_crop_size`. Routed from the experiment's `window` (or the global default). |

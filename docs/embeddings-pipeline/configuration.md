@@ -31,7 +31,7 @@ these stages:
 
 - **`BUILD_CELL_IMAGES`** (starcall-workflow-facing, always runs):
   `starcall_workflow_dir`, `phenotyping_dir`, `segmentation_dir`,
-  `sequencing_dir`, `wells`, `grid_size`, `segmentation_type`,
+  `sequencing_dir`, `wells`, `segmentation_type`,
   `use_corrected`, `window`, `shard_size`, `sequencing_reads_params`,
   `barcode_col_name`/`aa_changes_col_name`/`edit_distance_col_name`. This is the ONLY
   stage that touches `starcall-workflow`'s tree or runs its snakemake -- see
@@ -52,11 +52,13 @@ these stages:
   explicitly only when that tree isn't colocated under
   `starcall_workflow_dir` at all (and see
   [Bind mounts](nextflow.md#bind-mounts) if it lives elsewhere).
-  `wells` and `grid_size` are optional too: omitted, they're starcall's own
-  -- the `wells` it reads from the project config (or detects from its
-  input tree) and the project config's `phenotyping_grid_size`. Every tile
-  of the grid is requested from starcall, in its own `tile{x:02}x{y:02}y`
-  naming, whether or not it exists yet, so a run can start from raw input.
+  `wells` is optional too: omitted, it's starcall's own -- the `wells` it
+  reads from the project config (or detects from its input tree). The tile
+  grid is not a pipeline setting: it is always the project config's
+  `sequencing_grid_size`, the grid each tile's reads table is at (an
+  entry's `grid_size` is ignored with a warning). Every tile of the grid
+  is requested from starcall, in its own `tile{x:02}x{y:02}y` naming,
+  whether or not it exists yet, so a run can start from raw input.
   `use_corrected: true` cuts each tile's shard from the background-corrected
   images (starcall's `corrected_tiles.tif`) instead of the raw input
   images; at the pinned starcall commit it fails at DAG build, in

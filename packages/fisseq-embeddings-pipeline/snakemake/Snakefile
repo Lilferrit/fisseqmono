@@ -33,9 +33,10 @@ out; by the second pass the temp file is gone again, and only tables that
 are really missing get built. (From the raw images, a shard's inputs are
 all files starcall keeps, so there's nothing to regenerate.)
 Its settings are the fisseq_* keys of the --configfile
-build_cell_images_prepare writes; wells and the grid size fall back to
-starcall's own (`wells`, `phenotyping_grid_size`) from the project's
-config.yaml.
+build_cell_images_prepare writes; wells fall back to starcall's own
+`wells`. The tile grid is always the project config.yaml's
+`sequencing_grid_size`: every tile's reads table is at that grid, and a
+crop needs it.
 
 Every rule's mem_mb doubles with each of snakemake's attempts
 (fisseq_resources.py, applied at the end of this file), so with --retries
@@ -287,7 +288,7 @@ def fisseq_wells():
 
 
 def fisseq_grid_size():
-    return int(config.get('fisseq_grid_size') or phenotyping_grid_size)
+    return int(sequencing_grid_size)
 
 
 def fisseq_shard_dirs():
