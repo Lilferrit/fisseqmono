@@ -21,7 +21,7 @@ experiments: []
 #
 # - BUILD_CELL_IMAGES (starcall-workflow-facing, always runs):
 #   starcall_workflow_dir, phenotyping_dir, segmentation_dir,
-#   sequencing_dir, wells, grid_size, segmentation_type, use_corrected,
+#   sequencing_dir, wells, segmentation_type, use_corrected,
 #   window, shard_size, sequencing_reads_params, and the reads tables'
 #   genotype column names barcode_col_name/aa_changes_col_name/
 #   edit_distance_col_name (default upBarcode/aaChanges/editDistance),
@@ -68,10 +68,12 @@ experiments: []
 # failing that, the relevant stage's own Hydra default (or raises an error
 # if that field has none, e.g. starcall_workflow_dir).
 #
-# `wells` and `grid_size` are optional -- when omitted, they're
-# starcall-workflow's own: the project config's `wells` (or the wells it
-# detects from its input tree) and its `phenotyping_grid_size`. Every tile
-# of the grid is requested from starcall, whether or not it exists yet.
+# `wells` is optional -- when omitted, it's starcall-workflow's own: the
+# project config's `wells` (or the wells it detects from its input tree).
+# There's no grid setting here: the tile grid is always the project
+# config's `sequencing_grid_size` (the grid each tile's reads table is
+# at), and every tile of it is requested from starcall, whether or not it
+# exists yet. A `grid_size` on an entry is ignored with a warning.
 #
 # `sequencing_reads_params` (default "") is the `{params}` wildcard
 # component of starcall-workflow's `{segmentation_type}_reads{params}.csv`
@@ -99,7 +101,7 @@ experiments: []
 #     starcall_workflow_dir: /data/experiment1   # IS this experiment's root -- no separate folder needed
 #     # phenotyping_dir/segmentation_dir/sequencing_dir omitted -- default
 #     # to /data/experiment1/{phenotyping,segmentation,sequencing}
-#     wells: [well1, well2]        # grid_size omitted -- the project config's phenotyping_grid_size
+#     wells: [well1, well2]
 #     # window omitted -- falls back to the global `window` default below
 #     cp_features: true            # also run the CellProfiler-feature track for this experiment
 #     # cellprofiler_pipeline/cellprofiler_cycle omitted -- fall back to
@@ -111,7 +113,6 @@ experiments: []
 #     # starcall_workflow_dir, only sequencing_dir is overridden
 #     sequencing_dir: /mnt/sequencer-storage/experiment2/sequencing
 #     wells: [well3]
-#     grid_size: 8                 # explicit override
 #     window: 180                  # per-experiment override of the global default
 #     # cp_features omitted -- cellDINO-only for this experiment
 

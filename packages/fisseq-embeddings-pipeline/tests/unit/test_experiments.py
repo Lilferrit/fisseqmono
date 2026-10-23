@@ -159,6 +159,19 @@ def test_unset_removed_global_params_dont_warn(caplog):
     assert "fisseqborn-global" not in caplog.text
 
 
+def test_removed_grid_size_warns_and_routes_nowhere(caplog):
+    """The tile grid is starcall's sequencing_grid_size: an entry's grid_size
+    is ignored with a warning, not passed to any stage."""
+    config = _config()
+    config["experiments"][0]["grid_size"] = 5
+    with caplog.at_level("WARNING"):
+        (plan,) = plan_experiments(config)
+    assert "experiments[0].grid_size is ignored" in caplog.text
+    assert "sequencing_grid_size" in caplog.text
+    assert "grid_size" not in plan["cell_images_args"]
+    assert "grid_size" not in plan["cell_table_args"]
+
+
 def test_bootstrap_reps_from_cli_string_is_accepted():
     """A command-line override (--feature_select_bootstrap_reps 3) arrives as a string."""
     validate_config(_config(feature_select_bootstrap_reps="3"))
@@ -392,8 +405,8 @@ def test_null_global_default_is_not_filled_in():
 
 
 def test_hydra_overrides_renders_scalars_and_lists():
-    rendered = hydra_overrides({"grid_size": 8, "wells": ["w1", "w2"]})
-    assert rendered == "grid_size=8 'wells=[w1,w2]'"
+    rendered = hydra_overrides({"window": 224, "wells": ["w1", "w2"]})
+    assert rendered == "window=224 'wells=[w1,w2]'"
 
 
 def test_hydra_overrides_lowercases_booleans():

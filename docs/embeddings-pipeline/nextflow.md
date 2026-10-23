@@ -49,7 +49,7 @@ nothing but Nextflow.
 Every entry in `params.yaml`'s `experiments:` list supplies fields for
 `BUILD_CELL_IMAGES` (starcall-workflow-facing: `starcall_workflow_dir`,
 `phenotyping_dir`, `segmentation_dir`, `sequencing_dir`, `wells`,
-`grid_size`, `use_corrected`, `window`, the `*_col_name` overrides naming
+`use_corrected`, `window`, the `*_col_name` overrides naming
 the reads tables' genotype columns, ...). The two stages reading its
 `cell_table.parquet`, `BUILD_CELL_METADATA` and `BUILD_CP_FEATURES`
 (`BUILD_CP_FEATURES` runs only for `cp_features: true` entries), have no

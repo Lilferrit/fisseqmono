@@ -92,10 +92,8 @@ class BuildCellImagesPrepareConfig(AppConfig):
     wells : list[str] or None
         Wells to build cell images for. ``None`` (the default) takes
         starcall-workflow's own (`wells`, from the project config or
-        detected from its input tree).
-    grid_size : int or None
-        The tile grid each well is cut into. ``None`` (the default) takes
-        the project config's `phenotyping_grid_size`.
+        detected from its input tree). The tile grid is always the project
+        config's `sequencing_grid_size` (see ``snakemake/Snakefile``).
     segmentation_type : str
         Defaults to ``"cells"``.
     use_corrected : bool
@@ -167,7 +165,6 @@ class BuildCellImagesPrepareConfig(AppConfig):
     segmentation_dir: Optional[str] = None
     sequencing_dir: Optional[str] = None
     wells: Optional[List[str]] = None
-    grid_size: Optional[int] = None
     segmentation_type: str = "cells"
     use_corrected: bool = False
     window: int = MISSING
@@ -269,8 +266,9 @@ def snakemake_config(
     are the settings of the ``fisseq_shards`` and ``fisseq_tiles_manifest``
     rules (``snakemake/Snakefile``). The two manifests go under
     ``output_dir``, which must be absolute: the nested snakemake runs in
-    ``starcall_workflow_dir``. ``wells``/``grid_size`` are left out when
-    unset, so the Snakefile falls back to starcall's own. Phase 3
+    ``starcall_workflow_dir``. ``wells`` is left out when unset, so the
+    Snakefile falls back to starcall's own; the tile grid is never set
+    here (the Snakefile takes starcall's ``sequencing_grid_size``). Phase 3
     (``build_cell_images_table``) reads the ``fisseq_*_col`` keys back
     from the same file, so the table and the shards' ``meta.json`` rename
     the same columns.
@@ -281,8 +279,6 @@ def snakemake_config(
     config["fisseq_shards_manifest"] = os.path.join(output_dir, cfg.shards_manifest_out)
     if cfg.wells:
         config["fisseq_wells"] = list(cfg.wells)
-    if cfg.grid_size is not None:
-        config["fisseq_grid_size"] = cfg.grid_size
     config.update(
         {
             "fisseq_segmentation_type": cfg.segmentation_type,

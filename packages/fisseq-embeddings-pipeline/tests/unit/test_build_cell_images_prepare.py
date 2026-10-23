@@ -172,18 +172,18 @@ def test_snakemake_config_passes_shard_size_null_by_default():
     assert _config(shard_size=2000)["fisseq_shard_size"] == 2000
 
 
-def test_snakemake_config_leaves_wells_and_grid_size_to_starcall_when_unset():
-    """Unset, the Snakefile falls back to starcall's own `wells` and
-    `phenotyping_grid_size`."""
-    config = _config()
-    assert "fisseq_wells" not in config
-    assert "fisseq_grid_size" not in config
+def test_snakemake_config_leaves_wells_to_starcall_when_unset():
+    """Unset, the Snakefile falls back to starcall's own `wells`."""
+    assert "fisseq_wells" not in _config()
 
 
-def test_snakemake_config_passes_explicit_wells_and_grid_size():
-    config = _config(wells=["well1", "well2"], grid_size=4)
-    assert config["fisseq_wells"] == ["well1", "well2"]
-    assert config["fisseq_grid_size"] == 4
+def test_snakemake_config_passes_explicit_wells():
+    assert _config(wells=["well1", "well2"])["fisseq_wells"] == ["well1", "well2"]
+
+
+def test_snakemake_config_never_sets_the_grid():
+    """The Snakefile always takes starcall's `sequencing_grid_size`."""
+    assert not any("grid" in key for key in _config(wells=["well1"]))
 
 
 def test_snakemake_config_is_plain_yaml():

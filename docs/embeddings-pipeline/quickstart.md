@@ -26,9 +26,9 @@ experiments:
     # (phenotyping/segmentation/sequencing); set one explicitly only if
     # your lab's data for that tree isn't colocated under
     # starcall_workflow_dir at all.
-    # wells/grid_size omitted -- starcall's own: the project config's
-    # `wells` and `phenotyping_grid_size`. Set either here to override
-    # (e.g. wells: [well1, well2], grid_size: 12).
+    # wells omitted -- starcall's own: the project config's `wells`.
+    # Set it here to override (e.g. wells: [well1, well2]). The tile
+    # grid is always the project config's `sequencing_grid_size`.
     # window omitted -- falls back to the global `window` default above.
 ```
 
