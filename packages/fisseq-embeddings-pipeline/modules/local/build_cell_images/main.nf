@@ -35,6 +35,8 @@ include { threadEnv; hydraList } from '../../../../fisseq-common/nextflow/module
 process BUILD_CELL_IMAGES {
     errorStrategy 'ignore'
     label 'process_medium'
+    // null = no cap (Nextflow treats maxForks 0 as unlimited).
+    maxForks params.build_cell_images_max_forks ?: 0
     container "${params.container_image}"
     publishDir { "${params.pipeline_dir}/cell_images/${plan.batch_stem}" }, mode: 'copy', pattern: '{cell_table,shards}.parquet'
 

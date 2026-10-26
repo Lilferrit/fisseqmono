@@ -441,6 +441,17 @@ def test_starcall_retries_rejects_anything_else(retries):
         validate_config(_config(starcall_retries=retries))
 
 
+
+@pytest.mark.parametrize("forks", [None, 1, 8, "2"])
+def test_build_cell_images_max_forks_accepts_null_or_positive_int(forks):
+    validate_config(_config(build_cell_images_max_forks=forks))
+
+
+@pytest.mark.parametrize("forks", [0, -1, 1.5, "0", "-1", "two", True])
+def test_build_cell_images_max_forks_rejects_anything_else(forks):
+    with pytest.raises(ValueError, match="build_cell_images_max_forks must be"):
+        validate_config(_config(build_cell_images_max_forks=forks))
+
 @pytest.mark.parametrize("shard_size", [None, 1, 2000, "2000"])
 def test_shard_size_accepts_null_or_positive_int(shard_size):
     validate_config(_config(shard_size=shard_size))
