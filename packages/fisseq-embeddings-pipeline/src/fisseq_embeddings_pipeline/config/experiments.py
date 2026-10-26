@@ -159,6 +159,7 @@ def validate_config(config: Mapping[str, Any]) -> List[Dict[str, Any]]:
     _validate_ovwt(config)
     _validate_starcall_profile(config)
     _validate_starcall_retries(config)
+    _validate_build_cell_images_max_forks(config)
     _validate_shard_sizes(config, experiments)
 
     return [dict(entry) for entry in experiments]
@@ -376,6 +377,22 @@ def _validate_starcall_retries(config: Mapping[str, Any]) -> None:
             f"starcall_retries must be null or a non-negative integer, got {retries!r}."
         )
 
+
+
+def _validate_build_cell_images_max_forks(config: Mapping[str, Any]) -> None:
+    """``build_cell_images_max_forks`` becomes BUILD_CELL_IMAGES' ``maxForks``,
+    where Nextflow reads 0 as no cap -- so 0 is rejected here; null is the
+    way to say "no cap". A command-line value can arrive as a string."""
+    forks = config.get("build_cell_images_max_forks")
+    if forks is None:
+        return
+    if isinstance(forks, str) and forks.isdigit() and int(forks) > 0:
+        return
+    if isinstance(forks, bool) or not isinstance(forks, int) or forks < 1:
+        raise ValueError(
+            "build_cell_images_max_forks must be null or a positive integer, "
+            f"got {forks!r}."
+        )
 
 def _validate_shard_sizes(
     config: Mapping[str, Any], experiments: Sequence[Mapping[str, Any]]

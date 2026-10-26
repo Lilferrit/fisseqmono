@@ -140,6 +140,7 @@ cellprofiler_cycle: ""         # "" (no cycle) unless starcall-workflow ran cell
 snakemake_cores: 4             # the nested run's --cores in local mode (no starcall_profile)
 starcall_retries: null         # the nested run's --retries: rerun a failed starcall job this many more times,
                                # each attempt with double the last mem_mb; null = the profile's `retries:`, else none
+build_cell_images_max_forks: null  # most BUILD_CELL_IMAGES tasks (experiments) running at once; null = no cap
 #
 # To fan starcall's rules out across your cluster instead, point
 # starcall_profile at a snakemake 7 profile directory saying how to submit

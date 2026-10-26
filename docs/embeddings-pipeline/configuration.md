@@ -112,6 +112,7 @@ over the global default. All four route to `BUILD_CELL_IMAGES` only.
 | `cellprofiler_cycle` | `""` | `BUILD_CELL_IMAGES` (global default for any `cp_features: true` entry that omits `cellprofiler_cycle`) |
 | `snakemake_cores` | `4` | `BUILD_CELL_IMAGES` (`--cores` for its nested starcall `snakemake`). **Local mode only** -- not passed with `starcall_profile`, whose profile owns the job budget |
 | `starcall_retries` | `null` | `BUILD_CELL_IMAGES` (`--retries` for its nested starcall `snakemake`, local or cluster mode): rerun a failed starcall job up to this many more times. Every rule's `mem_mb` doubles on each attempt, so a job killed for memory asks for 2x, then 4x. `null` passes nothing (a profile's own `retries:` applies) |
+| `build_cell_images_max_forks` | `null` | `BUILD_CELL_IMAGES` (its Nextflow `maxForks`): the most tasks -- one per experiment -- that run at once. `null` = no cap |
 | `starcall_profile` | `null` | `BUILD_CELL_IMAGES`: a snakemake 7 profile directory for the nested starcall run; set it to submit each starcall rule as its own cluster job. See [Nextflow Workflow](nextflow.md#running-on-a-cluster-bring-your-own-profiles) |
 | `starcall_job_image` | `null` (required with `starcall_profile`) | `BUILD_CELL_IMAGES`, cluster mode: the `.sif` of `container_image` every starcall child job re-enters, on storage every compute node can read |
 | `starcall_container_bin` | `"apptainer"` | `BUILD_CELL_IMAGES`, cluster mode: the runtime a child job re-enters the image with (`singularity` on some nodes) |
