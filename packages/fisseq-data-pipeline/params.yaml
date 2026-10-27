@@ -59,6 +59,14 @@ experiments: []
 #     input_paths: [/data/plate3/features.parquet]
 #     wt_label: silent                       # this plate's wildtype cells are "silent"
 
+# ── Publishing ──────────────────────────────────────────────────────────────
+# How every process publishes its outputs into pipeline_dir: "link" (a hard
+# link to the file in work/: no second copy on disk, and the published file
+# survives work/ being deleted) or "copy". "link" needs work/ and
+# pipeline_dir on the same filesystem -- Nextflow aborts the run otherwise --
+# so use "copy" when work/ lives elsewhere (e.g. node-local scratch).
+publish_mode: link
+
 # ── Reproducibility ─────────────────────────────────────────────────────────
 # THE seed. Every stochastic step in the pipeline derives from this single
 # value: QC pseudo-variant downsampling, the feature-selection bootstrap

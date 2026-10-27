@@ -140,6 +140,10 @@ workflow FisseqPipeline {
     if (!(params.experiments instanceof List) || params.experiments.isEmpty()) {
         error "ERROR: params.experiments must be a non-empty list of experiment maps (see params.yaml)."
     }
+    // Every publishDir reads it; a symlink mode would leave pipeline_dir pointing into work/.
+    if (!(params.publish_mode in ['link', 'copy'])) {
+        error "ERROR: params.publish_mode must be 'link' or 'copy', got '${params.publish_mode}'."
+    }
     // Only meaningful when the feature-selection chain actually runs, but
     // checked before any of it is wired up.
     if (asBool(params.run_feature_selection)) {

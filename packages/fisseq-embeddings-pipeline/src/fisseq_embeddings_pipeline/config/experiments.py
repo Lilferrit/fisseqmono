@@ -114,7 +114,8 @@ def validate_config(config: Mapping[str, Any]) -> List[Dict[str, Any]]:
         share a ``batch_stem``, if ``feature_select_types`` /
         ``feature_select_passthrough_types`` name an unknown aggregator or
         overlap each other, if ``feature_select_bootstrap_reps`` is
-        below 2, or if ``ovwt_cv_mode`` / ``ovwt_n_folds`` are invalid.
+        below 2, if ``ovwt_cv_mode`` / ``ovwt_n_folds`` are invalid, or if
+        ``publish_mode`` is not ``link`` or ``copy``.
     """
     if config.get("pipeline_dir") is None:
         raise ValueError("pipeline_dir is required (--pipeline_dir ...).")
@@ -162,6 +163,7 @@ def validate_config(config: Mapping[str, Any]) -> List[Dict[str, Any]]:
     _validate_starcall_profile(config)
     _validate_starcall_retries(config)
     _validate_build_cell_images_max_forks(config)
+    _validate_publish_mode(config)
     _validate_shard_sizes(config, experiments)
 
     return [dict(entry) for entry in experiments]
@@ -380,7 +382,6 @@ def _validate_starcall_retries(config: Mapping[str, Any]) -> None:
         )
 
 
-
 def _validate_build_cell_images_max_forks(config: Mapping[str, Any]) -> None:
     """``build_cell_images_max_forks`` becomes BUILD_CELL_IMAGES' ``maxForks``,
     where Nextflow reads 0 as no cap -- so 0 is rejected here; null is the
@@ -395,6 +396,15 @@ def _validate_build_cell_images_max_forks(config: Mapping[str, Any]) -> None:
             "build_cell_images_max_forks must be null or a positive integer, "
             f"got {forks!r}."
         )
+
+
+def _validate_publish_mode(config: Mapping[str, Any]) -> None:
+    """``publish_mode`` is every publishDir's ``mode``. Unset, Nextflow would
+    publish symlinks into ``work/``, which break once ``work/`` is cleaned."""
+    mode = config.get("publish_mode")
+    if mode not in ("link", "copy"):
+        raise ValueError(f"publish_mode must be 'link' or 'copy', got {mode!r}.")
+
 
 def _validate_shard_sizes(
     config: Mapping[str, Any], experiments: Sequence[Mapping[str, Any]]

@@ -122,6 +122,7 @@ over the global default. All four route to `BUILD_CELL_IMAGES` only.
 | `snakemake_cache_dir` | `null` (-> `<pipeline_dir>/.snakemake_cache`) | `BUILD_CELL_IMAGES` (where its nested `snakemake` points `$XDG_CACHE_HOME`/`$HOME` -- see [read-only `$HOME`](#the-nested-snakemake-and-a-read-only-home) below) |
 | `starcall_gpu` | `true` | `BUILD_CELL_IMAGES` (`--nv`/`--gpus all` on its container, and `--nv` on every child job in cluster mode, for starcall's stardist/cellpose segmentation; set `false` on a GPU-less **Docker** host, where `--gpus` fails outright) |
 | `embeddings_only` | `false` | the workflow: `true` stops after `EMBED_CELLS` -- no QC-dependent cellDINO stages, no feature selection, no CellProfiler track |
+| `publish_mode` | `"link"` | every process's `publishDir` `mode`: `link` hard-links each output from `work/` into `pipeline_dir` (one copy on disk; the published file survives `work/` being deleted), `copy` copies it. `link` needs `work/` and `pipeline_dir` on the same filesystem -- Nextflow aborts the run otherwise. Anything else is rejected |
 | `random_seed` | `0` | every stochastic stage |
 | `barcode_count_threshold` | `10` | `QC_FILTER` |
 | `variant_barcode_count_threshold` | `4` | `QC_FILTER` |

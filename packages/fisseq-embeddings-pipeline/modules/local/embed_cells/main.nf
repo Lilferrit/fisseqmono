@@ -19,7 +19,7 @@ process EMBED_CELLS {
     label 'process_gpu'
     label 'process_high'
     container "${params.container_image}"
-    publishDir { "${params.pipeline_dir}/embeddings/${batch_stem}" }, mode: 'copy'
+    publishDir { "${params.pipeline_dir}/embeddings/${batch_stem}" }, mode: params.publish_mode
 
     input:
     tuple val(batch_stem), path(shards), val(phenotyping_dir)

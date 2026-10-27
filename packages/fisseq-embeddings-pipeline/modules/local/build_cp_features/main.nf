@@ -8,7 +8,7 @@ process BUILD_CP_FEATURES {
     errorStrategy 'ignore'
     label 'process_low'
     container "${params.container_image}"
-    publishDir { "${params.pipeline_dir}/cp_features/${batch_stem}" }, mode: 'copy'
+    publishDir { "${params.pipeline_dir}/cp_features/${batch_stem}" }, mode: params.publish_mode
 
     input:
     tuple val(batch_stem), val(cell_table_args), path(cell_table)

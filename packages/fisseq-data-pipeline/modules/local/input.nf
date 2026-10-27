@@ -20,7 +20,7 @@ process INPUT {
     errorStrategy 'ignore'
     label 'process_low'
     container "${params.container_image}"
-    publishDir { "${params.pipeline_dir}/input" }, mode: 'copy'
+    publishDir { "${params.pipeline_dir}/input" }, mode: params.publish_mode
 
     input:
     tuple val(name), val(input_paths), val(feature_allowlist_file), val(feature_blocklist_file), val(csv_schema_scan_rows), val(barcode_col), val(aa_changes_col), val(edit_distance_col), val(wt_label)

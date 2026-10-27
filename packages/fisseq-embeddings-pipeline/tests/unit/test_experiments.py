@@ -42,6 +42,7 @@ def _config(**overrides):
         "feature_select_min_correlation": 0.5,
         "ovwt_cv_mode": "kfold",
         "ovwt_n_folds": 5,
+        "publish_mode": "link",
     }
     config.update(overrides)
     return config
@@ -443,7 +444,6 @@ def test_starcall_retries_rejects_anything_else(retries):
         validate_config(_config(starcall_retries=retries))
 
 
-
 @pytest.mark.parametrize("forks", [None, 1, 8, "2"])
 def test_build_cell_images_max_forks_accepts_null_or_positive_int(forks):
     validate_config(_config(build_cell_images_max_forks=forks))
@@ -453,6 +453,18 @@ def test_build_cell_images_max_forks_accepts_null_or_positive_int(forks):
 def test_build_cell_images_max_forks_rejects_anything_else(forks):
     with pytest.raises(ValueError, match="build_cell_images_max_forks must be"):
         validate_config(_config(build_cell_images_max_forks=forks))
+
+
+@pytest.mark.parametrize("mode", ["link", "copy"])
+def test_publish_mode_accepts_link_or_copy(mode):
+    validate_config(_config(publish_mode=mode))
+
+
+@pytest.mark.parametrize("mode", [None, "symlink", "rellink", "move", "Link"])
+def test_publish_mode_rejects_anything_else(mode):
+    with pytest.raises(ValueError, match="publish_mode must be"):
+        validate_config(_config(publish_mode=mode))
+
 
 @pytest.mark.parametrize("shard_size", [None, 1, 2000, "2000"])
 def test_shard_size_accepts_null_or_positive_int(shard_size):

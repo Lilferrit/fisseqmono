@@ -129,7 +129,7 @@ rebuild the image, and run `tests/integration --container`.
   `fisseq_common.layout.EmbeddingsPipelineLayout` — `tests/unit/test_publish_layout.py`
   checks). All wired together in `workflows/embeddings.nf`. Each carries
   `errorStrategy 'ignore'`, a `process_*` label, `container "${params.container_image}"`, a
-  `publishDir ..., mode: 'copy'` into `pipeline_dir`, and a `script:` of
+  `publishDir ..., mode: params.publish_mode` into `pipeline_dir`, and a `script:` of
   `${threadEnv(task.cpus)}` (fisseq-common's `functions.nf`) plus one `python -m` invocation
   with `output_dir=.` and a trailing `random_seed=...` — see `EMBED_CELLS` for the
   worked example, and `BUILD_CELL_IMAGES` for the one genuine exception (a nested starcall
