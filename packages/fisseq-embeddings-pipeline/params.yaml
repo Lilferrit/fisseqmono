@@ -182,6 +182,14 @@ starcall_gpu: true
 # reproducibility filtering, no CellProfiler track.
 embeddings_only: false
 
+# ── Publishing ──────────────────────────────────────────────────────────────
+# How every process publishes its outputs into pipeline_dir: "link" (a hard
+# link to the file in work/: no second copy on disk, and the published file
+# survives work/ being deleted) or "copy". "link" needs work/ and
+# pipeline_dir on the same filesystem -- Nextflow aborts the run otherwise --
+# so use "copy" when work/ lives elsewhere (e.g. node-local scratch).
+publish_mode: link
+
 # ── Reproducibility ──────────────────────────────────────────────────────────
 random_seed: 0
 

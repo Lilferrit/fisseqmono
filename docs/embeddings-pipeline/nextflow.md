@@ -499,7 +499,7 @@ process EMBED_CELLS {
     errorStrategy 'ignore'
     label 'process_gpu'
     container "${params.container_image}"
-    publishDir { "${params.pipeline_dir}/embeddings/${batch_stem}" }, mode: 'copy'
+    publishDir { "${params.pipeline_dir}/embeddings/${batch_stem}" }, mode: params.publish_mode
     ...
     script:
     """
@@ -515,8 +515,10 @@ process EMBED_CELLS {
 - **`errorStrategy 'ignore'`** on every per-experiment process, so
   independent branches keep running when one fails (`PLAN_EXPERIMENTS` is
   the exception).
-- **`publishDir ..., mode: 'copy'`** into `pipeline_dir`: real copies, so
-  results don't depend on `work/` surviving. `BUILD_CELL_IMAGES` publishes
+- **`publishDir ..., mode: params.publish_mode`** into `pipeline_dir`: hard links by
+  default (`link`), so a published file takes no second copy on disk and still
+  survives `work/` being deleted; `copy` when `work/` is on another filesystem
+  (see [Configuration](configuration.md#fields)). `BUILD_CELL_IMAGES` publishes
   only `cell_table.parquet`/`shards.parquet`; its scratch files
   (`snakemake_config.yaml`, `tiles_manifest.csv`, `shards_manifest.csv`,
   `resolved_dirs.env`, the

@@ -19,7 +19,7 @@ process BUILD_CELL_METADATA {
     errorStrategy 'ignore'
     label 'process_low'
     container "${params.container_image}"
-    publishDir { "${params.pipeline_dir}/cell_metadata/${batch_stem}" }, mode: 'copy'
+    publishDir { "${params.pipeline_dir}/cell_metadata/${batch_stem}" }, mode: params.publish_mode
 
     input:
     tuple val(batch_stem), val(cell_table_args), path(cell_table)

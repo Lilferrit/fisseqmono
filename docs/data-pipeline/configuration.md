@@ -117,6 +117,7 @@ All pipeline-wide.
 | Parameter | Default | Meaning |
 | --------- | ------- | ------- |
 | `random_seed` | `0` | The one seed. |
+| `publish_mode` | `"link"` | Every process's `publishDir` `mode`: `link` hard-links each output from `work/` into `pipeline_dir` (one copy on disk; the published file survives `work/` being deleted), `copy` copies it. `link` needs `work/` and `pipeline_dir` on the same filesystem -- Nextflow aborts the run otherwise. Anything else is rejected. |
 | `filter_label_column` | `"meta_aa_changes"` | Variant label column, threaded to every stage that reads one. |
 
 ### INPUT
