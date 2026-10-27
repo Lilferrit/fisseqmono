@@ -1,10 +1,13 @@
-# On every pull request: lint, the lockfile and Nextflow lint. The cross-package tests (tests/:
+# On every pull request (and every push to the unmerged element-pipeline branch): lint, the
+# lockfile and Nextflow lint. The cross-package tests (tests/:
 # reference outputs, the layout and global-aggregation parity checks, the release script),
 # which install all four packages through the root dev group, run only on a manual run
 # (workflow_dispatch).
 name: workspace
 
 on:
+  push:
+    branches: [element-pipeline]
   pull_request:
   workflow_dispatch:
 

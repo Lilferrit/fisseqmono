@@ -1,27 +1,14 @@
-# fisseq-element-data-pipeline's image (_docker.yml), built on a push to main only when a file it is
-# built from changes: the paths below are exactly what
-# packages/fisseq-element-data-pipeline/Dockerfile copies (plus the Dockerfile, .dockerignore and these
-# workflows). Nextflow files, tests and docs never reach the image. GitHub doesn't apply path
-# filters to tag pushes, so every v* tag builds. Pull requests build no image.
+# fisseq-element-data-pipeline's image (_docker.yml). This pipeline lives on the
+# element-pipeline branch, which is not merged into main, so the image is built on every push
+# to that branch (and to main and v* tags), with no paths filter: every commit on the branch
+# gets its own :<short-sha> image, the tag scratch/fowler-sge's run.sh pulls. :latest is the
+# most recent of those builds. Pull requests build no image.
 name: docker fisseq-element-data-pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [main, element-pipeline]
     tags: ["v*"]
-    paths:
-      - packages/fisseq-element-data-pipeline/Dockerfile
-      - packages/fisseq-element-data-pipeline/README.md
-      - packages/fisseq-element-data-pipeline/src/**
-      - packages/fisseq-common/README.md
-      - packages/fisseq-common/src/**
-      - packages/*/pyproject.toml
-      - pyproject.toml
-      - uv.lock
-      - .python-version
-      - .dockerignore
-      - .github/workflows/_docker.yml
-      - .github/workflows/docker-fisseq-element-data-pipeline.yml
   workflow_dispatch:
 
 jobs:

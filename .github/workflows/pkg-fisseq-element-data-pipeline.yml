@@ -1,8 +1,11 @@
-# fisseq-element-data-pipeline's unit tests, on pull requests that change it or what it
-# depends on. Its integration tests run only on a manual run (workflow_dispatch).
+# fisseq-element-data-pipeline's tests: unit tests on pull requests that change it or what it
+# depends on; unit and integration tests on every push to the element-pipeline branch (where
+# this pipeline lives, unmerged) and on a manual run (workflow_dispatch).
 name: fisseq-element-data-pipeline
 
 on:
+  push:
+    branches: [element-pipeline]
   pull_request:
     paths:
       - packages/fisseq-element-data-pipeline/**
@@ -18,4 +21,4 @@ jobs:
     uses: ./.github/workflows/_package.yml
     with:
       package: fisseq-element-data-pipeline
-      integration: ${{ github.event_name == 'workflow_dispatch' }}
+      integration: ${{ github.event_name != 'pull_request' }}

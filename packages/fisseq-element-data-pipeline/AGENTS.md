@@ -35,6 +35,9 @@ The per-experiment keys are `batch_stem`, `input_paths`, `feature_allowlist_file
 uv run --package fisseq-element-data-pipeline pytest packages/fisseq-element-data-pipeline/tests
 ```
 
-The integration fixture writes Element-format tables. CI: `pkg-fisseq-element-data-pipeline.yml`
-(unit tests on PRs), `docker-fisseq-element-data-pipeline.yml` (the image, from `main` and
-`v*` tags), and `root.yml`'s Nextflow lint. Docs: `docs/element-data-pipeline/`.
+The integration fixture writes Element-format tables. This package lives on the
+`element-pipeline` branch, which is not merged into `main`, so its CI runs on every push to
+that branch: `pkg-fisseq-element-data-pipeline.yml` (unit and integration tests),
+`docker-fisseq-element-data-pipeline.yml` (the image, `:latest` and `:<sha7>`, no paths
+filter, so every branch commit has an image) and `root.yml` (lint, lockfile, Nextflow lint).
+Docs: `docs/element-data-pipeline/`.

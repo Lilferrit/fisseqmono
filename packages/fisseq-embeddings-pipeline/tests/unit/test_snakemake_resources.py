@@ -26,7 +26,9 @@ def _eval(base, attempt, threads=4):
     return mod.scaled_mem_mb(base)({}, _INPUT, attempt, threads, "some_rule")
 
 
-@pytest.mark.parametrize("attempt, expected", [(1, 16000), (2, 32000), (3, 64000), (4, 128000)])
+@pytest.mark.parametrize(
+    "attempt, expected", [(1, 16000), (2, 32000), (3, 64000), (4, 128000)]
+)
 def test_number_doubles_each_attempt(attempt, expected):
     assert _eval(16000, attempt) == expected
 
