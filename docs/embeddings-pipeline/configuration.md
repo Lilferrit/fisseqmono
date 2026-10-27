@@ -33,7 +33,9 @@ these stages:
   `starcall_workflow_dir`, `phenotyping_dir`, `segmentation_dir`,
   `sequencing_dir`, `wells`, `segmentation_type`,
   `use_corrected`, `window`, `shard_size`, `sequencing_reads_params`,
-  `barcode_col_name`/`aa_changes_col_name`/`edit_distance_col_name`. This is the ONLY
+  `barcode_col_name`/`aa_changes_col_name`/`edit_distance_col_name`, `wt_label` (the
+  aa-changes value of the experiment's wildtype cells, e.g. `"silent"`, relabelled `"WT"`;
+  default `"WT"`). This is the ONLY
   stage that touches `starcall-workflow`'s tree or runs its snakemake -- see
   [Architecture](architecture.md#cell-images-build_cell_images-output-from-starcall-workflow).
   `starcall_workflow_dir` is the nested snakemake's `--directory`: it

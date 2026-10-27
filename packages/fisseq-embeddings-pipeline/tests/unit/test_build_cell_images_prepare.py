@@ -166,6 +166,11 @@ def test_snakemake_config_names_the_genotype_columns():
     )
 
 
+def test_snakemake_config_passes_the_wt_label():
+    assert _config()["fisseq_wt_label"] == "WT"
+    assert _config(wt_label="silent")["fisseq_wt_label"] == "silent"
+
+
 def test_snakemake_config_passes_shard_size_null_by_default():
     """null: one shard per well."""
     assert _config()["fisseq_shard_size"] is None

@@ -57,7 +57,7 @@ from fisseq_common.schema import (
     META_VARIANT_CLASS,
 )
 from fisseq_common.utils.log import setup_logging
-from fisseq_common.variant import variant_type_expr
+from fisseq_common.variant import relabel_wildtype, variant_type_expr
 
 from .config import AppConfig
 from .utils.cell_table import (
@@ -113,11 +113,13 @@ class GenotypeColumns:
     """Which columns of a tile's reads table are the barcode, amino-acid
     changes and edit distance -- starcall's aux tables name them per
     experiment. Each experiment's ``barcode_col_name``/
-    ``aa_changes_col_name``/``edit_distance_col_name``."""
+    ``aa_changes_col_name``/``edit_distance_col_name``. ``wt_label`` is the
+    aa-changes column's wildtype value, relabelled ``"WT"``."""
 
     barcode: str = "upBarcode"
     aa_changes: str = "aaChanges"
     edit_distance: str = "editDistance"
+    wt_label: str = "WT"
 
     @classmethod
     def from_snakemake_config(cls, config: Dict[str, Any]) -> "GenotypeColumns":
@@ -126,6 +128,7 @@ class GenotypeColumns:
             barcode=config["fisseq_barcode_col"],
             aa_changes=config["fisseq_aa_changes_col"],
             edit_distance=config["fisseq_edit_distance_col"],
+            wt_label=config.get("fisseq_wt_label", "WT"),
         )
 
 
@@ -240,7 +243,9 @@ def tile_cell_meta(
             pl.lit(tile).alias(META_TILE_COL),
             pl.col("tile_cell_index").cast(pl.Int64).alias(META_CELL_INDEX_COL),
             pl.col(columns.barcode).cast(pl.String).alias(META_BARCODE_COL),
-            pl.col(columns.aa_changes).cast(pl.String).alias(META_AA_CHANGES_COL),
+            relabel_wildtype(
+                pl.col(columns.aa_changes).cast(pl.String), columns.wt_label
+            ).alias(META_AA_CHANGES_COL),
             pl.col(columns.edit_distance).cast(pl.Int64).alias(META_EDIT_DISTANCE_COL),
         )
         .with_columns(variant_type_expr(META_AA_CHANGES_COL).alias(META_VARIANT_CLASS))

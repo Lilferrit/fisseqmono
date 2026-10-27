@@ -50,6 +50,7 @@ def experimentKeys() {
         'barcode_col',
         'aa_changes_col',
         'edit_distance_col',
+        'wt_label',
     ] as Set
 }
 
@@ -225,6 +226,8 @@ workflow FisseqPipeline {
             barcode_col           : entry.containsKey('barcode_col') ? entry.barcode_col : params.barcode_col,
             aa_changes_col        : entry.containsKey('aa_changes_col') ? entry.aa_changes_col : params.aa_changes_col,
             edit_distance_col     : entry.containsKey('edit_distance_col') ? entry.edit_distance_col : params.edit_distance_col,
+            // params.wt_label is absent from params files older than it: those mean "WT".
+            wt_label              : entry.containsKey('wt_label') ? entry.wt_label : (params.wt_label ?: 'WT'),
         ]
     }
     def batch_stems = params.experiments.collect { experiment -> experiment.batch_stem }
@@ -239,7 +242,7 @@ workflow FisseqPipeline {
         def cfg = resolvedExperiments[batch_stem]
         tuple(batch_stem, cfg.input_paths, cfg.feature_allowlist_file,
               cfg.feature_blocklist_file, cfg.csv_schema_scan_rows,
-              cfg.barcode_col, cfg.aa_changes_col, cfg.edit_distance_col)
+              cfg.barcode_col, cfg.aa_changes_col, cfg.edit_distance_col, cfg.wt_label)
     }
     input_ch = INPUT(config_ch)
 

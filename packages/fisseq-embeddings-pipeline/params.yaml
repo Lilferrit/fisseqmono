@@ -26,7 +26,9 @@ experiments: []
 #   genotype column names barcode_col_name/aa_changes_col_name/
 #   edit_distance_col_name (default upBarcode/aaChanges/editDistance),
 #   which it renames to meta_barcode/meta_aa_changes/meta_edit_distance in
-#   both cell_table.parquet and every shard's meta.json. Changing one
+#   both cell_table.parquet and every shard's meta.json, and wt_label
+#   (default WT), the aa-changes value of the experiment's wildtype cells
+#   (e.g. silent), which it relabels WT there. Changing one
 #   doesn't recut shards that already exist (snakemake reruns on mtime,
 #   not params). This is the ONLY stage that touches
 #   starcall-workflow's tree or invokes Snakemake -- see

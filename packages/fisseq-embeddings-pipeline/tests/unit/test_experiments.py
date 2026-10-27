@@ -343,9 +343,11 @@ def test_cell_table_overrides_drops_starcall_and_non_stage_keys():
         "barcode_col_name": "bc",
         "aa_changes_col_name": "aa",
         "edit_distance_col_name": "ed",
+        "wt_label": "silent",
         "some_other_key": 1,
     }
     assert cell_table_overrides(entry) == {"some_other_key": 1}
+    assert cell_images_overrides(entry, {})["wt_label"] == "silent"
 
 
 def test_shard_size_routes_to_cell_images():

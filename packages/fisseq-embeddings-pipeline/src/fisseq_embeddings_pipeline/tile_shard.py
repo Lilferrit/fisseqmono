@@ -80,6 +80,9 @@ class TileShardConfig(AppConfig):
     barcode_col_name, aa_changes_col_name, edit_distance_col_name : str
         The reads table's genotype columns. Default to ``"upBarcode"``/
         ``"aaChanges"``/``"editDistance"``.
+    wt_label : str
+        The reads table's wildtype amino-acid-changes value, relabelled
+        ``"WT"``. Defaults to ``"WT"``.
     well, tile : str
         This tile's identifiers, written into each sample's key and
         ``meta.json``.
@@ -104,6 +107,7 @@ class TileShardConfig(AppConfig):
     barcode_col_name: str = "upBarcode"
     aa_changes_col_name: str = "aaChanges"
     edit_distance_col_name: str = "editDistance"
+    wt_label: str = "WT"
     well: str = MISSING
     tile: str = MISSING
     window: int = MISSING
@@ -206,7 +210,10 @@ def write_tile_shard(cfg: TileShardConfig) -> int:
         cfg.well,
         cfg.tile,
         GenotypeColumns(
-            cfg.barcode_col_name, cfg.aa_changes_col_name, cfg.edit_distance_col_name
+            cfg.barcode_col_name,
+            cfg.aa_changes_col_name,
+            cfg.edit_distance_col_name,
+            cfg.wt_label,
         ),
     )
     output_tar = pathlib.Path(cfg.output_tar)

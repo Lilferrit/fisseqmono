@@ -34,7 +34,8 @@ input:   each phenotype cycle's input images (starcall's find_input_tiles;
          {phenotyping_dir}{well}_grid{N}/tile{x}x{y}y/{segmentation_type}.csv
          {sequencing_dir}{well}_grid{N}/tile{x}x{y}y/{segmentation_type}_reads{sequencing_reads_params}.csv
 params:  the reads table's genotype column names (fisseq_barcode_col,
-         fisseq_aa_changes_col, fisseq_edit_distance_col)
+         fisseq_aa_changes_col, fisseq_edit_distance_col) and wildtype
+         label (fisseq_wt_label)
 output:  {phenotyping_dir}{well}_grid{N}/tile{x}x{y}y/{segmentation_type}_{raw|corrected}_shard_{window}.tar  (temp)
 log:     the same path, .log
 ```
@@ -119,6 +120,7 @@ Extends the [common config fields](#common-config-fields) below.
 | `barcode_col_name` | `"upBarcode"` | The reads table's barcode column. |
 | `aa_changes_col_name` | `"aaChanges"` | The reads table's amino-acid-changes column. |
 | `edit_distance_col_name` | `"editDistance"` | The reads table's edit-distance column. |
+| `wt_label` | `"WT"` | The reads table's wildtype amino-acid-changes value, relabelled `"WT"` in `meta_aa_changes`. |
 | `well`, `tile` | **required** | This tile's identifiers, written into each sample's key and `meta.json`. |
 | `window` | **required** | Side length, in pixels, of each cell's square crop. Must match the loaded Cell-DINO checkpoint's expected input (`cell_dino_crop_size`). Comes from the shard target's filename, which `BUILD_CELL_IMAGES` names from the experiment's `window` (falling back to `params.yaml`'s global default; see [Configuration](../configuration.md)). |
 | `output_tar` | **required** | Path of the shard to write. |

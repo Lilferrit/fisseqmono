@@ -188,6 +188,7 @@ rule make_cell_shard:
         barcode_col = config.get('fisseq_barcode_col', 'upBarcode'),
         aa_changes_col = config.get('fisseq_aa_changes_col', 'aaChanges'),
         edit_distance_col = config.get('fisseq_edit_distance_col', 'editDistance'),
+        wt_label = config.get('fisseq_wt_label', 'WT'),
     resources:
         mem_mb = _fisseq_tile_mem_mb
     run:
@@ -236,6 +237,7 @@ rule make_cell_shard:
                 'barcode_col_name={params.barcode_col:q} '
                 'aa_changes_col_name={params.aa_changes_col:q} '
                 'edit_distance_col_name={params.edit_distance_col:q} '
+                'wt_label={params.wt_label:q} '
                 'well={params.well:q} tile={params.tile:q} window={wildcards.window} '
                 'output_tar={output.shard:q} > {log:q} 2>&1'
             )
