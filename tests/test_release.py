@@ -47,14 +47,14 @@ def _url_tags(root: Path) -> list[str]:
 def test_current_versions_agree():
     """The workspace is released as one version, and every package pins fisseq-common to it."""
     (version,) = _versions(ROOT)
-    assert _url_tags(ROOT) == [f"v{version}"] * 3
+    assert _url_tags(ROOT) == [f"v{version}"] * 4
 
 
 def test_release_sets_every_version_and_url(workspace):
     changed = release.release("9.8.7", root=workspace, lock=False)
-    assert len(changed) == 5
+    assert len(changed) == 6
     assert _versions(workspace) == {"9.8.7"}
-    assert _url_tags(workspace) == ["v9.8.7"] * 3
+    assert _url_tags(workspace) == ["v9.8.7"] * 4
     # Only the version and the tags changed.
     for path in release.pyprojects(ROOT):
         before = path.read_text().splitlines()

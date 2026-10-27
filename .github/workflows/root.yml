@@ -40,6 +40,8 @@ jobs:
           nextflow lint packages/fisseq-common/nextflow
           packages/fisseq-data-pipeline/workflows packages/fisseq-data-pipeline/modules
           packages/fisseq-data-pipeline/conf
+          packages/fisseq-element-data-pipeline/workflows packages/fisseq-element-data-pipeline/modules
+          packages/fisseq-element-data-pipeline/conf
           packages/fisseq-embeddings-pipeline/workflows packages/fisseq-embeddings-pipeline/modules
           packages/fisseq-embeddings-pipeline/conf
 

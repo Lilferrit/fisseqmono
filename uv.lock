@@ -11,6 +11,7 @@ resolution-markers = [
 members = [
     "fisseq-common",
     "fisseq-data-pipeline",
+    "fisseq-element-data-pipeline",
     "fisseq-embeddings-pipeline",
     "fisseqborn",
     "fisseqmono",
@@ -402,6 +403,59 @@ dev = [
 ]
 
 [[package]]
+name = "fisseq-element-data-pipeline"
+version = "2.0.0"
+source = { editable = "packages/fisseq-element-data-pipeline" }
+dependencies = [
+    { name = "fisseq-common", extra = ["stages"] },
+    { name = "hydra-core" },
+    { name = "joblib" },
+    { name = "polars" },
+    { name = "pyarrow" },
+    { name = "pyyaml" },
+    { name = "scikit-learn" },
+    { name = "scipy" },
+    { name = "tqdm" },
+    { name = "xgboost" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "mkdocs" },
+    { name = "mkdocs-material" },
+    { name = "mkdocstrings" },
+    { name = "mkdocstrings-python" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fisseq-common", extras = ["stages"], editable = "packages/fisseq-common" },
+    { name = "hydra-core", specifier = ">=1.3.2" },
+    { name = "joblib", specifier = ">=1.5.1" },
+    { name = "polars", specifier = ">=1.32.3" },
+    { name = "pyarrow", specifier = ">=21.0.0" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "scikit-learn", specifier = ">=1.7.1" },
+    { name = "scipy", specifier = ">=1.16.1" },
+    { name = "tqdm", specifier = ">=4.67.3" },
+    { name = "xgboost", specifier = ">=2.0.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mkdocs", specifier = ">=1.6.1" },
+    { name = "mkdocs-material", specifier = ">=9.6.20" },
+    { name = "mkdocstrings", specifier = ">=0.30.1" },
+    { name = "mkdocstrings-python", specifier = ">=1.16.0" },
+    { name = "pre-commit", specifier = ">=4.5.1" },
+    { name = "pytest", specifier = ">=8.4.1" },
+    { name = "ruff", specifier = ">=0.15.12" },
+]
+
+[[package]]
 name = "fisseq-embeddings-pipeline"
 version = "2.0.0"
 source = { editable = "packages/fisseq-embeddings-pipeline" }
@@ -547,6 +601,7 @@ source = { virtual = "." }
 dev = [
     { name = "fisseq-common", extra = ["stages"] },
     { name = "fisseq-data-pipeline" },
+    { name = "fisseq-element-data-pipeline" },
     { name = "fisseq-embeddings-pipeline" },
     { name = "fisseqborn", extra = ["cluster", "select", "umap"] },
     { name = "pre-commit" },
@@ -567,6 +622,7 @@ docs = [
 dev = [
     { name = "fisseq-common", extras = ["stages"], editable = "packages/fisseq-common" },
     { name = "fisseq-data-pipeline", editable = "packages/fisseq-data-pipeline" },
+    { name = "fisseq-element-data-pipeline", editable = "packages/fisseq-element-data-pipeline" },
     { name = "fisseq-embeddings-pipeline", editable = "packages/fisseq-embeddings-pipeline" },
     { name = "fisseqborn", extras = ["cluster", "select", "umap"], editable = "packages/fisseqborn" },
     { name = "pre-commit", specifier = ">=4.5.1" },

@@ -1,4 +1,4 @@
-# Virtual workspace root: not a package. `uv sync` installs the dev group, which pulls in all four
+# Virtual workspace root: not a package. `uv sync` installs the dev group, which pulls in all five
 # workspace packages for the cross-package tests under tests/.
 [tool.uv]
 package = false
@@ -9,6 +9,7 @@ members = ["packages/*"]
 [tool.uv.sources]
 fisseq-common = { workspace = true }
 fisseq-data-pipeline = { workspace = true }
+fisseq-element-data-pipeline = { workspace = true }
 fisseq-embeddings-pipeline = { workspace = true }
 fisseqborn = { workspace = true }
 
@@ -22,6 +23,7 @@ dependencies = []
 dev = [
     "fisseq-common[stages]",
     "fisseq-data-pipeline",
+    "fisseq-element-data-pipeline",
     "fisseq-embeddings-pipeline",
     "fisseqborn[cluster,select,umap]",
     "pre-commit>=4.5.1",

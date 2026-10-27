@@ -1,0 +1,21 @@
+# fisseq-element-data-pipeline's unit tests, on pull requests that change it or what it
+# depends on. Its integration tests run only on a manual run (workflow_dispatch).
+name: fisseq-element-data-pipeline
+
+on:
+  pull_request:
+    paths:
+      - packages/fisseq-element-data-pipeline/**
+      - packages/fisseq-common/**
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/_package.yml
+      - .github/workflows/pkg-fisseq-element-data-pipeline.yml
+  workflow_dispatch:
+
+jobs:
+  tests:
+    uses: ./.github/workflows/_package.yml
+    with:
+      package: fisseq-element-data-pipeline
+      integration: ${{ github.event_name == 'workflow_dispatch' }}

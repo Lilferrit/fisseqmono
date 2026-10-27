@@ -2,7 +2,7 @@
 
     uv run python scripts/release.py 2.1.0
 
-Sets ``version`` in the root pyproject.toml and the four packages', and points the three
+Sets ``version`` in the root pyproject.toml and the five packages', and points the four
 packages' ``fisseq-common @ git+https://github.com/Lilferrit/fisseqmono@vX.Y.Z#...`` dependency
 at the new tag, then runs ``uv lock``. Commit the result and tag it ``vX.Y.Z``: the git URLs
 (used when a package is installed outside the workspace) then resolve to that commit.
@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = (
     "fisseq-common",
     "fisseq-data-pipeline",
+    "fisseq-element-data-pipeline",
     "fisseq-embeddings-pipeline",
     "fisseqborn",
 )

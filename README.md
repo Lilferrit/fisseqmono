@@ -1,12 +1,13 @@
 # fisseqmono
 
 The FISSEQ analysis code, as one [uv workspace](https://docs.astral.sh/uv/concepts/projects/workspaces/)
-of four packages (documentation: <https://lilferrit.github.io/fisseqmono/>):
+of five packages (documentation: <https://lilferrit.github.io/fisseqmono/>):
 
 | Package | |
 |---|---|
 | [`fisseq-common`](packages/fisseq-common) | Shared code: column schema, variant classification, the normalizer, the pipelines' output layout, cross-experiment aggregation, and (`[stages]` extra) the per-experiment stages both pipelines run. |
 | [`fisseq-data-pipeline`](packages/fisseq-data-pipeline) | Nextflow pipeline scoring variants on CellProfiler features, per experiment. |
+| [`fisseq-element-data-pipeline`](packages/fisseq-element-data-pipeline) | The data pipeline for Element Biosciences cell tables: same workflow, its own INPUT. |
 | [`fisseq-embeddings-pipeline`](packages/fisseq-embeddings-pipeline) | Nextflow pipeline scoring variants on Cell-DINO embeddings (plus a CellProfiler track), per experiment. |
 | [`fisseqborn`](packages/fisseqborn) | Plots, and cross-experiment aggregation (`fisseqborn-global`), of either pipeline's outputs. |
 

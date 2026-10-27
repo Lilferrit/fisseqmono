@@ -1,4 +1,4 @@
-"""All four workspace packages install together and share one fisseq_common and one version."""
+"""All five workspace packages install together and share one fisseq_common and one version."""
 
 import importlib.metadata
 
@@ -7,6 +7,7 @@ import pytest
 PACKAGES = [
     "fisseq-common",
     "fisseq-data-pipeline",
+    "fisseq-element-data-pipeline",
     "fisseq-embeddings-pipeline",
     "fisseqborn",
 ]
@@ -24,6 +25,7 @@ def test_one_version(package: str) -> None:
     [
         "fisseq_common",
         "fisseq_data_pipeline",
+        "fisseq_element_data_pipeline",
         "fisseq_embeddings_pipeline",
         "fisseqborn",
     ],

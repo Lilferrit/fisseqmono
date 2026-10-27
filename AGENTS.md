@@ -1,23 +1,24 @@
 # AGENTS.md — fisseqmono
 
-One uv workspace, four packages. Each package keeps its own detailed guide; this file covers
+One uv workspace, five packages. Each package keeps its own detailed guide; this file covers
 what spans them.
 
 | Package | Guide |
 |---|---|
 | `packages/fisseq-common` | this file, [Shared code](#shared-code-fisseq-common) |
 | `packages/fisseq-data-pipeline` | [`packages/fisseq-data-pipeline/AGENTS.md`](packages/fisseq-data-pipeline/AGENTS.md) |
+| `packages/fisseq-element-data-pipeline` | [`packages/fisseq-element-data-pipeline/AGENTS.md`](packages/fisseq-element-data-pipeline/AGENTS.md) |
 | `packages/fisseq-embeddings-pipeline` | [`packages/fisseq-embeddings-pipeline/AGENTS.md`](packages/fisseq-embeddings-pipeline/AGENTS.md) |
 | `packages/fisseqborn` | [`packages/fisseqborn/README.md`](packages/fisseqborn/README.md) and `docs/fisseqborn/` |
 
-Documentation for all four is one MkDocs site: `mkdocs.yml` and `docs/` at the root
+Documentation for all five is one MkDocs site: `mkdocs.yml` and `docs/` at the root
 (`docs/<package>/`, `docs/common/`, `docs/diff-reports/`).
 
 ## Layout and dependencies
 
 - Python 3.13 only (`>=3.13,<3.14`: Hydra 1.3 crashes on 3.14), pinned by `.python-version`.
   One `uv.lock`, one ruff config (root `pyproject.toml`), one `.pre-commit-config.yaml`.
-- The root is a virtual workspace (not a package). `uv sync` installs its dev group: all four
+- The root is a virtual workspace (not a package). `uv sync` installs its dev group: all five
   packages plus pytest, ruff and pre-commit; `--group docs` adds MkDocs.
 - `fisseq-common`'s base install is polars, pyarrow, numpy. The heavy dependencies
   (scikit-learn, xgboost, hydra, scipy) are its `stages` extra. The pipelines
@@ -52,6 +53,9 @@ Documentation for all four is one MkDocs site: `mkdocs.yml` and `docs/` at the r
   parameters, controls (wildtype) and publish layout; only the cell table differs
   (CellProfiler features vs. Cell-DINO embeddings, plus the embeddings pipeline's CellProfiler
   track).
+- `fisseq-element-data-pipeline` is a copy of the data pipeline for Element Biosciences cell
+  tables: only its INPUT differs. Keep its `workflows/`, `conf/` and `params.yaml` in step
+  with the data pipeline's.
 - Cross-experiment aggregation is fisseqborn's job (`fisseqborn-global`, on
   `fisseq_common.global_aggregation`); the pipelines write per-experiment outputs only.
 
@@ -103,5 +107,5 @@ workflow" button), so run them locally before merging.
 ## Releases
 
 One version for the whole workspace. `uv run python scripts/release.py X.Y.Z` sets it in the
-five `pyproject.toml` files and the three `fisseq-common` git URLs, then runs `uv lock`;
+six `pyproject.toml` files and the four `fisseq-common` git URLs, then runs `uv lock`;
 commit and tag `vX.Y.Z`.

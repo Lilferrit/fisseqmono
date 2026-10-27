@@ -46,6 +46,7 @@ WORKDIR /opt/fisseqmono
 COPY pyproject.toml uv.lock .python-version ./
 COPY packages/fisseq-common/pyproject.toml packages/fisseq-common/
 COPY packages/fisseq-data-pipeline/pyproject.toml packages/fisseq-data-pipeline/
+COPY packages/fisseq-element-data-pipeline/pyproject.toml packages/fisseq-element-data-pipeline/
 COPY packages/fisseq-embeddings-pipeline/pyproject.toml packages/fisseq-embeddings-pipeline/
 COPY packages/fisseqborn/pyproject.toml packages/fisseqborn/
 RUN uv sync --frozen --no-dev --package fisseq-data-pipeline --no-install-workspace

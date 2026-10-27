@@ -1,6 +1,6 @@
 # One documentation site for the fisseqmono workspace: uv run --group docs mkdocs build --strict
 site_name: FISSEQ
-site_description: fisseq-common, fisseq-data-pipeline, fisseq-embeddings-pipeline and fisseqborn
+site_description: fisseq-common, fisseq-data-pipeline, fisseq-element-data-pipeline, fisseq-embeddings-pipeline and fisseqborn
 repo_url: https://github.com/Lilferrit/fisseqmono
 repo_name: Lilferrit/fisseqmono
 nav:
@@ -25,6 +25,12 @@ nav:
     - aggregate: data-pipeline/api/aggregate.md
     - config: data-pipeline/api/config.md
   - Walkthrough: data-pipeline/walkthrough.md
+- Element data pipeline:
+  - Home: element-data-pipeline/index.md
+  - CLI Reference:
+    - Input: element-data-pipeline/cli/input.md
+  - API Reference:
+    - input: element-data-pipeline/api/input.md
 - Embeddings pipeline:
   - Home: embeddings-pipeline/index.md
   - Installation: embeddings-pipeline/installation.md
@@ -127,6 +133,7 @@ plugins:
           paths:
             - packages/fisseq-common/src
             - packages/fisseq-data-pipeline/src
+            - packages/fisseq-element-data-pipeline/src
             - packages/fisseq-embeddings-pipeline/src
             - packages/fisseqborn/src
           options:

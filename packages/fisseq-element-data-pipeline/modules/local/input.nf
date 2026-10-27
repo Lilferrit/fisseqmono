@@ -1,0 +1,57 @@
+nextflow.enable.dsl = 2
+
+// INPUT: wraps python -m fisseq_element_data_pipeline.input. Runs once per
+// `experiments:` entry of params.yaml, producing one input/-ready cell-level
+// Parquet file by loading and merging that experiment's input_paths (Element
+// cell tables: barcode from target_col, label from variant_col, edit distance 0).
+// Variant-class/count-based restriction happens in QC_FILTER
+// (params.qc_n_variants), so it applies uniformly to every experiment.
+//
+// Takes the resolved per-experiment scalars (workflows/fisseq.nf's
+// resolvedExperiments) as individual val()
+// inputs rather than the raw hand-authored YAML file, so Nextflow hashes
+// only these scalars for -resume caching -- a non-semantic edit to the
+// original YAML, or a change to a key this pipeline doesn't consume, no
+// longer busts this task's cache. The script rebuilds a minimal YAML from
+// these scalars (input_paths, feature_allowlist_file, feature_blocklist_file,
+// csv_schema_scan_rows, target_col, variant_col, wt_label) since python -m fisseq_element_data_pipeline.input's
+// config_path still expects a file (input_paths is a list, so it can't
+// cleanly become a single Hydra CLI override).
+process INPUT {
+    errorStrategy 'ignore'
+    label 'process_low'
+    container "${params.container_image}"
+    publishDir { "${params.pipeline_dir}/input" }, mode: params.publish_mode
+
+    input:
+    tuple val(name), val(input_paths), val(feature_allowlist_file), val(feature_blocklist_file), val(csv_schema_scan_rows), val(target_col), val(variant_col), val(wt_label)
+
+    output:
+    tuple val(name), path("${name}.parquet")
+
+    when:
+    task.ext.when == null || task.ext.when
+
+    script:
+    def inputPathsYaml = input_paths.collect { p -> "'${p}'" }.join(', ')
+    def allowlistYaml = (feature_allowlist_file == null) ? 'null' : "'${feature_allowlist_file}'"
+    def blocklistYaml = (feature_blocklist_file == null) ? 'null' : "'${feature_blocklist_file}'"
+    def schemaScanRowsYaml = (csv_schema_scan_rows == null) ? 'null' : "${csv_schema_scan_rows}"
+    """
+    echo "Starting INPUT for ${name}"
+    cat > resolved_config.yaml <<'EOF'
+input_paths: [${inputPathsYaml}]
+feature_allowlist_file: ${allowlistYaml}
+feature_blocklist_file: ${blocklistYaml}
+csv_schema_scan_rows: ${schemaScanRowsYaml}
+target_col: '${target_col}'
+variant_col: '${variant_col}'
+wt_label: '${wt_label}'
+EOF
+    python -m fisseq_element_data_pipeline.input \\
+        output_dir=. \\
+        output_root=${name} \\
+        config_path=resolved_config.yaml
+    mv ${name}.output.parquet ${name}.parquet
+    """
+}
