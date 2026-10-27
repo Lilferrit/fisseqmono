@@ -118,6 +118,30 @@ def test_tile_cell_meta_joins_by_index_value(tmp_path: Path):
     ]
 
 
+def test_tile_cell_meta_relabels_the_wt_label(tmp_path: Path):
+    """An experiment whose wildtype is "silent" comes out "WT", class WT."""
+    seg_csv, reads_csv = _tile(tmp_path)
+    _write_segmentation_csv(seg_csv, index=[1, 2], bbox_x1=[10, 20])
+    _write_reads_csv(
+        reads_csv,
+        index=[1, 2],
+        edit_distance=[0, 0],
+        barcode=["bcA", "bcB"],
+        aa_changes=["silent", "A12V"],
+    )
+
+    meta = mod.tile_cell_meta(
+        str(seg_csv),
+        str(reads_csv),
+        "w",
+        "t",
+        mod.GenotypeColumns(wt_label="silent"),
+    )
+
+    assert meta["meta_aa_changes"].to_list() == ["WT", "A12V"]
+    assert meta["meta_variant_class"].to_list() == ["WT", "Single Missense"]
+
+
 def test_tile_cell_meta_keeps_the_segmentation_row_order(tmp_path: Path):
     """The reads table may be in another order on disk; the rows still
     follow the segmentation table's, which is the mask-label order."""
@@ -341,6 +365,8 @@ def test_genotype_columns_come_from_the_snakemake_config():
     assert mod.GenotypeColumns.from_snakemake_config(config) == mod.GenotypeColumns(
         "bc", "aa", "ed"
     )
+    config["fisseq_wt_label"] = "silent"
+    assert mod.GenotypeColumns.from_snakemake_config(config).wt_label == "silent"
 
 
 # ---------------------------------------------------------------------------

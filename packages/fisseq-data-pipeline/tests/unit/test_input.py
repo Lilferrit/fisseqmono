@@ -284,6 +284,21 @@ def test_main_keeps_all_variants(tmp_path):
     assert set(result["aaChanges"].to_list()) == {"M1K", "M2L", "M3Q"}
 
 
+def test_main_relabels_the_experiments_wt_label(tmp_path):
+    source = tmp_path / "source.parquet"
+    _write_source(source, ["silent", "M1K", "silent:tag"])
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, source)
+    config = yaml.safe_load(config_path.read_text())
+    config_path.write_text(yaml.safe_dump({**config, "wt_label": "silent"}))
+
+    with patch("fisseq_data_pipeline.input.setup_logging"):
+        m.main.__wrapped__(_make_cfg(tmp_path, config_path))
+
+    result = pl.read_parquet(tmp_path / "out" / "output.parquet")
+    assert result["aaChanges"].to_list() == ["WT", "M1K", "silent:tag"]
+
+
 def test_main_output_root_names_output_file(tmp_path):
     source = tmp_path / "source.parquet"
     _write_source(source, ["M1K"] * 10)
@@ -411,6 +426,20 @@ def test_select_output_columns_renames_and_casts_identity_columns():
     assert out.schema["editDistance"] == pl.Int64
     assert out["editDistance"].to_list() == [0, None, 1]
     assert out["aaChanges"].to_list() == ["WT", "M1K", "M1K"]
+
+
+def test_select_output_columns_relabels_wt_label_exactly():
+    lf = pl.DataFrame(
+        {
+            "upBarcode": ["a", "b", "c", "d"],
+            "aaChanges": ["silent", "M1K", "WT", None],
+            "editDistance": [0, 0, 0, 0],
+        }
+    ).lazy()
+
+    out = select_output_columns(lf, wt_label="silent").collect()
+
+    assert out["aaChanges"].to_list() == ["WT", "M1K", "WT", None]
 
 
 def test_select_output_columns_casts_default_named_columns():

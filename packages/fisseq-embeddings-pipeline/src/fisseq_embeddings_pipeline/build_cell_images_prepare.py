@@ -116,6 +116,10 @@ class BuildCellImagesPrepareConfig(AppConfig):
         ``cell_table.parquet`` rename them to ``meta_barcode``/
         ``meta_aa_changes``/``meta_edit_distance``. Default to
         ``"upBarcode"``/``"aaChanges"``/``"editDistance"``.
+    wt_label : str
+        The amino-acid-changes value of this experiment's wildtype cells
+        (e.g. ``"silent"``), relabelled ``"WT"`` in ``meta_aa_changes``
+        (``fisseq_common.variant.relabel_wildtype``). Defaults to ``"WT"``.
     sequencing_reads_params : str
         Suffix threaded into the reads CSV filename
         (`{segmentation_type}_reads{sequencing_reads_params}.csv`).
@@ -172,6 +176,7 @@ class BuildCellImagesPrepareConfig(AppConfig):
     barcode_col_name: str = "upBarcode"
     aa_changes_col_name: str = "aaChanges"
     edit_distance_col_name: str = "editDistance"
+    wt_label: str = "WT"
     sequencing_reads_params: str = ""
     cp_features: bool = False
     cellprofiler_cycle: str = ""
@@ -288,6 +293,7 @@ def snakemake_config(
             "fisseq_barcode_col": cfg.barcode_col_name,
             "fisseq_aa_changes_col": cfg.aa_changes_col_name,
             "fisseq_edit_distance_col": cfg.edit_distance_col_name,
+            "fisseq_wt_label": cfg.wt_label,
             "fisseq_sequencing_reads_params": cfg.sequencing_reads_params,
             "fisseq_cp_features": cfg.cp_features,
             "fisseq_cellprofiler_cycle": cfg.cellprofiler_cycle,

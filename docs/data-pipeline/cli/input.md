@@ -34,6 +34,7 @@ csv_schema_scan_rows: 100         # optional, default 100
 barcode_col: upBarcode            # optional, raw name of the barcode column
 aa_changes_col: aaChanges         # optional, raw name of the aa-changes column
 edit_distance_col: editDistance   # optional, raw name of the edit-distance column
+wt_label: WT                      # optional, this experiment's wildtype aa-changes value
 ```
 
 - `input_paths` — one or more raw cell-score files (CSV or Parquet), concatenated.
@@ -59,10 +60,13 @@ edit_distance_col: editDistance   # optional, raw name of the edit-distance colu
   (String) and `editDistance` (Int64): the columns are renamed and cast. A
   float edit distance (nulls allowed) is cast if every non-null value is a
   whole number, and is an error otherwise.
+- `wt_label` — optional, default `WT`: the aa-changes value of this experiment's
+  wildtype cells (e.g. `silent`). Values equal to it are relabelled `WT`, the
+  one wildtype label every later stage and fisseqborn use.
 Except for `input_paths`, every field above is also a
 plain `params.yaml` pipeline-wide default (`params.feature_allowlist_file`,
 `params.feature_blocklist_file`, `params.csv_schema_scan_rows`, `params.barcode_col`, `params.aa_changes_col`,
-`params.edit_distance_col`) — set one on
+`params.edit_distance_col`, `params.wt_label`) — set one on
 the command line or in `params.yaml` to apply it to every experiment, and/or
 override it for one experiment in its `experiments:` entry. See
 [Declaring experiments](../configuration.md#declaring-experiments).

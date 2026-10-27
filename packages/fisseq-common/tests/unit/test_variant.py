@@ -5,6 +5,7 @@ from fisseq_common.variant import (
     VARIANT_TYPES,
     classify_variant,
     control_expr,
+    relabel_wildtype,
     variant_type_expr,
 )
 
@@ -79,3 +80,9 @@ def test_control_is_untagged_synonymous() -> None:
     df = pl.DataFrame({"v": ["A1A", "A1A:downsampled-half", "M1K", "WT"]})
     is_control = df.select(control_expr(variant_type_expr("v"), "v").alias("c"))["c"]
     assert is_control.to_list() == [True, False, False, False]
+
+
+def test_relabel_wildtype_replaces_exact_matches_only() -> None:
+    df = pl.DataFrame({"aa": ["silent", "M1K", "WT", "silent:tag", None]})
+    out = df.select(relabel_wildtype(pl.col("aa"), "silent"))["aa"].to_list()
+    assert out == ["WT", "M1K", "WT", "silent:tag", None]

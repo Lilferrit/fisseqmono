@@ -100,6 +100,7 @@ Extends the [common config fields](#common-config-fields) below.
 | `barcode_col_name` | `"upBarcode"` | The reads tables' barcode column (starcall's aux tables name it per experiment), renamed `meta_barcode` in the shards' `meta.json` and `cell_table.parquet`. Written as `fisseq_barcode_col`. |
 | `aa_changes_col_name` | `"aaChanges"` | Likewise the amino-acid-changes column, renamed `meta_aa_changes` (`fisseq_aa_changes_col`). |
 | `edit_distance_col_name` | `"editDistance"` | Likewise the edit-distance column, renamed `meta_edit_distance` (`fisseq_edit_distance_col`). |
+| `wt_label` | `"WT"` | The amino-acid-changes value of the experiment's wildtype cells (e.g. `"silent"`), relabelled `"WT"` in `meta_aa_changes` (`fisseq_wt_label`). |
 | `sequencing_reads_params` | `""` | Suffix threaded into the reads CSV filename (`{segmentation_type}_reads{sequencing_reads_params}.csv`). |
 | `cp_features` | `false` | Also build this experiment's CellProfiler CSV. |
 | `cellprofiler_cycle` | `""` | Threaded into the CellProfiler CSV filename when `cp_features` is set. |

@@ -35,6 +35,9 @@ experiments: []
 #   barcode_col             OPTIONAL, INPUT-stage: the raw names of the barcode,
 #   aa_changes_col          aa-changes and edit-distance columns, for experiments that
 #   edit_distance_col       renamed them. Same fallback rule.
+#   wt_label                OPTIONAL, INPUT-stage: the aa-changes value of this
+#                           experiment's wildtype cells (e.g. "silent"), relabelled
+#                           "WT". Same fallback rule.
 #
 # Any other key is rejected with an error naming it, rather than silently
 # ignored -- if you want to change a QC threshold or an OvWT hyperparameter,
@@ -54,6 +57,7 @@ experiments: []
 #     csv_schema_scan_rows: null             # per-experiment override: scan every row
 #   - batch_stem: plate3
 #     input_paths: [/data/plate3/features.parquet]
+#     wt_label: silent                       # this plate's wildtype cells are "silent"
 
 # ── Reproducibility ─────────────────────────────────────────────────────────
 # THE seed. Every stochastic step in the pipeline derives from this single
@@ -96,6 +100,11 @@ csv_schema_scan_rows: 100
 barcode_col: "upBarcode"
 aa_changes_col: "aaChanges"
 edit_distance_col: "editDistance"
+# The aa-changes value of the wildtype cells. INPUT relabels it "WT" (exact
+# match), the label every later stage and fisseqborn use, so an experiment
+# whose wildtype is called e.g. "silent" sets wt_label: "silent" in its own
+# experiments: entry; ovwt_wt_label stays "WT".
+wt_label: "WT"
 
 # ── QC filtering (QC_FILTER) ────────────────────────────────────────────────
 barcode_count_threshold: 10

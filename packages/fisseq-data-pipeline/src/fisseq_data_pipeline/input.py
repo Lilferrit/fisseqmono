@@ -35,6 +35,7 @@ Config file
     barcode_col: upBarcode            # optional, raw name of the barcode column
     aa_changes_col: aaChanges         # optional, raw name of the aa-changes column
     edit_distance_col: editDistance   # optional, raw name of the edit-distance column
+    wt_label: WT                      # optional, this experiment's wildtype aa-changes value
 
 ``feature_allowlist_file`` / ``feature_blocklist_file`` each point to a plain
 text file with one fnmatch-style glob pattern per line (e.g.
@@ -48,6 +49,10 @@ columns in this experiment's raw files, for experiments that renamed them. Whate
 called, the output has ``upBarcode`` and ``aaChanges`` (String) and ``editDistance`` (Int64):
 the columns are renamed to those and cast. A float edit distance (nulls allowed) is cast to
 Int64 if every non-null value is a whole number, and an error otherwise.
+
+``wt_label`` is the aa-changes value this experiment's wildtype cells carry (e.g. ``silent``).
+Cells whose value equals it exactly are relabelled ``WT``, the one wildtype label every
+downstream stage and fisseqborn use.
 
 ``csv_schema_scan_rows`` controls how many rows of each CSV ``input_paths``
 source are scanned to infer column dtypes (forwarded to polars
@@ -76,6 +81,7 @@ from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 
 from fisseq_common.utils.log import setup_logging
+from fisseq_common.variant import WT, relabel_wildtype
 
 from .config import AppConfig
 
@@ -173,11 +179,15 @@ def _matches_any(name: str, patterns: list[str]) -> bool:
 
 
 def _canonical_identity_columns(
-    lf: pl.LazyFrame, barcode_col: str, aa_changes_col: str, edit_distance_col: str
+    lf: pl.LazyFrame,
+    barcode_col: str,
+    aa_changes_col: str,
+    edit_distance_col: str,
+    wt_label: str = WT,
 ) -> pl.LazyFrame:
     """
     Rename the raw identity columns to ``upBarcode``/``aaChanges``/``editDistance`` and cast
-    them to String/String/Int64.
+    them to String/String/Int64, relabelling ``wt_label`` aa-changes values ``WT``.
 
     A non-integral edit distance raises rather than being truncated; nulls are kept (QC_FILTER's
     edit-distance filter drops them).
@@ -202,7 +212,9 @@ def _canonical_identity_columns(
 
     return lf.with_columns(
         pl.col(barcode_col).cast(pl.String).alias(BARCODE_COL),
-        pl.col(aa_changes_col).cast(pl.String).alias(AA_CHANGES_COL),
+        relabel_wildtype(pl.col(aa_changes_col).cast(pl.String), wt_label).alias(
+            AA_CHANGES_COL
+        ),
         edit_distance.cast(pl.Int64).alias(EDIT_DISTANCE_COL),
     )
 
@@ -214,6 +226,7 @@ def select_output_columns(
     barcode_col: str = BARCODE_COL,
     aa_changes_col: str = AA_CHANGES_COL,
     edit_distance_col: str = EDIT_DISTANCE_COL,
+    wt_label: str = WT,
 ) -> pl.LazyFrame:
     """
     Split columns into numeric feature columns vs. everything else. Barcode,
@@ -223,7 +236,8 @@ def select_output_columns(
     origin_file/origin_row_idx) is auto-prefixed with 'meta_'.
 
     ``barcode_col``, ``aa_changes_col`` and ``edit_distance_col`` are the raw names of the
-    three identity columns, for inputs that renamed them.
+    three identity columns, for inputs that renamed them. ``wt_label`` is the input's
+    wildtype aa-changes value, relabelled ``WT``.
 
     If `feature_allowlist` is given, only feature columns matching at least
     one of its fnmatch glob patterns are kept. If `feature_blocklist` is also
@@ -249,7 +263,9 @@ def select_output_columns(
 
     metadata_cols = [c for c in schema_names if c in KNOWN_METADATA_COLUMNS]
 
-    lf = _canonical_identity_columns(lf, barcode_col, aa_changes_col, edit_distance_col)
+    lf = _canonical_identity_columns(
+        lf, barcode_col, aa_changes_col, edit_distance_col, wt_label
+    )
     return lf.select(
         cs.by_name(*feature_cols),
         cs.by_name(BARCODE_COL, EDIT_DISTANCE_COL, AA_CHANGES_COL),
@@ -312,6 +328,7 @@ def main(cfg: DictConfig) -> None:
         barcode_col=config.get("barcode_col") or BARCODE_COL,
         aa_changes_col=config.get("aa_changes_col") or AA_CHANGES_COL,
         edit_distance_col=config.get("edit_distance_col") or EDIT_DISTANCE_COL,
+        wt_label=config.get("wt_label") or WT,
     )
 
     prefix = f"{in_cfg.output_root}." if in_cfg.output_root is not None else ""

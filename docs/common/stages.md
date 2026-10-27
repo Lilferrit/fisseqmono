@@ -149,7 +149,9 @@ stage rebuilds the normalized table from these (see
 
 The controls are the `control` field: a SQL predicate, by default wildtype
 (`meta_aa_changes = 'WT'`), in both pipelines. `"synonymous"` selects untagged synonymous
-variants instead; no pipeline uses it.
+variants instead; no pipeline uses it. An experiment whose wildtype cells carry another label
+(e.g. `"silent"`) sets `wt_label` in its `experiments:` entry: ingest (the data pipeline's
+INPUT, the embeddings pipeline's BUILD_CELL_IMAGES) relabels them `"WT"`.
 
 ### Config fields (`FilterParams`)
 

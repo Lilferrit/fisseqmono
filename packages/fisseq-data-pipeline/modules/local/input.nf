@@ -13,7 +13,7 @@ nextflow.enable.dsl = 2
 // original YAML, or a change to a key this pipeline doesn't consume, no
 // longer busts this task's cache. The script rebuilds a minimal YAML from
 // these scalars (input_paths, feature_allowlist_file, feature_blocklist_file,
-// csv_schema_scan_rows, barcode_col, aa_changes_col, edit_distance_col) since python -m fisseq_data_pipeline.input's
+// csv_schema_scan_rows, barcode_col, aa_changes_col, edit_distance_col, wt_label) since python -m fisseq_data_pipeline.input's
 // config_path still expects a file (input_paths is a list, so it can't
 // cleanly become a single Hydra CLI override).
 process INPUT {
@@ -23,7 +23,7 @@ process INPUT {
     publishDir { "${params.pipeline_dir}/input" }, mode: 'copy'
 
     input:
-    tuple val(name), val(input_paths), val(feature_allowlist_file), val(feature_blocklist_file), val(csv_schema_scan_rows), val(barcode_col), val(aa_changes_col), val(edit_distance_col)
+    tuple val(name), val(input_paths), val(feature_allowlist_file), val(feature_blocklist_file), val(csv_schema_scan_rows), val(barcode_col), val(aa_changes_col), val(edit_distance_col), val(wt_label)
 
     output:
     tuple val(name), path("${name}.parquet")
@@ -46,6 +46,7 @@ csv_schema_scan_rows: ${schemaScanRowsYaml}
 barcode_col: '${barcode_col}'
 aa_changes_col: '${aa_changes_col}'
 edit_distance_col: '${edit_distance_col}'
+wt_label: '${wt_label}'
 EOF
     python -m fisseq_data_pipeline.input \\
         output_dir=. \\

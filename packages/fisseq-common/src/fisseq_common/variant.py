@@ -8,7 +8,8 @@ resampled from another one; it is stripped before classification.
 
 :func:`classify_variant` is the definition. :func:`variant_type_expr` is the same rule
 vectorized for Polars, and :func:`control_expr` the control rule both pipelines and fisseqborn
-use: a synonymous variant without a tag.
+use: a synonymous variant without a tag. :func:`relabel_wildtype` rewrites an experiment's own
+wildtype label (e.g. ``"silent"``) to :data:`WT`, which both pipelines do at ingest.
 """
 
 import re
@@ -24,6 +25,9 @@ VARIANT_TYPES: tuple[str, ...] = (
     "Single Missense",
     "Other",
 )
+
+#: The wildtype label every stage and fisseqborn expect.
+WT = "WT"
 
 _SUBSTITUTION_RE = re.compile(r"([A-Z])(\d+)([A-Z])")
 
@@ -119,3 +123,8 @@ def control_expr(variant_type: pl.Expr, column: str) -> pl.Expr:
     return (variant_type == "Synonymous") & ~pl.col(column).str.contains(
         ":", literal=True
     )
+
+
+def relabel_wildtype(label: pl.Expr, wt_label: str) -> pl.Expr:
+    """``label`` with values equal to ``wt_label`` (an exact match) replaced by :data:`WT`."""
+    return label.replace(wt_label, WT)

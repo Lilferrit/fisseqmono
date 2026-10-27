@@ -13,8 +13,9 @@ The routing contract:
 - ``BUILD_CELL_IMAGES`` is the only stage that touches starcall-workflow's
   tree, so every starcall-facing key (:data:`CELL_IMAGES_FIELDS`) routes
   to it and to nothing else. That includes the ``*_col_name`` overrides
-  naming the reads tables' genotype columns: ``BUILD_CELL_IMAGES`` renames
-  them to ``meta_*`` in both ``cell_table.parquet`` and the shards.
+  naming the reads tables' genotype columns and ``wt_label``: ``BUILD_CELL_IMAGES``
+  renames them to ``meta_*`` (and relabels ``wt_label`` ``"WT"``) in both
+  ``cell_table.parquet`` and the shards.
 - ``BUILD_CELL_METADATA`` and ``BUILD_CP_FEATURES`` both get whatever
   keys are left after excluding the starcall-facing set plus
   ``batch_stem`` and ``cp_features`` -- none of their own fields today, so
@@ -37,7 +38,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 #: Keys routed to ``BUILD_CELL_IMAGES`` only -- the starcall-workflow-facing
 #: fields, the crop ``window`` and ``shard_size`` its shard targets are
-#: named by, the reads tables' genotype column names, and the three
+#: named by, the reads tables' genotype column names and wildtype label, and the three
 #: ``cp_features``-related ones it folds into ``cell_table.parquet``.
 CELL_IMAGES_FIELDS = frozenset(
     {
@@ -54,6 +55,7 @@ CELL_IMAGES_FIELDS = frozenset(
         "barcode_col_name",
         "aa_changes_col_name",
         "edit_distance_col_name",
+        "wt_label",
         "cp_features",
         "cellprofiler_pipeline",
         "cellprofiler_cycle",
