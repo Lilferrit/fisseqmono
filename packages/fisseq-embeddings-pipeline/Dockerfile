@@ -197,13 +197,20 @@ SHELL ["/bin/bash", "-c"]
 # checkout's own workflow/envs/cp4.yaml, minus its `anaconda` and `defaults`
 # channels (repo.anaconda.com, which conda refuses non-interactively until
 # its terms of service are accepted); conda-forge and bioconda carry every
-# package. Above the uv.lock layer: slow, and changes only with the pin.
+# package. cellprofiler 4.2.4 pins centrosome 1.2.1, an sdist whose Cython
+# no longer compiles under Cython 3 (`/` became true division: "Cannot
+# assign type 'double' to 'unsigned int'"), and pip's isolated build pulls
+# the newest Cython; PIP_CONSTRAINT reaches those build envs too. Above the
+# uv.lock layer: slow, and changes only with the pin.
 RUN sed '/^- anaconda$/d; /^- defaults$/d' \
         /opt/fisseq-embeddings-pipeline/starcall-workflow/workflow/envs/cp4.yaml \
         > /tmp/cp4.yaml \
-    && /opt/conda/bin/conda env create -y -n cp4 -f /tmp/cp4.yaml \
+    && echo 'cython<3' > /tmp/cp4-constraints.txt \
+    && PIP_CONSTRAINT=/tmp/cp4-constraints.txt \
+        /opt/conda/bin/conda env create -y -n cp4 -f /tmp/cp4.yaml \
+    && /opt/conda/bin/conda run -n cp4 cellprofiler --version \
     && /opt/conda/bin/conda clean -afy \
-    && rm /tmp/cp4.yaml
+    && rm /tmp/cp4.yaml /tmp/cp4-constraints.txt
 
 # The Python environment lives in the workspace at /opt/fisseqmono (its .venv); the nested
 # starcall run's files (snakemake/Snakefile, the starcall-workflow clone) stay at
