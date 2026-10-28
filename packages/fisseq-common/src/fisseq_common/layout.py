@@ -235,11 +235,6 @@ class EmbeddingsPipelineLayout(PipelineLayout):
         """BUILD_CELL_IMAGES' cell table."""
         return f"cell_images/{batch}/cell_table.parquet"
 
-    def shards(self, batch: str) -> str:
-        """BUILD_CELL_IMAGES' WebDataset shard index; its ``shard_tar`` paths are relative
-        to its own directory."""
-        return f"cell_images/{batch}/shards.parquet"
-
     def shard_dir(self, batch: str) -> str:
         """BUILD_CELL_IMAGES' WebDataset shards (``well_{n}_shard_{k:06}.tar.gz``)."""
         return f"cell_images/{batch}/shards"

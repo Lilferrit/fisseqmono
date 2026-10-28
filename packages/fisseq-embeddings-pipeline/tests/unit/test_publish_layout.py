@@ -83,7 +83,7 @@ def test_own_module_publish_path_matches_layout(module, path):
 
 
 def test_build_cell_images_publishes_the_dataset_where_the_layout_says():
-    """cell_table.parquet, shards.parquet and every shard under shards/."""
+    """cell_table.parquet and every shard under shards/."""
     stem = "${plan.batch_stem}"
     text = (OWN_MODULES / "build_cell_images" / "main.nf").read_text()
     publish = re.search(
@@ -93,10 +93,9 @@ def test_build_cell_images_publishes_the_dataset_where_the_layout_says():
     )
     assert publish is not None
     publish_dir, pattern = publish.groups()
-    for path in (EMB.cell_table(stem), EMB.shards(stem), EMB.shard_dir(stem)):
+    for path in (EMB.cell_table(stem), EMB.shard_dir(stem)):
         assert posixpath.dirname(path) == publish_dir
     assert pattern.split(",") == [
         posixpath.basename(EMB.cell_table(stem)),
-        posixpath.basename(EMB.shards(stem)),
         posixpath.basename(EMB.shard_dir(stem)) + "/*",
     ]

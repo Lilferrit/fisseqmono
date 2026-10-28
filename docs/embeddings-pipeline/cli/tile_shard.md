@@ -153,8 +153,8 @@ count (`num_phenotyping_cycles × num_channels`), dtype and `window` scale
 it.
 
 `make_well_shards` copies these samples unchanged into the well's
-gzipped shards, which is what `BUILD_CELL_IMAGES`' `shards.parquet`
-lists.
+gzipped shards, which `BUILD_CELL_IMAGES` publishes under
+`cell_images/<batch>/shards/`.
 
 ## Example
 

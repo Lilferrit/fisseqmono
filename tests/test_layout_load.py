@@ -68,7 +68,6 @@ def _patterns(layout: PipelineLayout) -> list[re.Pattern[str]]:
     else:
         paths += [
             layout.cell_table(b),
-            layout.shards(b),
             f"{layout.shard_dir(b)}/{n}",
             layout.metadata(b),
             layout.features(b),

@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import polars as pl
 import pytest
 import webdataset as wds
 
@@ -123,13 +122,9 @@ def test_embed_cells_reads_the_gzipped_shards(tmp_path: Path):
     paths, _ = write_well_shards(
         _tiles(tmp_path, [2, 1]), "well1", 2, str(tmp_path / "out")
     )
-    shards_path = tmp_path / "shards.parquet"
-    pl.DataFrame({"well": ["well1"] * len(paths), "shard_tar": paths}).write_parquet(
-        shards_path
-    )
     cfg = EmbedCellsConfig(
         output_dir=str(tmp_path),
-        shards_path=str(shards_path),
+        shards_dir=str(tmp_path / "out"),
         batch_stem="batch1",
         checkpoint_path="unused",
         batch_size=10,

@@ -6,10 +6,9 @@
 // `apply_mask` is a plain scalar (one shared mask per cell, so one flag
 // covering every selected channel -- see EmbedCellsConfig).
 //
-// The shards are staged under shards/, next to shards.parquet, which names
-// them relative to its own directory -- the layout BUILD_CELL_IMAGES
-// publishes. Each sample's meta.json carries the cell's meta_* columns;
-// batch_stem adds meta_batch.
+// The shards are staged under shards/, as BUILD_CELL_IMAGES publishes them,
+// and EMBED_CELLS reads every one there. Each sample's meta.json carries the
+// cell's meta_* columns; batch_stem adds meta_batch.
 
 include { threadEnv } from '../../../../fisseq-common/nextflow/modules/local/functions'
 
@@ -21,7 +20,7 @@ process EMBED_CELLS {
     publishDir { "${params.pipeline_dir}/embeddings/${batch_stem}" }, mode: params.publish_mode
 
     input:
-    tuple val(batch_stem), path(shards), path(shard_files, stageAs: 'shards/*')
+    tuple val(batch_stem), path(shard_files, stageAs: 'shards/*')
 
     output:
     tuple val(batch_stem), path("embeddings.parquet"), emit: embeddings
@@ -31,7 +30,7 @@ process EMBED_CELLS {
     ${threadEnv(task.cpus)}
     python -m fisseq_embeddings_pipeline.embed \\
         output_dir=. \\
-        shards_path=${shards} \\
+        shards_dir=shards \\
         batch_stem=${batch_stem} \\
         checkpoint_path=${params.cell_dino_checkpoint} \\
         arch=${params.cell_dino_arch} \\

@@ -75,7 +75,7 @@ PLAN_EXPERIMENTS  (validates params; one plan per experiment)
     │
     ▼
 BUILD_CELL_IMAGES  (nested starcall snakemake, incl. make_cell_shard/make_well_shards:
-    │               gzipped WebDataset shards per well; cell_table.parquet + shards.parquet)
+    │               gzipped WebDataset shards per well; cell_table.parquet + shards/)
     │
     ├──► BUILD_CELL_METADATA ──► QC_FILTER   (shared by BOTH tracks; see below)
     │                                │
@@ -277,8 +277,7 @@ Docker, `-B` under Apptainer):
   the snakemake cache dir, and `starcall_profile` if set. Plus `--nv` /
   `--gpus all` when `starcall_gpu` is true.
 - **`EMBED_CELLS`** -- `cell_dino_checkpoint` only: the shards are
-  staged inputs (`BUILD_CELL_IMAGES`' `shards/`, next to
-  `shards.parquet`). Plus `--nv` /
+  staged inputs (`BUILD_CELL_IMAGES`' `shards/`). Plus `--nv` /
   `--gpus all` unless `cell_dino_device` is `cpu`.
 
 Every path is bound at its own unchanged absolute location (`src:src`).
@@ -520,7 +519,7 @@ process EMBED_CELLS {
   default (`link`), so a published file takes no second copy on disk and still
   survives `work/` being deleted; `copy` when `work/` is on another filesystem
   (see [Configuration](configuration.md#fields)). `BUILD_CELL_IMAGES` publishes
-  `cell_table.parquet`, `shards.parquet` and `shards/`; its scratch files
+  `cell_table.parquet` and `shards/`; its scratch files
   (`snakemake_config.yaml`, `tiles_manifest.csv`, `shards_manifest.csv`, the
   jobscript) stay in its work directory.
 - **`threadEnv(task.cpus)`** (fisseq-common's `functions.nf`) exports
@@ -557,7 +556,6 @@ The paths are `fisseq_common.layout.EmbeddingsPipelineLayout`'s. Everything from
 <pipeline_dir>/
   cell_images/<batch>/
     cell_table.parquet                    # the ONE self-sufficient cell table: key + QC meta_* columns + meta_variant_class (+ CellProfiler columns if cp_features)
-    shards.parquet                        # one row per shard: well, shard_tar -- relative to this directory
     shards/                               # well_<n>_shard_<k>.tar.gz, hard links to starcall's (below)
   cell_metadata/<batch>/
     metadata.parquet                      # QC_FILTER's input: meta_batch + the table's key and QC columns

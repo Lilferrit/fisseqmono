@@ -26,8 +26,8 @@ experiment's `barcode_col_name`/`aa_changes_col_name`/
 by the same `tile_cell_meta` on the same CSVs (see
 [Cell Shards](tile_shard.md#output)), so the table and the shards can't
 disagree on a cell's metadata. It also reads
-`shards_manifest` (written by the same rule) and writes `shards_output`
-(`shards.parquet`): one row per shard `EMBED_CELLS` reads. The segmentation CSV is read
+`shards_manifest` (written by the same rule) for where each shard
+`EMBED_CELLS` reads is in starcall's tree. The segmentation CSV is read
 with `read_segmentation_table`, which [Cell Shards](tile_shard.md) shares,
 so the row order here and the mask label a shard was cut by can't drift. See
 [Architecture](../architecture.md#cell-images-build_cell_images-output-from-starcall-workflow)
@@ -42,7 +42,6 @@ Extends the [common config fields](#common-config-fields) below.
 | `manifest` | `"tiles_manifest.csv"` | Tile manifest CSV (under `output_dir`), written by the `fisseq_tiles_manifest` rule. |
 | `shards_manifest` | `"shards_manifest.csv"` | Shard manifest CSV (under `output_dir`), written by the same rule. |
 | `output` | `"cell_table.parquet"` | Output parquet filename (under `output_dir`). |
-| `shards_output` | `"shards.parquet"` | Shard table filename (under `output_dir`). |
 | `shards_dir` | `"shards"` | Directory (under `output_dir`) the shards are linked into. |
 | `snakemake_config` | `"snakemake_config.yaml"` | The nested snakemake's `--configfile` (under `output_dir`), written by phase 1; its `fisseq_barcode_col`/`fisseq_aa_changes_col`/`fisseq_edit_distance_col` keys name the reads tables' genotype columns. |
 
@@ -69,9 +68,6 @@ Written to `output_dir`:
   out of `phenotyping_dir` under its own name (copied instead where a hard
   link can't be made, with a warning). starcall's copies stay as
   snakemake's cache.
-- `shards.parquet` -- `well`, `shard_tar`: one row per shard, in order,
-  `shard_tar` relative to the table's own directory
-  (`shards/well_1_shard_000000.tar.gz`).
 
 ## Example
 
@@ -81,7 +77,6 @@ uv run python -m fisseq_embeddings_pipeline.build_cell_images_table \
     manifest=tiles_manifest.csv \
     shards_manifest=shards_manifest.csv \
     output=cell_table.parquet \
-    shards_output=shards.parquet \
     shards_dir=shards \
     snakemake_config=snakemake_config.yaml
 ```

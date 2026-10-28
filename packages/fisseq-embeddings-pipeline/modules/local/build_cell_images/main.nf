@@ -17,9 +17,8 @@
 //      inputs, so snakemake builds the whole DAG from the grid.
 //      See docs/architecture.md decision 17.
 //   3. build_cell_images_table joins the per-tile CSVs into
-//      cell_table.parquet, hard-links every shard out of phenotyping_dir
-//      into shards/, and writes shards.parquet naming them relative to
-//      itself. All three are published: cell_images/<batch>/ is the whole
+//      cell_table.parquet and hard-links every shard out of phenotyping_dir
+//      into shards/. Both are published: cell_images/<batch>/ is the whole
 //      dataset, without starcall's tree.
 //
 // Local mode (no params.starcall_profile): every starcall rule runs inside
@@ -41,13 +40,13 @@ process BUILD_CELL_IMAGES {
     // null = no cap (Nextflow treats maxForks 0 as unlimited).
     maxForks params.build_cell_images_max_forks ?: 0
     container "${params.container_image}"
-    publishDir { "${params.pipeline_dir}/cell_images/${plan.batch_stem}" }, mode: params.publish_mode, pattern: '{cell_table.parquet,shards.parquet,shards/*}'
+    publishDir { "${params.pipeline_dir}/cell_images/${plan.batch_stem}" }, mode: params.publish_mode, pattern: '{cell_table.parquet,shards/*}'
 
     input:
     val(plan)
 
     output:
-    tuple val(plan.batch_stem), path("cell_table.parquet"), path("shards.parquet"), path("shards/*.tar.gz", arity: "0..*"), emit: cell_images
+    tuple val(plan.batch_stem), path("cell_table.parquet"), path("shards/*.tar.gz", arity: "0..*"), emit: cell_images
 
     script:
     def starcall_dir = plan.starcall_workflow_dir

@@ -58,11 +58,12 @@ def _write_shard(
     channels: int = 3,
     crop_size: int = CROP,
     maxcount: int = 100,
+    suffix: str = ".tar",
 ) -> Path:
     shard_dir = tmp_path / "shards"
     shard_dir.mkdir()
     with wds.ShardWriter(
-        str(shard_dir / "dataset-%06d.tar"), maxcount=maxcount
+        str(shard_dir / f"dataset-%06d{suffix}"), maxcount=maxcount
     ) as sink:
         for i in range(n_cells):
             rng = np.random.default_rng(i)
@@ -136,30 +137,17 @@ def test_load_embedding_dataloader_raises_on_unmatched_glob(tmp_path: Path):
         load_embedding_dataloader(cfg)
 
 
-def _write_shards(tmp_path: Path, shards: list[Path]) -> Path:
-    """BUILD_CELL_IMAGES' shards.parquet, one row per shard."""
-    path = tmp_path / "shards.parquet"
-    pl.DataFrame(
-        {
-            "well": ["well1"] * len(shards),
-            "shard_tar": [str(p) for p in shards],
-        }
-    ).write_parquet(path)
-    return path
-
-
-def test_load_embedding_dataloader_reads_shards_from_shards_parquet(tmp_path: Path):
-    """Every listed shard, empty ones included -- an empty well's shard
-    is a valid tar with no samples, and mustn't stop the others."""
-    shard_dir = _write_shard(tmp_path, n_cells=3, maxcount=1)
-    empty = shard_dir / "empty.tar"
-    with wds.TarWriter(str(empty)):
+def test_load_embedding_dataloader_reads_every_shard_in_shards_dir(tmp_path: Path):
+    """Every *.tar.gz in shards_dir, in name order, empty ones included --
+    an empty well's shard is a valid tar with no samples, and mustn't stop
+    the others."""
+    shard_dir = _write_shard(tmp_path, n_cells=3, maxcount=1, suffix=".tar.gz")
+    with wds.TarWriter(str(shard_dir / "dataset-empty.tar.gz")):
         pass
-    shards = [empty, *sorted(shard_dir.glob("dataset-*.tar"))]
     cfg = _base_cfg(
         tmp_path,
         shard_pattern=None,
-        shards_path=str(_write_shards(tmp_path, shards)),
+        shards_dir=str(shard_dir),
         batch_size=10,
         num_workers=0,
     )
@@ -169,41 +157,16 @@ def test_load_embedding_dataloader_reads_shards_from_shards_parquet(tmp_path: Pa
     assert keys == ["cell0", "cell1", "cell2"]
 
 
-def test_load_embedding_dataloader_resolves_relative_shards(
-    tmp_path: Path, monkeypatch
+@pytest.mark.parametrize("make_dir", [True, False])
+def test_load_embedding_dataloader_raises_without_shards(
+    tmp_path: Path, make_dir: bool
 ):
-    """A relative shard_tar is relative to shards.parquet's directory (the
-    published cell_images/<batch>/), not the working directory."""
-    shard_dir = _write_shard(tmp_path, n_cells=2, maxcount=10)
-    (shard,) = sorted(shard_dir.glob("dataset-*.tar"))
-    shards_path = tmp_path / "shards.parquet"
-    pl.DataFrame(
-        {"well": ["well1"], "shard_tar": [str(shard.relative_to(tmp_path))]}
-    ).write_parquet(shards_path)
-    elsewhere = tmp_path / "elsewhere"
-    elsewhere.mkdir()
-    monkeypatch.chdir(elsewhere)
-    cfg = _base_cfg(
-        tmp_path,
-        shard_pattern=None,
-        shards_path=str(shards_path),
-        batch_size=10,
-        num_workers=0,
-    )
+    shard_dir = tmp_path / "shards"
+    if make_dir:
+        shard_dir.mkdir()
+    cfg = _base_cfg(tmp_path, shard_pattern=None, shards_dir=str(shard_dir))
 
-    keys = [k for batch_keys, *_ in load_embedding_dataloader(cfg) for k in batch_keys]
-
-    assert keys == ["cell0", "cell1"]
-
-
-def test_load_embedding_dataloader_raises_on_missing_listed_shard(tmp_path: Path):
-    cfg = _base_cfg(
-        tmp_path,
-        shard_pattern=None,
-        shards_path=str(_write_shards(tmp_path, [tmp_path / "gone.tar"])),
-    )
-
-    with pytest.raises(ValueError, match="don't exist"):
+    with pytest.raises(ValueError, match="holds no"):
         load_embedding_dataloader(cfg)
 
 
@@ -214,7 +177,7 @@ def test_load_embedding_dataloader_needs_exactly_one_shard_source(
     cfg = _base_cfg(
         tmp_path,
         shard_pattern="x-*.tar" if both else None,
-        shards_path="shards.parquet" if both else None,
+        shards_dir="shards" if both else None,
     )
 
     with pytest.raises(ValueError, match="exactly one"):
@@ -689,14 +652,15 @@ def test_main_runs_end_to_end_via_cli(tmp_path: Path):
     # 4 channels to match EmbedCellsConfig's own default channels=[0,1,2,3]
     # -- this test doesn't override channels/apply_mask, exercising
     # those defaults through the real CLI path.
-    shard_dir = _write_shard(tmp_path, n_cells=4, channels=4, crop_size=CROP)
+    shard_dir = _write_shard(
+        tmp_path, n_cells=4, channels=4, crop_size=CROP, suffix=".tar.gz"
+    )
     reference = vit_small(
         patch_size=16, in_chans=1, channel_adaptive=True, img_size=CROP
     )
     checkpoint_path = tmp_path / "checkpoint.pth"
     torch.save({"teacher": reference.state_dict()}, checkpoint_path)
     output_dir = tmp_path / "out"
-    shards_path = _write_shards(tmp_path, sorted(shard_dir.glob("dataset-*.tar")))
 
     result = subprocess.run(
         [
@@ -704,7 +668,7 @@ def test_main_runs_end_to_end_via_cli(tmp_path: Path):
             "-m",
             "fisseq_embeddings_pipeline.embed",
             f"output_dir={output_dir}",
-            f"shards_path={shards_path}",
+            f"shards_dir={shard_dir}",
             "batch_stem=batch1",
             f"checkpoint_path={checkpoint_path}",
             "arch=vit_small",
