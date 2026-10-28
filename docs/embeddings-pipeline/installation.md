@@ -18,10 +18,13 @@ stricter argparse `_check_help`.
 
 ### GPU / torch
 
-`torch` is a plain PyPI dependency, but the CUDA build you actually want
-depends on your host's CUDA toolkit version -- if `uv sync`'s default
-resolution doesn't match your hardware, reinstall it explicitly per
-[PyTorch's own install matrix](https://pytorch.org/get-started/locally/).
+On Linux, `torch` comes from PyTorch's CUDA 12.6 index (`pytorch-cu126` in
+the package's `pyproject.toml`), the newest build the cluster's GPU driver
+runs; PyPI's own Linux torch is built for CUDA 13, which needs driver 580 or
+newer and fails with "The NVIDIA driver on your system is too old". macOS
+gets PyPI's torch. For a different driver, change that index (see
+[PyTorch's install matrix](https://pytorch.org/get-started/locally/)) and
+`uv lock`.
 `dinov2` itself is not on PyPI; the minimal pure-torch subset needed for
 inference is vendored directly under
 `src/fisseq_embeddings_pipeline/vendor/dinov2/` (see

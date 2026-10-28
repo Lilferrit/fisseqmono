@@ -419,8 +419,10 @@ How the pieces fit:
   exec [--nv] --bind ... <image> /bin/sh -c "$(cat "$0")" "$0"`, guarded by an environment
   variable Apptainer passes through), then runs the job as usual. Inside the
   image the job has the image's own `PATH`, not its submitter's, so the
-  `conda` that `--use-conda` rules (`run_cellprofiler`'s `cp4` env) need
-  comes from the image's `PATH` too.
+  `conda` that `--use-conda` rules need comes from the image's `PATH` too.
+  `run_cellprofiler`'s `conda: 'cp4'` names an env rather than an env file,
+  and snakemake only activates a named env, never creates it: the image
+  builds `cp4` from the pinned starcall checkout's `workflow/envs/cp4.yaml`.
 - **Binds are baked in.** The jobscript binds, at unchanged paths, the
   resolved `phenotyping_dir`/`segmentation_dir`/`sequencing_dir`,
   `starcall_workflow_dir`, the snakemake cache dir, `starcall_job_binds`

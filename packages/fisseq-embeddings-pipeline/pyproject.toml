@@ -28,8 +28,9 @@ dependencies = [
     "tqdm>=4.67.3",
     "webdataset>=0.2.111",
     "xgboost>=2.0.0",
-    # torch + dinov2 (EMBED_CELLS / Cell-DINO): torch is pip-installable
-    # (pinned to match your CUDA toolkit -- see README's GPU install note);
+    # torch + dinov2 (EMBED_CELLS / Cell-DINO): on Linux torch is the CUDA
+    # 12.6 build (the pytorch-cu126 index below), the newest the cluster's
+    # GPU driver runs; PyPI's own Linux torch is built for CUDA 13;
     # dinov2 itself is not on PyPI and is vendored directly under
     # src/fisseq_embeddings_pipeline/vendor/dinov2/ -- see that directory's
     # VENDORED_FROM.md.
@@ -69,8 +70,14 @@ dev = [
     "scipy>=1.16.1",
 ]
 
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
 [tool.uv.sources]
 fisseq-common = { workspace = true }
+torch = { index = "pytorch-cu126", marker = "sys_platform == 'linux'" }
 
 [tool.hatch.metadata]
 allow-direct-references = true

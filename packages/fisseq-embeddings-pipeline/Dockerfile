@@ -104,15 +104,9 @@ RUN /opt/conda/bin/conda create -y -n ops python=3.10 && /opt/conda/bin/conda cl
 # follow.
 SHELL ["/opt/conda/bin/conda", "run", "--no-capture-output", "-n", "ops", "/bin/bash", "-c"]
 
-# snakemake (starcall-workflow's own requirement is `snakemake>=7`) plus
-# conda-frontend support for `--use-conda` (materializing the CellProfiler
-# env on demand, the first time a cp_features: true experiment actually
-# needs it -- see BUILD_CELL_IMAGES's `--use-conda
-# --conda-frontend conda` invocation). mamba is already on PATH via
-# Miniforge, and would be faster than conda's own solver for
-# `--conda-frontend`, but BUILD_CELL_IMAGES' invocation uses
-# --conda-frontend conda for the widest compatibility; switch it there if
-# mamba is confirmed to work once real rule execution is validated.
+# snakemake (starcall-workflow's own requirement is `snakemake>=7`). Its
+# `--use-conda` only activates run_cellprofiler's `conda: 'cp4'`: a named
+# env, which snakemake never creates. The image builds it, below.
 #
 # PINNED, not `>=7`, and specifically to the last release that still
 # supports this env's Python 3.10: every snakemake >=8.0.0 declares
@@ -197,6 +191,20 @@ RUN find starcall-workflow -mindepth 1 -maxdepth 1 ! -name workflow -exec rm -rf
 # not run inside the `ops` conda env.
 SHELL ["/bin/bash", "-c"]
 
+# starcall's `cp4` env (CellProfiler 4.2.4), for run_cellprofiler's
+# `conda: 'cp4'`. A named env has to exist before the run: without it every
+# CellProfiler job dies with EnvironmentNameNotFound. Built from the pinned
+# checkout's own workflow/envs/cp4.yaml, minus its `anaconda` and `defaults`
+# channels (repo.anaconda.com, which conda refuses non-interactively until
+# its terms of service are accepted); conda-forge and bioconda carry every
+# package. Above the uv.lock layer: slow, and changes only with the pin.
+RUN sed '/^- anaconda$/d; /^- defaults$/d' \
+        /opt/fisseq-embeddings-pipeline/starcall-workflow/workflow/envs/cp4.yaml \
+        > /tmp/cp4.yaml \
+    && /opt/conda/bin/conda env create -y -n cp4 -f /tmp/cp4.yaml \
+    && /opt/conda/bin/conda clean -afy \
+    && rm /tmp/cp4.yaml
+
 # The Python environment lives in the workspace at /opt/fisseqmono (its .venv); the nested
 # starcall run's files (snakemake/Snakefile, the starcall-workflow clone) stay at
 # /opt/fisseq-embeddings-pipeline, where nextflow.config's ext.fisseq_snakefile points.
@@ -254,8 +262,8 @@ RUN uv sync --frozen --no-dev --package fisseq-embeddings-pipeline --no-editable
 # would fail with ModuleNotFoundError/`python: command not found`. The
 # `ops` conda env above is deliberately never added here, for the same
 # "no ambiguous bare python" reason in reverse -- see that block's own
-# comment. /opt/conda/bin goes LAST, for `conda` alone (--use-conda's
-# `conda: cp4` rules, e.g. run_cellprofiler): a starcall child job
+# comment. /opt/conda/bin goes LAST, for `conda` alone (--use-conda
+# activates the `cp4` env built above for run_cellprofiler): a starcall child job
 # re-enters this image with this PATH, not its submitter's, so conda has
 # to be here rather than prepended by BUILD_CELL_IMAGES. Last, so the
 # venv's `python` still wins over Miniforge's.
