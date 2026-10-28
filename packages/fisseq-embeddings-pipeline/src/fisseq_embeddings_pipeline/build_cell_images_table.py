@@ -18,8 +18,7 @@ columns under their own names. BUILD_CELL_METADATA/BUILD_CP_FEATURES read
 only this table, never starcall-workflow's tree.
 
 Every well's shards are hard-linked out of starcall's tree into
-`shards_dir`, next to `shards_output` (`shards.parquet`), which names them
-relative to its own directory: the published `cell_images/<batch>/` is the
+`shards_dir`, next to `output`: the published `cell_images/<batch>/` is the
 whole dataset, readable without starcall's tree. starcall's copies stay,
 as snakemake's cache.
 
@@ -98,10 +97,6 @@ class BuildCellImagesTableConfig(AppConfig):
     shards_manifest : str
         Shard manifest CSV, written by the same rule (relative to
         `output_dir`). Defaults to ``"shards_manifest.csv"``.
-    shards_output : str
-        Output parquet filename (relative to `output_dir`) for the shard
-        table -- see :func:`build_shards_table`. Defaults to
-        ``"shards.parquet"``.
     shards_dir : str
         Directory (relative to `output_dir`) every shard is linked into --
         see :func:`link_shards`. Defaults to ``"shards"``.
@@ -115,7 +110,6 @@ class BuildCellImagesTableConfig(AppConfig):
     manifest: str = "tiles_manifest.csv"
     shards_manifest: str = "shards_manifest.csv"
     output: str = "cell_table.parquet"
-    shards_output: str = "shards.parquet"
     shards_dir: str = "shards"
     snakemake_config: str = "snakemake_config.yaml"
 
@@ -341,12 +335,6 @@ def build_cell_table(
     return pl.concat(frames, how="diagonal_relaxed")
 
 
-SHARDS_SCHEMA: Dict[str, pl.DataType] = {
-    "well": pl.String,
-    "shard_tar": pl.String,
-}
-
-
 def link_shards(
     shards: List[Dict[str, Any]], output_dir: pathlib.Path, shards_dir: str
 ) -> List[Dict[str, Any]]:
@@ -389,20 +377,6 @@ def link_shards(
     return linked
 
 
-def build_shards_table(shards: List[Dict[str, Any]]) -> pl.DataFrame:
-    """One row per WebDataset shard, in order: its path, relative to the
-    table's own directory (see :func:`link_shards`), and its well.
-
-    EMBED_CELLS reads its shards from this list. It's a sidecar rather
-    than a ``cell_table.parquet`` column so ``cell_table.parquet`` stays
-    purely per-cell.
-    """
-    return pl.DataFrame(
-        [{key: shard[key] for key in SHARDS_SCHEMA} for shard in shards],
-        schema=SHARDS_SCHEMA,
-    )
-
-
 def _read_manifest(path: str) -> List[Dict[str, str]]:
     with open(path, newline="") as f:
         return [dict(row) for row in csv.DictReader(f)]
@@ -428,7 +402,6 @@ def main(cfg: DictConfig) -> None:
             manifest=tiles_manifest.csv \\
             shards_manifest=shards_manifest.csv \\
             output=cell_table.parquet \\
-            shards_output=shards.parquet \\
             shards_dir=shards \\
             snakemake_config=snakemake_config.yaml
     """
@@ -452,7 +425,6 @@ def main(cfg: DictConfig) -> None:
         output_dir,
         table_cfg.shards_dir,
     )
-    build_shards_table(shards).write_parquet(output_dir / table_cfg.shards_output)
 
     logging.info(
         "Wrote %s (%d cell(s) across %d tile(s), in %d shard(s))",

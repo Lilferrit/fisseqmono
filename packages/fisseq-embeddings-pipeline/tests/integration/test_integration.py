@@ -584,21 +584,17 @@ def test_pipeline_exits_cleanly(pipeline_outputs):
 def test_cell_images_produced(pipeline_outputs):
     """BUILD_CELL_IMAGES' own output -- the cell table in the data
     pipeline's shape (meta_* columns, then CellProfiler's own), plus the
-    shard table."""
+    shards."""
     exp_dir, _ = pipeline_outputs
     cell_images_dir = exp_dir / "cell_images" / "batch1"
     cell_table = pl.read_parquet(cell_images_dir / "cell_table.parquet")
     n_cells = sum(n_b * n_c for _, n_b, n_c in _VARIANTS.values())
     assert cell_table.height == n_cells
     assert cell_table.columns == [*CELL_META_SCHEMA, "Cells_AreaShape_Area"]
-    # The shards are published next to shards.parquet, which names them
-    # relative to itself: hard links to the ones snakemake left in
-    # starcall's tree, so they take no space twice.
-    shards = pl.read_parquet(cell_images_dir / "shards.parquet")
-    assert shards.to_dicts() == [
-        {"well": "well1", "shard_tar": "shards/well_1_shard_000000.tar.gz"}
-    ]
-    published = cell_images_dir / "shards" / "well_1_shard_000000.tar.gz"
+    # The shards are published under shards/: hard links to the ones
+    # snakemake left in starcall's tree, so they take no space twice.
+    (published,) = (cell_images_dir / "shards").iterdir()
+    assert published.name == "well_1_shard_000000.tar.gz"
     (starcall,) = [
         p
         for p in exp_dir.rglob(f"cells_raw_shards_{_WINDOW}_all/{published.name}")
@@ -826,10 +822,10 @@ def test_shard_meta_json_matches_the_cell_table(pipeline_outputs):
     exp_dir, _ = pipeline_outputs
     cell_images_dir = exp_dir / "cell_images" / "batch1"
     cell_table = pl.read_parquet(cell_images_dir / "cell_table.parquet")
-    (shard,) = pl.read_parquet(cell_images_dir / "shards.parquet")["shard_tar"]
+    (shard,) = (cell_images_dir / "shards").iterdir()
     metas = [
         json.loads(sample["meta.json"])
-        for sample in wds.WebDataset(str(cell_images_dir / shard), shardshuffle=False)
+        for sample in wds.WebDataset(str(shard), shardshuffle=False)
     ]
     assert len(metas) == cell_table.height
     assert all(list(meta) == list(CELL_META_SCHEMA) for meta in metas)

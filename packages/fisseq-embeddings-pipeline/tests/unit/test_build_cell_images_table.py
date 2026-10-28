@@ -372,30 +372,7 @@ def test_genotype_columns_come_from_the_snakemake_config():
 
 
 # ---------------------------------------------------------------------------
-# build_shards_table -- the shard sidecar
-# ---------------------------------------------------------------------------
-
-
-def test_build_shards_table_keeps_one_row_per_shard_in_order():
-    shards = [
-        {"well": "well1", "shard_tar": "/p/s/well_1_shard_000000.tar.gz"},
-        {"well": "well1", "shard_tar": "/p/s/well_1_shard_000001.tar.gz"},
-    ]
-
-    table = mod.build_shards_table(shards)
-
-    assert table.columns == ["well", "shard_tar"]
-    assert table.to_dicts() == shards
-
-
-def test_build_shards_table_empty_when_no_shards():
-    table = mod.build_shards_table([])
-    assert table.height == 0
-    assert table.columns == ["well", "shard_tar"]
-
-
-# ---------------------------------------------------------------------------
-# link_shards -- the shards next to shards.parquet
+# link_shards -- the shards next to cell_table.parquet
 # ---------------------------------------------------------------------------
 
 

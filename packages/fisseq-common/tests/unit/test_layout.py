@@ -106,7 +106,6 @@ def test_data_input():
 
 def test_cell_images_dataset():
     assert EMB.cell_table("b") == "cell_images/b/cell_table.parquet"
-    assert EMB.shards("b") == "cell_images/b/shards.parquet"
     assert EMB.shard_dir("b") == "cell_images/b/shards"
 
 
