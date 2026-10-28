@@ -38,12 +38,13 @@ _ARGS = {
     "rep": "\x00r\x00",
     "half": "\x00h\x00",
     "method": "\x00m\x00",
+    "name": "\x00n\x00",
 }
 
 
 def _patterns(layout: PipelineLayout) -> list[re.Pattern[str]]:
     """A regex per path the layout knows, every argument matching one path segment."""
-    b, r, h, m = (_ARGS[k] for k in ("batch", "rep", "half", "method"))
+    b, r, h, m, n = (_ARGS[k] for k in ("batch", "rep", "half", "method", "name"))
     paths = [
         layout.filtered_cells(b),
         layout.barcode_counts(b),
@@ -68,6 +69,7 @@ def _patterns(layout: PipelineLayout) -> list[re.Pattern[str]]:
         paths += [
             layout.cell_table(b),
             layout.shards(b),
+            f"{layout.shard_dir(b)}/{n}",
             layout.metadata(b),
             layout.features(b),
         ]

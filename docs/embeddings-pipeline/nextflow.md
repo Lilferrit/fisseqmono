@@ -276,10 +276,9 @@ Docker, `-B` under Apptainer):
   `starcall_workflow_dir` plus any data dir set explicitly in its entry),
   the snakemake cache dir, and `starcall_profile` if set. Plus `--nv` /
   `--gpus all` when `starcall_gpu` is true.
-- **`EMBED_CELLS`** -- `cell_dino_checkpoint`, and the experiment's
-  resolved `phenotyping_dir` (emitted by `BUILD_CELL_IMAGES` as an
-  `env("phenotyping_dir")` output): `shards.parquet` names each shard
-  by its real path there, and the shards are read in place. Plus `--nv` /
+- **`EMBED_CELLS`** -- `cell_dino_checkpoint` only: the shards are
+  staged inputs (`BUILD_CELL_IMAGES`' `shards/`, next to
+  `shards.parquet`). Plus `--nv` /
   `--gpus all` unless `cell_dino_device` is `cpu`.
 
 Every path is bound at its own unchanged absolute location (`src:src`).
@@ -521,9 +520,8 @@ process EMBED_CELLS {
   default (`link`), so a published file takes no second copy on disk and still
   survives `work/` being deleted; `copy` when `work/` is on another filesystem
   (see [Configuration](configuration.md#fields)). `BUILD_CELL_IMAGES` publishes
-  only `cell_table.parquet`/`shards.parquet`; its scratch files
-  (`snakemake_config.yaml`, `tiles_manifest.csv`, `shards_manifest.csv`,
-  `resolved_dirs.env`, the
+  `cell_table.parquet`, `shards.parquet` and `shards/`; its scratch files
+  (`snakemake_config.yaml`, `tiles_manifest.csv`, `shards_manifest.csv`, the
   jobscript) stay in its work directory.
 - **`threadEnv(task.cpus)`** (fisseq-common's `functions.nf`) exports
   `POLARS_MAX_THREADS`/`OMP_NUM_THREADS`/`OPENBLAS_NUM_THREADS`/... inside
@@ -559,7 +557,8 @@ The paths are `fisseq_common.layout.EmbeddingsPipelineLayout`'s. Everything from
 <pipeline_dir>/
   cell_images/<batch>/
     cell_table.parquet                    # the ONE self-sufficient cell table: key + QC meta_* columns + meta_variant_class (+ CellProfiler columns if cp_features)
-    shards.parquet                        # one row per shard: well, shard_tar -- a real path under phenotyping_dir
+    shards.parquet                        # one row per shard: well, shard_tar -- relative to this directory
+    shards/                               # well_<n>_shard_<k>.tar.gz, hard links to starcall's (below)
   cell_metadata/<batch>/
     metadata.parquet                      # QC_FILTER's input: meta_batch + the table's key and QC columns
   qc_filter/<batch>/
@@ -608,10 +607,10 @@ above).
 
 The WebDataset shards -- per well,
 `<well>_grid<N>/<segmentation_type>_{raw|corrected}_shards_<window>_<shard_size|all>/well_<n>_shard_<k>.tar.gz`,
-`shard_size` cells each, all cells, unfiltered -- stay under starcall's
-`phenotyping_dir`, next to that well's tiles, not here: `EMBED_CELLS`
-reads them in place via `shards.parquet`, and snakemake's own mtime check
-reuses them on a rerun. The per-tile shards they're packed from are
+`shard_size` cells each, all cells, unfiltered -- are written under
+starcall's `phenotyping_dir`, next to that well's tiles, where snakemake's
+own mtime check reuses them on a rerun, and hard-linked into
+`cell_images/<batch>/shards/` above, which is what `EMBED_CELLS` reads. The per-tile shards they're packed from are
 `temp()` outputs and not targets, so snakemake deletes them once the well
 is packed; the tile image and mask those are cut from are stitched in the
 job and never written under `phenotyping_dir` -- see

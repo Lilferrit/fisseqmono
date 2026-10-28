@@ -5,12 +5,9 @@ fisseq_embeddings_pipeline.build_cell_images_prepare`), backing the first
 of BUILD_CELL_IMAGES' three phases. Writes what has to exist before the
 nested snakemake starts:
 
-- `resolved_dirs_out`: the fully resolved `phenotyping_dir`/
-  `segmentation_dir`/`sequencing_dir` (see :func:`resolve_data_dir`), a
-  shell-sourceable `key='value'` file. The process sources it for its
-  `env("phenotyping_dir")` output, EMBED_CELLS' bind path.
 - `snakemake_config_out`: the `--configfile` of both snakemake calls --
-  the same three directories (overriding the project's own config.yaml),
+  the fully resolved `phenotyping_dir`/`segmentation_dir`/`sequencing_dir`
+  (see :func:`resolve_data_dir`; overriding the project's own config.yaml),
   the interpreter `make_cell_shard` runs this package with, and the
   `fisseq_*` settings of `snakemake/Snakefile`'s `fisseq_tiles_manifest`
   rule. That rule, not this phase, lists every tile and every well's shards
@@ -156,12 +153,6 @@ class BuildCellImagesPrepareConfig(AppConfig):
         ``params.starcall_job_binds``.
     jobscript_out : str
         Output filename for the jobscript, written under `output_dir`.
-    resolved_dirs_out : str
-        Output filename (under `output_dir`) for the fully-resolved
-        `phenotyping_dir`/`segmentation_dir`/`sequencing_dir` -- a
-        shell-sourceable `key='value'` file, one line per key, so the
-        process's `env("phenotyping_dir")` output is the exact path this
-        phase resolved, without duplicating the resolution in Groovy.
     """
 
     starcall_workflow_dir: str = MISSING
@@ -189,7 +180,6 @@ class BuildCellImagesPrepareConfig(AppConfig):
     starcall_job_gpu: bool = False
     jobscript_binds: List[str] = dataclasses.field(default_factory=list)
     jobscript_out: str = "starcall_jobscript.sh"
-    resolved_dirs_out: str = "resolved_dirs.env"
 
 
 def resolve_data_dir(
@@ -409,10 +399,6 @@ def main(cfg: DictConfig) -> None:
         )
         for dir_key in _RESOLVED_DIR_KEYS
     }
-    resolved_dirs_path = output_dir / prep_cfg.resolved_dirs_out
-    with open(resolved_dirs_path, "w") as f:
-        for dir_key in _RESOLVED_DIR_KEYS:
-            f.write(f"{dir_key}='{resolved_dirs[dir_key]}'\n")
     logging.info("Resolved starcall-workflow directories: %s", resolved_dirs)
 
     config_path = output_dir / prep_cfg.snakemake_config_out

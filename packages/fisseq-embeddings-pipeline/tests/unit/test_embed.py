@@ -169,6 +169,33 @@ def test_load_embedding_dataloader_reads_shards_from_shards_parquet(tmp_path: Pa
     assert keys == ["cell0", "cell1", "cell2"]
 
 
+def test_load_embedding_dataloader_resolves_relative_shards(
+    tmp_path: Path, monkeypatch
+):
+    """A relative shard_tar is relative to shards.parquet's directory (the
+    published cell_images/<batch>/), not the working directory."""
+    shard_dir = _write_shard(tmp_path, n_cells=2, maxcount=10)
+    (shard,) = sorted(shard_dir.glob("dataset-*.tar"))
+    shards_path = tmp_path / "shards.parquet"
+    pl.DataFrame(
+        {"well": ["well1"], "shard_tar": [str(shard.relative_to(tmp_path))]}
+    ).write_parquet(shards_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    cfg = _base_cfg(
+        tmp_path,
+        shard_pattern=None,
+        shards_path=str(shards_path),
+        batch_size=10,
+        num_workers=0,
+    )
+
+    keys = [k for batch_keys, *_ in load_embedding_dataloader(cfg) for k in batch_keys]
+
+    assert keys == ["cell0", "cell1"]
+
+
 def test_load_embedding_dataloader_raises_on_missing_listed_shard(tmp_path: Path):
     cfg = _base_cfg(
         tmp_path,

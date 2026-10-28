@@ -112,7 +112,8 @@ class EmbedCellsConfig(AppConfig):
     ----------
     shards_path : str or None
         BUILD_CELL_IMAGES' ``shards.parquet``: every row's ``shard_tar`` is
-        one of this experiment's shards. Exactly one of ``shards_path`` and
+        one of this experiment's shards, a relative one relative to the
+        table's own directory. Exactly one of ``shards_path`` and
         ``shard_pattern`` must be set; the pipeline uses this one.
     shard_pattern : str or None
         Path/brace pattern for a set of shards instead, e.g.
@@ -205,7 +206,11 @@ def shard_urls(cfg: EmbedCellsConfig) -> "str | List[str]":
     if (cfg.shards_path is None) == (cfg.shard_pattern is None):
         raise ValueError("Set exactly one of shards_path and shard_pattern.")
     if cfg.shards_path is not None:
-        urls = pl.read_parquet(cfg.shards_path)["shard_tar"].to_list()
+        table_dir = pathlib.Path(cfg.shards_path).parent
+        urls = [
+            str(table_dir / u)
+            for u in pl.read_parquet(cfg.shards_path)["shard_tar"].to_list()
+        ]
         missing = [u for u in urls if not pathlib.Path(u).is_file()]
         if missing:
             raise ValueError(

@@ -37,7 +37,9 @@ src/fisseq_embeddings_pipeline/
                                   each sample's meta.json is the cell's CELL_META_SCHEMA row
   well_shards.py                  make_well_shards rule body: a well's temp() tile shards packed
                                   into well_{n}_shard_{k}.tar.gz, shard_size cells each
-  build_cell_images_table.py      BUILD_CELL_IMAGES phase 3 (cell_table.parquet, shards.parquet);
+  build_cell_images_table.py      BUILD_CELL_IMAGES phase 3 (cell_table.parquet, shards.parquet,
+                                  shards/ hard-linked out of starcall's tree, so the published
+                                  cell_images/<batch>/ is the whole dataset);
                                   tile_cell_meta builds both the table's meta_* columns and meta.json
   cell_metadata.py                BUILD_CELL_METADATA (QC_FILTER's input)
   embed.py                        EMBED_CELLS (Cell-DINO)

@@ -43,6 +43,7 @@ Extends the [common config fields](#common-config-fields) below.
 | `shards_manifest` | `"shards_manifest.csv"` | Shard manifest CSV (under `output_dir`), written by the same rule. |
 | `output` | `"cell_table.parquet"` | Output parquet filename (under `output_dir`). |
 | `shards_output` | `"shards.parquet"` | Shard table filename (under `output_dir`). |
+| `shards_dir` | `"shards"` | Directory (under `output_dir`) the shards are linked into. |
 | `snakemake_config` | `"snakemake_config.yaml"` | The nested snakemake's `--configfile` (under `output_dir`), written by phase 1; its `fisseq_barcode_col`/`fisseq_aa_changes_col`/`fisseq_edit_distance_col` keys name the reads tables' genotype columns. |
 
 ## Output files
@@ -64,9 +65,13 @@ Written to `output_dir`:
   index set differs from the segmentation table's, or that lacks one of the
   three genotype columns, raises, as does a CellProfiler CSV whose row count
   differs.
+- `shards/` (`shards_dir`) -- every shard in the shard manifest, hard-linked
+  out of `phenotyping_dir` under its own name (copied instead where a hard
+  link can't be made, with a warning). starcall's copies stay as
+  snakemake's cache.
 - `shards.parquet` -- `well`, `shard_tar`: one row per shard, in order,
-  the path copied from the shard manifest (a real path under
-  `phenotyping_dir`; nothing is copied or linked).
+  `shard_tar` relative to the table's own directory
+  (`shards/well_1_shard_000000.tar.gz`).
 
 ## Example
 
@@ -77,6 +82,7 @@ uv run python -m fisseq_embeddings_pipeline.build_cell_images_table \
     shards_manifest=shards_manifest.csv \
     output=cell_table.parquet \
     shards_output=shards.parquet \
+    shards_dir=shards \
     snakemake_config=snakemake_config.yaml
 ```
 

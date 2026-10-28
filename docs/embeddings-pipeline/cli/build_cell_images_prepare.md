@@ -6,11 +6,8 @@ first of `BUILD_CELL_IMAGES`' three phases (Nextflow process
 `sequencing_dir` and writes what has to exist before the nested
 `snakemake` (phase 2) starts:
 
-- `resolved_dirs_out` (`resolved_dirs.env`) -- the three resolved data
-  dirs as shell-sourceable `key='value'` lines. The process sources it for
-  its `phenotyping_dir` output, EMBED_CELLS' bind path.
 - `snakemake_config_out` (`snakemake_config.yaml`) -- phase 2's
-  `--configfile`: the same three dirs (each with a trailing `/`; they
+  `--configfile`: the three resolved dirs (each with a trailing `/`; they
   override the project's own `config.yaml`), `fisseq_python` (the
   interpreter `make_cell_shard` and `make_well_shards` run this package
   with) and the `fisseq_*` settings of the `fisseq_shards` and
@@ -113,7 +110,6 @@ Extends the [common config fields](#common-config-fields) below.
 | `shards_manifest_out` | `"shards_manifest.csv"` | The shard manifest the same rule writes (likewise). |
 | `snakemake_config_out` | `"snakemake_config.yaml"` | Output filename (under `output_dir`). |
 | `jobscript_out` | `"starcall_jobscript.sh"` | Output filename (under `output_dir`). |
-| `resolved_dirs_out` | `"resolved_dirs.env"` | Output filename (under `output_dir`). |
 
 ## Example
 

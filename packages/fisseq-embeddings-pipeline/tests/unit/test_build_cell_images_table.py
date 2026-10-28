@@ -11,6 +11,8 @@ variant class -- then the row-position CellProfiler join and the cross-tile
 
 from __future__ import annotations
 
+import errno
+import os
 from pathlib import Path
 from typing import Sequence
 
@@ -390,3 +392,66 @@ def test_build_shards_table_empty_when_no_shards():
     table = mod.build_shards_table([])
     assert table.height == 0
     assert table.columns == ["well", "shard_tar"]
+
+
+# ---------------------------------------------------------------------------
+# link_shards -- the shards next to shards.parquet
+# ---------------------------------------------------------------------------
+
+
+def _starcall_shards(tmp_path):
+    shard_dir = tmp_path / "phenotyping" / "well1_grid5" / "cells_raw_shards_224_2000"
+    shard_dir.mkdir(parents=True)
+    shards = []
+    for k in range(2):
+        tar = shard_dir / f"well_1_shard_{k:06}.tar.gz"
+        tar.write_bytes(b"shard %d" % k)
+        shards.append({"well": "well1", "shard_tar": str(tar)})
+    return shards
+
+
+def test_link_shards_hard_links_and_records_relative_paths(tmp_path):
+    shards = _starcall_shards(tmp_path)
+    out = tmp_path / "task"
+
+    linked = mod.link_shards(shards, out, "shards")
+
+    assert linked == [
+        {"well": "well1", "shard_tar": "shards/well_1_shard_000000.tar.gz"},
+        {"well": "well1", "shard_tar": "shards/well_1_shard_000001.tar.gz"},
+    ]
+    for shard, row in zip(shards, linked):
+        assert (out / row["shard_tar"]).stat().st_ino == os.stat(
+            shard["shard_tar"]
+        ).st_ino
+
+
+def test_link_shards_replaces_a_stale_link(tmp_path):
+    shards = _starcall_shards(tmp_path)
+    out = tmp_path / "task"
+    mod.link_shards(shards, out, "shards")
+    # snakemake recuts the well: a new file, not the linked one rewritten.
+    source = Path(shards[0]["shard_tar"])
+    source.unlink()
+    source.write_bytes(b"recut")
+
+    mod.link_shards(shards, out, "shards")
+
+    assert (out / "shards" / source.name).read_bytes() == b"recut"
+
+
+def test_link_shards_copies_across_filesystems(tmp_path, monkeypatch, caplog):
+    shards = _starcall_shards(tmp_path)
+    out = tmp_path / "task"
+
+    def cross_device(*args):
+        raise OSError(errno.EXDEV, "Invalid cross-device link")
+
+    monkeypatch.setattr(mod.os, "link", cross_device)
+    linked = mod.link_shards(shards, out, "shards")
+
+    for shard, row in zip(shards, linked):
+        target = out / row["shard_tar"]
+        assert target.read_bytes() == Path(shard["shard_tar"]).read_bytes()
+        assert target.stat().st_ino != os.stat(shard["shard_tar"]).st_ino
+    assert "Copied 2 of 2 shard(s)" in caplog.text

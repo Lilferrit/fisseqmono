@@ -66,8 +66,8 @@ Extends the [common config fields](#common-config-fields) below.
 exactly what `make_cell_shard` wrote: keyed
 `"{well}_{tile}_{tile_cell_index}"`, carrying `crop.npy`, `mask.npy` and
 `meta.json`. `BUILD_CELL_IMAGES`' `shards.parquet` lists every shard
-(`well`, `shard_tar`). The shards are read in place and never copied into
-`pipeline_dir`.
+(`well`, `shard_tar`) and hard-links them into `pipeline_dir`'s
+`cell_images/<batch>/shards/`; these stay as snakemake's cache.
 
 ## Example
 

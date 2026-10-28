@@ -80,3 +80,23 @@ def test_own_module_publish_path_matches_layout(module, path):
     text = (OWN_MODULES / module / "main.nf").read_text()
     publish = re.search(r'publishDir \{ "\$\{params\.pipeline_dir\}/(.*?)" \}', text)
     assert publish is not None and publish.group(1) == posixpath.dirname(path)
+
+
+def test_build_cell_images_publishes_the_dataset_where_the_layout_says():
+    """cell_table.parquet, shards.parquet and every shard under shards/."""
+    stem = "${plan.batch_stem}"
+    text = (OWN_MODULES / "build_cell_images" / "main.nf").read_text()
+    publish = re.search(
+        r'publishDir \{ "\$\{params\.pipeline_dir\}/(.*?)" \}.*?'
+        r"pattern: '\{(.*?)\}'",
+        text,
+    )
+    assert publish is not None
+    publish_dir, pattern = publish.groups()
+    for path in (EMB.cell_table(stem), EMB.shards(stem), EMB.shard_dir(stem)):
+        assert posixpath.dirname(path) == publish_dir
+    assert pattern.split(",") == [
+        posixpath.basename(EMB.cell_table(stem)),
+        posixpath.basename(EMB.shards(stem)),
+        posixpath.basename(EMB.shard_dir(stem)) + "/*",
+    ]

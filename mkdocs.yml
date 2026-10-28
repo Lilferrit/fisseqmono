@@ -81,6 +81,7 @@ nav:
   - 07 Unify the embeddings pipeline: diff-reports/07-unified-pipelines.md
   - 08 Per-well shards: diff-reports/08-well-shards.md
   - 09 Cell table parity: diff-reports/09-cell-table-parity.md
+  - 10 Published shards: diff-reports/10-published-shards.md
 theme:
   name: material
   palette:
