@@ -254,8 +254,9 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
     its name like `window`, so changing it repacks rather than reusing
     stale shards. `BUILD_CELL_IMAGES` requests every well's shard
     directory (plus every tile's cell and reads tables) as targets and
-    records each shard's path in a `shards.parquet` sidecar (one row per
-    shard); `EMBED_CELLS` reads them in place. `crop_index` comes from
+    hard-links each shard into its own `shards/`, published next to a
+    `shards.parquet` sidecar (one row per shard, its path relative to the
+    sidecar); `EMBED_CELLS` reads them from there. `crop_index` comes from
     `build_cell_images_table.read_segmentation_table`, the same reader
     `cell_table.parquet` is built with, and `meta.json` from
     `tile_cell_meta`, the same function that builds the table's
@@ -282,7 +283,10 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
     two rules plus the crop's own. The tile shards are `temp()` too,
     deleted once their well is packed, so what stays is the well shards:
     about one gzipped crop-sized copy of every cell, under
-    `phenotyping_dir`, never copied into `pipeline_dir`. Changing
+    `phenotyping_dir`, as snakemake's cache. `pipeline_dir` gets hard
+    links to them (`cell_images/<batch>/shards/`), which take no space
+    twice on the same filesystem; a recut replaces starcall's file and
+    leaves the published one as the run that published it saw. Changing
     `shard_size` (or `window`, or `use_corrected`) therefore recuts every
     tile, restitching its image and mask from the kept inputs; with raw
     images that regenerates nothing CellProfiler reads.
@@ -668,8 +672,8 @@ already built) and reads them:
   see [Cell Shards](#cell-shards-make_cell_shard-make_well_shards) below.
 
   Only the well's shard directory is requested as a target, not the tile
-  shards, so they are deleted once the well is packed -- see decision 17. Each shard's path is recorded, not
-  copied, in `shards.parquet`.
+  shards, so they are deleted once the well is packed -- see decision 17. Each shard is
+  hard-linked into `cell_images/<batch>/shards/` and listed in `shards.parquet`.
 - **`rule split_grid_table`/`drop_duplicate_cells`** -- the tile's
   segmentation-side cell table:
   `phenotyping_dir/{well}_grid{N}/tile{x}x{y}y/{segmentation_type}.csv`,
@@ -701,20 +705,21 @@ row-count mismatch). The genotype column names come from the nested run's
 `snakemake_config.yaml` (`fisseq_*_col`), the same ones the shards are cut
 with. Every tile's table is concatenated (`diagonal_relaxed` -- the
 CellProfiler columns aren't fixed) into one `cell_table.parquet` per
-experiment, published alongside `shards.parquet`:
+experiment, published alongside the shards and `shards.parquet`:
 
 ```text
 {pipeline_dir}/cell_images/{batch_stem}/
 ├── cell_table.parquet   one row per cell; meta_well, meta_tile, meta_cell_index, meta_barcode,
 │                        meta_aa_changes, meta_edit_distance, meta_variant_class (+ CellProfiler columns)
-└── shards.parquet       one row per shard, in order: well, shard_tar (a real path under phenotyping_dir)
+├── shards.parquet       one row per shard, in order: well, shard_tar (relative to this directory)
+└── shards/              well_{n}_shard_{k:06}.tar.gz, hard links to the ones under phenotyping_dir
 ```
 
 No `meta_batch` (the stages reading it add it) and none of the raw
 starcall columns (`bbox_*`, `orig_index`, `mask8`, the unrenamed genotype
 or other aux-table columns, `crop_index`).
 `BUILD_CELL_METADATA`/`BUILD_CP_FEATURES` read only `cell_table.parquet`,
-and `EMBED_CELLS` only `shards.parquet` (plus the shards it points at) --
+and `EMBED_CELLS` only `shards.parquet` and `shards/` --
 none of them needs `phenotyping_dir`/`wells`/the tile grid/
 `segmentation_type`/`use_corrected`.
 

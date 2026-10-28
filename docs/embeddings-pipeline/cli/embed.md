@@ -10,9 +10,10 @@ cell to `embeddings.parquet`. Not gated by `QC_FILTER` -- this GPU pass
 runs once per experiment regardless of how many times QC thresholds get
 retuned afterward.
 
-The shards are read in place, under `phenotyping_dir`, from the paths
-`BUILD_CELL_IMAGES`' `shards.parquet` lists (nextflow.config binds that
-directory into this task's container). Each sample's `meta.json` carries
+The shards are `BUILD_CELL_IMAGES`' `shards/`, staged next to its
+`shards.parquet`, which names them relative to its own directory (a
+relative `shard_tar` is resolved against `shards_path`'s directory, an
+absolute one used as is). Each sample's `meta.json` carries
 the cell's key, QC fields and variant class (see
 [Cell Shards](tile_shard.md#output)); this stage keeps the same seven
 `meta_*` columns `QC_FILTER` sees (`utils.cell_table.cell_metadata_exprs`),

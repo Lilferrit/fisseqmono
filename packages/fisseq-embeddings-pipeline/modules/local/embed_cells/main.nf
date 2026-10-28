@@ -6,10 +6,9 @@
 // `apply_mask` is a plain scalar (one shared mask per cell, so one flag
 // covering every selected channel -- see EmbedCellsConfig).
 //
-// The shards themselves aren't staged: shards.parquet names each well's
-// shards by their real paths under phenotyping_dir, where the nested
-// snakemake's make_well_shards rule left them, and nextflow.config binds that
-// directory in. Each sample's meta.json carries the cell's meta_* columns;
+// The shards are staged under shards/, next to shards.parquet, which names
+// them relative to its own directory -- the layout BUILD_CELL_IMAGES
+// publishes. Each sample's meta.json carries the cell's meta_* columns;
 // batch_stem adds meta_batch.
 
 include { threadEnv } from '../../../../fisseq-common/nextflow/modules/local/functions'
@@ -22,7 +21,7 @@ process EMBED_CELLS {
     publishDir { "${params.pipeline_dir}/embeddings/${batch_stem}" }, mode: params.publish_mode
 
     input:
-    tuple val(batch_stem), path(shards), val(phenotyping_dir)
+    tuple val(batch_stem), path(shards), path(shard_files, stageAs: 'shards/*')
 
     output:
     tuple val(batch_stem), path("embeddings.parquet"), emit: embeddings

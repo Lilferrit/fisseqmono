@@ -2,7 +2,7 @@
 // or runs a nested snakemake. Three phases:
 //
 //   1. build_cell_images_prepare resolves phenotyping_dir/segmentation_dir/
-//      sequencing_dir (resolved_dirs.env) and writes the nested snakemake's
+//      sequencing_dir and writes the nested snakemake's
 //      --configfile (snakemake_config.yaml) -- plus, in cluster mode, the
 //      jobscript every starcall child job re-enters the image through.
 //   2. Snakemake against the REAL data dirs (so its own mtime caching
@@ -17,7 +17,10 @@
 //      inputs, so snakemake builds the whole DAG from the grid.
 //      See docs/architecture.md decision 17.
 //   3. build_cell_images_table joins the per-tile CSVs into
-//      cell_table.parquet, plus shards.parquet naming every shard.
+//      cell_table.parquet, hard-links every shard out of phenotyping_dir
+//      into shards/, and writes shards.parquet naming them relative to
+//      itself. All three are published: cell_images/<batch>/ is the whole
+//      dataset, without starcall's tree.
 //
 // Local mode (no params.starcall_profile): every starcall rule runs inside
 // this one task, `--cores params.snakemake_cores`. Cluster mode: the nested
@@ -38,13 +41,13 @@ process BUILD_CELL_IMAGES {
     // null = no cap (Nextflow treats maxForks 0 as unlimited).
     maxForks params.build_cell_images_max_forks ?: 0
     container "${params.container_image}"
-    publishDir { "${params.pipeline_dir}/cell_images/${plan.batch_stem}" }, mode: params.publish_mode, pattern: '{cell_table,shards}.parquet'
+    publishDir { "${params.pipeline_dir}/cell_images/${plan.batch_stem}" }, mode: params.publish_mode, pattern: '{cell_table.parquet,shards.parquet,shards/*}'
 
     input:
     val(plan)
 
     output:
-    tuple val(plan.batch_stem), path("cell_table.parquet"), path("shards.parquet"), env("phenotyping_dir"), emit: cell_images
+    tuple val(plan.batch_stem), path("cell_table.parquet"), path("shards.parquet"), path("shards/*.tar.gz", arity: "0..*"), emit: cell_images
 
     script:
     def starcall_dir = plan.starcall_workflow_dir
@@ -90,11 +93,6 @@ process BUILD_CELL_IMAGES {
         ${plan.cell_images_args} \\
         ${jobscript_args} \\
         random_seed=${params.random_seed}
-
-    # Resolved by phase 1, not recomputed here. Exported so the
-    # env("phenotyping_dir") output (EMBED_CELLS' bind path) sees it.
-    source resolved_dirs.env
-    export phenotyping_dir
 
     # A killed run leaves <starcall_workflow_dir>/.snakemake/locks behind and
     # the next one dies with "Directory cannot be locked".

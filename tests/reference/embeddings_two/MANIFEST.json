@@ -1,6 +1,6 @@
 {
   "scenario": "embeddings_two",
-  "commit": "60a1f66c39a72e92cc08ae57fb8dd4e58c05e0c9+dirty",
+  "commit": "27c4167864cbc7639afe007516b9fa33e4fd7ad1+dirty",
   "files": [
     "cell_images/batch1/cell_table.parquet",
     "cell_images/batch1/shards.parquet",

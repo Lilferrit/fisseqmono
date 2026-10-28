@@ -104,6 +104,12 @@ def test_data_input():
     assert DATA.input("b1") == "input/b1.parquet"
 
 
+def test_cell_images_dataset():
+    assert EMB.cell_table("b") == "cell_images/b/cell_table.parquet"
+    assert EMB.shards("b") == "cell_images/b/shards.parquet"
+    assert EMB.shard_dir("b") == "cell_images/b/shards"
+
+
 def test_track_features():
     assert EMB.features("b") == "embeddings/b/embeddings.parquet"
     assert CP.features("b") == "cp_features/b/cp_features.parquet"
