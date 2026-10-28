@@ -1577,10 +1577,8 @@ def _assert_cells_embedded(pipeline_dir: Path, result: subprocess.CompletedProce
 @pytest.mark.container
 def test_image_path_has_conda_after_the_venv(real_starcall_image):
     """A starcall child job re-enters the image with the image's own PATH,
-    and --use-conda rules (run_cellprofiler's cp4 env) shell out to a bare
-    `conda` there. Neither real-starcall run below has a conda: rule, so
-    this is what catches conda falling off the image PATH. Bare `python`
-    must still be the venv's."""
+    and --use-conda shells out to a bare `conda` there. Bare `python` must
+    still be the venv's."""
     result = subprocess.run(
         [
             "docker",
@@ -1600,6 +1598,30 @@ def test_image_path_has_conda_after_the_venv(real_starcall_image):
         "/opt/conda/bin/conda",
         "/opt/fisseqmono/.venv/bin/python",
     ]
+
+
+@pytest.mark.container
+def test_image_has_cp4_cellprofiler(real_starcall_image):
+    """run_cellprofiler's `conda: 'cp4'` is a named env, which --use-conda
+    only activates, never creates: the image has to ship it. Activated the
+    way snakemake does in a child job. Neither real-starcall run below has
+    cp_features, so this is the only check that CellProfiler can start."""
+    result = subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            real_starcall_image,
+            "/bin/bash",
+            "-c",
+            "source /opt/conda/bin/activate cp4 && cellprofiler --version",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "4.2.4" in result.stdout + result.stderr
 
 
 @pytest.mark.container
