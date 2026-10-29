@@ -96,8 +96,10 @@ workflow" button), so run them locally before merging.
   never reach an image; keep the filter in step when a Dockerfile changes). Tag pushes always
   build. Layers are cached in ghcr at `<image>:buildcache` (BuildKit registry cache,
   `mode=max`), so a source-only change rebuilds only the source layers; keep the uv image
-  pinned and the slow, rarely-changing layers (the embeddings image's `ops` env) above the
-  `uv.lock` layer, or that cache stops paying off.
+  pinned and the slow, rarely-changing layers (the embeddings image's `conda` stage) out of
+  reach of the `uv.lock` layer, or that cache stops paying off. The embeddings image also
+  keeps every layer to ~1 GB compressed (its Dockerfile header): the Fowler cluster can't
+  pull a bigger one.
 - `docs.yml`: strict build and gh-pages deploy on every push to `main`.
 
 ## Releases

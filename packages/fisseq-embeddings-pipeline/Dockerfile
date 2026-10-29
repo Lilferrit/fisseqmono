@@ -29,7 +29,18 @@
 # concrete benefit of merging: this repo's own CI (.github/workflows/
 # docker.yml) only ever built this file, never docker/starcall.Dockerfile
 # -- the `ops` env now gets real CI build coverage for the first time.
-FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+#
+# Stages: `base` (CUDA, apt, uv) under everything; `conda` builds /opt/conda
+# (Miniforge, the `ops` and `cp4` envs) and the starcall-workflow checkout;
+# `venv` builds the uv dependency venv; the final stage copies both in. The
+# builder stages exist to split the image into layers of ~1 GB or less
+# (compressed): the Fowler cluster's route to ghcr's blob CDN drops long
+# downloads, a layer can't resume, and the `ops` pip install and the uv venv
+# were ~4 GB layers each that never came through. Each builder ends by moving
+# its largest directories out to /layers/<group>/<same absolute path>, and the
+# final stage copies each group back to that path as its own layer. If a group
+# grows well past 1 GB, split it again.
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04 AS base
 
 # ca-certificates/git: needed by the uv project install below. curl: fetches
 # the Miniforge installer (this base image ships no conda). build-essential: the `ops`
@@ -63,7 +74,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.12.23 /uv /uvx /usr/local/bin/
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python
 
 # ── starcall-workflow's `ops` conda env ─────────────────────────────────────
-# Placed first, before even the uv deps layer: it is the slowest block to build and changes
+# Its own stage, independent of the uv layers: it is the slowest block to build and changes
 # least often (only with the starcall-workflow pin or the `ops` env itself), and it uses
 # nothing from the uv layers, so neither a source commit nor a uv.lock/pyproject.toml change
 # (every release rewrites both) makes Docker redo it. Installed
@@ -82,6 +93,7 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python
 # not with an obvious "wrong architecture" message. `uname -m` maps
 # `x86_64`->`x86_64` and `aarch64`->`aarch64`, matching Miniforge's own
 # release asset naming (`Miniforge3-Linux-<arch>.sh`) exactly.
+FROM base AS conda
 RUN miniforge_arch="$(uname -m)" \
     && curl -fsSL -o /tmp/miniforge.sh \
         "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-${miniforge_arch}.sh" \
@@ -212,9 +224,35 @@ RUN sed '/^- anaconda$/d; /^- defaults$/d' \
     && /opt/conda/bin/conda clean -afy \
     && rm /tmp/cp4.yaml /tmp/cp4-constraints.txt
 
+# Split /opt/conda for the final stage's layers (header). Each argument is
+# `<group>=<path> ...`: those paths move to /layers/<group><path>; a path a
+# wheel no longer installs is skipped, leaving its group smaller. Groups are
+# bins packed to ~0.7-1 GB compressed each, not tidy categories (measured:
+# `tar -c <paths> | gzip | wc -c` inside the image); repack them when a
+# torch/tensorflow/CellProfiler change moves the sizes. conda's
+# package cache goes first: what `conda clean` keeps there is hardlinked to
+# the envs' files, stored once while it all shared a layer, twice once split.
+RUN rm -rf /opt/conda/pkgs \
+    && sp=/opt/conda/envs/ops/lib/python3.10/site-packages \
+    && for spec in \
+        "ops-cudnn=${sp}/nvidia/cudnn" \
+        "ops-torch=${sp}/torch ${sp}/triton" \
+        "ops-nvidia=${sp}/nvidia/cublas ${sp}/nvidia/nccl ${sp}/nvidia/cusparse" \
+        "ops-tensorflow=${sp}/tensorflow ${sp}/nvidia/cusolver ${sp}/nvidia/cufft" \
+        "cp4=/opt/conda/envs/cp4"; do \
+        group="${spec%%=*}"; mkdir -p "/layers/${group}"; \
+        for path in ${spec#*=}; do \
+            [ -e "${path}" ] || continue; \
+            mkdir -p "/layers/${group}$(dirname "${path}")"; \
+            mv "${path}" "/layers/${group}${path}"; \
+        done; \
+    done
+
+# ── uv dependency venv ──────────────────────────────────────────────────────
 # The Python environment lives in the workspace at /opt/fisseqmono (its .venv); the nested
 # starcall run's files (snakemake/Snakefile, the starcall-workflow clone) stay at
 # /opt/fisseq-embeddings-pipeline, where nextflow.config's ext.fisseq_snakefile points.
+FROM base AS venv
 WORKDIR /opt/fisseqmono
 
 # .python-version (pins 3.13, not just pyproject.toml's open-ended
@@ -241,6 +279,42 @@ COPY packages/fisseq-data-pipeline/pyproject.toml packages/fisseq-data-pipeline/
 COPY packages/fisseq-embeddings-pipeline/pyproject.toml packages/fisseq-embeddings-pipeline/
 COPY packages/fisseqborn/pyproject.toml packages/fisseqborn/
 RUN uv sync --frozen --no-dev --package fisseq-embeddings-pipeline --no-install-workspace
+
+# Split the venv for the final stage's layers, as the `conda` stage does. The
+# uv cache stays behind in this stage.
+RUN sp=/opt/fisseqmono/.venv/lib/python3.13/site-packages \
+    && for spec in \
+        "venv-torch=${sp}/torch" \
+        "venv-cudnn=${sp}/nvidia/cudnn ${sp}/nvidia/nvshmem" \
+        "venv-nvidia-a=${sp}/nvidia/cublas ${sp}/nvidia/nccl ${sp}/nvidia/cufft" \
+        "venv-nvidia-b=${sp}/nvidia/cusparselt ${sp}/nvidia/cusparse ${sp}/nvidia/cusolver ${sp}/triton"; do \
+        group="${spec%%=*}"; mkdir -p "/layers/${group}"; \
+        for path in ${spec#*=}; do \
+            [ -e "${path}" ] || continue; \
+            mkdir -p "/layers/${group}$(dirname "${path}")"; \
+            mv "${path}" "/layers/${group}${path}"; \
+        done; \
+    done
+
+# ── Final image ─────────────────────────────────────────────────────────────
+# One COPY per group, each its own layer, back at its original path; then
+# what's left of each tree. The `conda` stage's first: they change only with
+# the starcall pin, the venv's with every uv.lock.
+FROM base
+COPY --from=conda /layers/ops-cudnn/ /
+COPY --from=conda /layers/ops-torch/ /
+COPY --from=conda /layers/ops-nvidia/ /
+COPY --from=conda /layers/ops-tensorflow/ /
+COPY --from=conda /layers/cp4/ /
+COPY --from=conda /opt/conda /opt/conda
+COPY --from=conda /opt/fisseq-embeddings-pipeline/starcall-workflow /opt/fisseq-embeddings-pipeline/starcall-workflow
+COPY --from=venv /opt/uv-python /opt/uv-python
+COPY --from=venv /layers/venv-torch/ /
+COPY --from=venv /layers/venv-cudnn/ /
+COPY --from=venv /layers/venv-nvidia-a/ /
+COPY --from=venv /layers/venv-nvidia-b/ /
+COPY --from=venv /opt/fisseqmono /opt/fisseqmono
+WORKDIR /opt/fisseqmono
 
 # What BUILD_CELL_IMAGES' nested snakemake runs (process.ext.fisseq_snakefile
 # in nextflow.config): snakemake/Snakefile, which includes the pinned
