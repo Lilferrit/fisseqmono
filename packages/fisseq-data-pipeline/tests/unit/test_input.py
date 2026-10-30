@@ -89,6 +89,19 @@ def test_load_and_concat_sums_row_counts(tmp_path):
     assert result.shape[0] == 3
 
 
+def test_load_and_concat_null_fills_missing_columns(tmp_path):
+    p1 = tmp_path / "a.parquet"
+    p2 = tmp_path / "b.parquet"
+    pl.DataFrame({"aaChanges": ["WT", "M1K"], "f1": [1.0, 2.0]}).write_parquet(p1)
+    pl.DataFrame({"aaChanges": ["A1A"], "f2": [3.0]}).write_parquet(p2)
+
+    result = load_and_concat([str(p1), str(p2)]).collect()
+
+    assert result.shape[0] == 3
+    assert result["f1"].to_list() == [1.0, 2.0, None]
+    assert result["f2"].to_list() == [None, None, 3.0]
+
+
 # ---------------------------------------------------------------------------
 # select_output_columns
 # ---------------------------------------------------------------------------
