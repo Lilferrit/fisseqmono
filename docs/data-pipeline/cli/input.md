@@ -37,7 +37,7 @@ edit_distance_col: editDistance   # optional, raw name of the edit-distance colu
 wt_label: WT                      # optional, this experiment's wildtype aa-changes value
 ```
 
-- `input_paths` — one or more raw cell-score files (CSV or Parquet), concatenated.
+- `input_paths` — one or more raw cell-score files (CSV or Parquet), concatenated; a column missing from some files is null for their rows.
   **Required, and per-experiment only** — there is no pipeline-wide default for a
   per-experiment list of raw data files (see
   [Declaring experiments](../configuration.md#declaring-experiments)).

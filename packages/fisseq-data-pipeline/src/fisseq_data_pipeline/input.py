@@ -13,7 +13,8 @@ Pipeline
    index within that file (``origin_file`` / ``origin_row_idx`` — these end
    up as ``meta_origin_file`` / ``meta_origin_row_idx`` in the output, via
    the same auto-prefixing step that handles the rest of the metadata
-   columns). Concatenate everything into one lazy frame.
+   columns). Concatenate everything into one lazy frame; a column missing
+   from some files is null for their rows (logged as a warning).
 2. Select/rename columns (feature columns vs. auto-prefixed ``meta_*``
    columns, same convention as before) and write the result to a single
    output Parquet file.
@@ -163,9 +164,24 @@ def load_and_concat(
     for p in paths:
         logger.info("  - %s", p)
     lfs = [load_and_tag(p, infer_schema_length=infer_schema_length) for p in paths]
-    # "vertical_relaxed" tolerates minor dtype mismatches across CSV/parquet
-    # sources (e.g. int32 vs int64) by upcasting, rather than erroring.
-    return pl.concat(lfs, how="vertical_relaxed")
+
+    names = [lf.collect_schema().names() for lf in lfs]
+    all_names = list(dict.fromkeys(n for ns in names for n in ns))
+    for p, ns in zip(paths, names):
+        missing = [n for n in all_names if n not in set(ns)]
+        if missing:
+            logger.warning(
+                "%s lacks %d column(s), null for its rows: %s%s",
+                p,
+                len(missing),
+                missing[:10],
+                " ..." if len(missing) > 10 else "",
+            )
+
+    # "diagonal_relaxed" fills columns a file lacks with null and tolerates
+    # minor dtype mismatches across CSV/parquet sources (e.g. int32 vs int64)
+    # by upcasting, rather than erroring.
+    return pl.concat(lfs, how="diagonal_relaxed")
 
 
 def load_feature_patterns(path: str) -> list[str]:
