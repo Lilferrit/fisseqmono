@@ -63,6 +63,12 @@ wt_label: WT                      # optional, this experiment's wildtype aa-chan
 - `wt_label` — optional, default `WT`: the aa-changes value of this experiment's
   wildtype cells (e.g. `silent`). Values equal to it are relabelled `WT`, the
   one wildtype label every later stage and fisseqborn use.
+
+NaN and ±inf in every float column (features, edit distance and other metadata) are written as
+null. Only values that load as floats are affected: polars reads `NaN`, `inf`, `+inf`, `-inf`
+and overflowing numbers like `1e999` in a CSV as floats, but other spellings (`nan`, `Inf`,
+`Infinity`, `NA`, ...) make the column String, and it stays String.
+
 Except for `input_paths`, every field above is also a
 plain `params.yaml` pipeline-wide default (`params.feature_allowlist_file`,
 `params.feature_blocklist_file`, `params.csv_schema_scan_rows`, `params.barcode_col`, `params.aa_changes_col`,

@@ -483,3 +483,80 @@ def test_select_output_columns_missing_identity_column():
 
     with pytest.raises(ValueError, match="edit_distance"):
         select_output_columns(lf, edit_distance_col="edit_distance")
+
+
+# ---------------------------------------------------------------------------
+# NaN / ±inf -> null
+# ---------------------------------------------------------------------------
+
+INF = float("inf")
+NAN = float("nan")
+
+
+def test_load_and_tag_replaces_non_finite_floats_with_null(tmp_path):
+    path = tmp_path / "a.parquet"
+    pl.DataFrame(
+        {
+            "f64": pl.Series([1.0, NAN, INF, -INF, None], dtype=pl.Float64),
+            "f32": pl.Series([NAN, 2.0, -INF, INF, None], dtype=pl.Float32),
+            "i": [1, 2, 3, 4, 5],
+            "s": ["a", "NaN", "inf", "b", None],
+        }
+    ).write_parquet(path)
+
+    out = load_and_tag(str(path)).collect()
+
+    assert out["f64"].to_list() == [1.0, None, None, None, None]
+    assert out["f32"].to_list() == [None, 2.0, None, None, None]
+    assert out.schema["f64"] == pl.Float64
+    assert out.schema["f32"] == pl.Float32
+    assert out["i"].to_list() == [1, 2, 3, 4, 5]
+    assert out["s"].to_list() == ["a", "NaN", "inf", "b", None]
+
+
+def test_load_and_tag_csv_non_finite_tokens_become_null(tmp_path):
+    path = tmp_path / "a.csv"
+    path.write_text("f\n1.5\nNaN\ninf\n-inf\n1e999\n")
+
+    out = load_and_tag(str(path)).collect()
+
+    assert out.schema["f"] == pl.Float64
+    assert out["f"].to_list() == [1.5, None, None, None, None]
+
+
+def test_non_finite_edit_distance_becomes_null(tmp_path):
+    path = tmp_path / "a.parquet"
+    pl.DataFrame(
+        {
+            "upBarcode": ["a", "b", "c", "d"],
+            "aaChanges": ["WT"] * 4,
+            "editDistance": [0.0, NAN, INF, 1.0],
+        }
+    ).write_parquet(path)
+
+    out = select_output_columns(load_and_tag(str(path))).collect()
+
+    assert out.schema["editDistance"] == pl.Int64
+    assert out["editDistance"].to_list() == [0, None, None, 1]
+
+
+def test_main_output_has_no_non_finite_values(tmp_path):
+    source = tmp_path / "source.parquet"
+    pl.DataFrame(
+        {
+            "upBarcode": ["bc0", "bc1", "bc2"],
+            "aaChanges": ["M1K", "M2L", "M3Q"],
+            "editDistance": [0, 0, 0],
+            "Cells_AreaShape_Area": [NAN, INF, 3.0],
+            "Nuclei_Intensity_Mean": [-INF, 2.0, None],
+        }
+    ).write_parquet(source)
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, source)
+
+    with patch("fisseq_data_pipeline.input.setup_logging"):
+        m.main.__wrapped__(_make_cfg(tmp_path, config_path))
+
+    result = pl.read_parquet(tmp_path / "out" / "output.parquet")
+    assert result["Cells_AreaShape_Area"].to_list() == [None, None, 3.0]
+    assert result["Nuclei_Intensity_Mean"].to_list() == [None, 2.0, None]
