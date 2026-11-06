@@ -13,8 +13,9 @@ Pipeline
    index within that file (``origin_file`` / ``origin_row_idx`` — these end
    up as ``meta_origin_file`` / ``meta_origin_row_idx`` in the output, via
    the same auto-prefixing step that handles the rest of the metadata
-   columns). Concatenate everything into one lazy frame; a column missing
-   from some files is null for their rows (logged as a warning).
+   columns). NaN and ±inf in every float column become null. Concatenate
+   everything into one lazy frame; a column missing from some files is null
+   for their rows (logged as a warning).
 2. Select/rename columns (feature columns vs. auto-prefixed ``meta_*``
    columns, same convention as before) and write the result to a single
    output Parquet file.
@@ -48,8 +49,13 @@ what remains (allowlist is applied first).
 ``barcode_col`` / ``aa_changes_col`` / ``edit_distance_col`` name the three identity
 columns in this experiment's raw files, for experiments that renamed them. Whatever they are
 called, the output has ``upBarcode`` and ``aaChanges`` (String) and ``editDistance`` (Int64):
-the columns are renamed to those and cast. A float edit distance (nulls allowed) is cast to
-Int64 if every non-null value is a whole number, and an error otherwise.
+the columns are renamed to those and cast. A float edit distance (nulls allowed; NaN and ±inf
+are already null) is cast to Int64 if every non-null value is a whole number, and an error
+otherwise.
+
+NaN and ±inf in any float column are written as null. A CSV column with spellings polars
+does not parse as floats (``nan``, ``Inf``, ``Infinity``, ``NA``, ...) loads as String and is
+left as is.
 
 ``wt_label`` is the aa-changes value this experiment's wildtype cells carry (e.g. ``silent``).
 Cells whose value equals it exactly are relabelled ``WT``, the one wildtype label every
@@ -121,9 +127,16 @@ _cs = ConfigStore.instance()
 _cs.store(name="input_main", node=InputStageConfig)
 
 
+def non_finite_to_null(lf: pl.LazyFrame) -> pl.LazyFrame:
+    """Replace NaN and ±inf with null in every float column."""
+    inf = float("inf")
+    return lf.with_columns(cs.float().replace([inf, -inf], None).fill_nan(None))
+
+
 def load_and_tag(path: str, infer_schema_length: int | None = 100) -> pl.LazyFrame:
     """
-    Scan a CSV or parquet file and tag each row with its file and row index.
+    Scan a CSV or parquet file, replace NaN and ±inf with null in its float columns
+    (:func:`non_finite_to_null`) and tag each row with its file and row index.
 
     Parameters
     ----------
@@ -145,6 +158,7 @@ def load_and_tag(path: str, infer_schema_length: int | None = 100) -> pl.LazyFra
     # Workaround: unsigned integer columns have been observed to hide negative
     # values (silently reinterpreted), so force them to signed integers.
     lf = lf.with_columns(cs.unsigned_integer().cast(pl.Int64))
+    lf = non_finite_to_null(lf)
 
     return lf.with_row_index(name="origin_row_idx").with_columns(
         pl.lit(str(path)).alias("origin_file")
