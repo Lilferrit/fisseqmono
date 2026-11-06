@@ -17,6 +17,11 @@ QC fields and the variant class -- exactly what each shard sample's
 columns under their own names. BUILD_CELL_METADATA/BUILD_CP_FEATURES read
 only this table, never starcall-workflow's tree.
 
+Every well's shards are hard-linked out of starcall's tree into
+`shards_dir`, next to `output`: the published `cell_images/<batch>/` is the
+whole dataset, readable without starcall's tree. starcall's copies stay,
+as snakemake's cache.
+
 The genotype column names come from `snakemake_config` (the nested run's
 `--configfile`), so the table and the shards are built with the same ones.
 
@@ -41,7 +46,9 @@ package.
 import csv
 import dataclasses
 import logging
+import os
 import pathlib
+import shutil
 from typing import Any, Dict, List, Optional
 
 import hydra
@@ -90,10 +97,9 @@ class BuildCellImagesTableConfig(AppConfig):
     shards_manifest : str
         Shard manifest CSV, written by the same rule (relative to
         `output_dir`). Defaults to ``"shards_manifest.csv"``.
-    shards_output : str
-        Output parquet filename (relative to `output_dir`) for the shard
-        table -- see :func:`build_shards_table`. Defaults to
-        ``"shards.parquet"``.
+    shards_dir : str
+        Directory (relative to `output_dir`) every shard is linked into --
+        see :func:`link_shards`. Defaults to ``"shards"``.
     snakemake_config : str
         The nested snakemake's ``--configfile`` (relative to `output_dir`),
         written by build_cell_images_prepare; its ``fisseq_*_col`` keys
@@ -104,7 +110,7 @@ class BuildCellImagesTableConfig(AppConfig):
     manifest: str = "tiles_manifest.csv"
     shards_manifest: str = "shards_manifest.csv"
     output: str = "cell_table.parquet"
-    shards_output: str = "shards.parquet"
+    shards_dir: str = "shards"
     snakemake_config: str = "snakemake_config.yaml"
 
 
@@ -329,25 +335,46 @@ def build_cell_table(
     return pl.concat(frames, how="diagonal_relaxed")
 
 
-SHARDS_SCHEMA: Dict[str, pl.DataType] = {
-    "well": pl.String,
-    "shard_tar": pl.String,
-}
+def link_shards(
+    shards: List[Dict[str, Any]], output_dir: pathlib.Path, shards_dir: str
+) -> List[Dict[str, Any]]:
+    """Hard-link each shard the nested snakemake's ``make_well_shards`` rule
+    (``snakemake/Snakefile``) left under phenotyping_dir into
+    ``output_dir / shards_dir``, keeping its name (which carries the well
+    number, so wells don't collide).
 
+    A hard link costs no disk, and snakemake replacing starcall's copy
+    (a recut) leaves this one as it was. Across filesystems, where a hard
+    link can't be made, the shards are copied instead.
 
-def build_shards_table(shards: List[Dict[str, Any]]) -> pl.DataFrame:
-    """One row per WebDataset shard, in order: where the nested snakemake's
-    ``make_well_shards`` rule (``snakemake/Snakefile``) left it, under
-    phenotyping_dir, and its well.
-
-    EMBED_CELLS reads its shards from this list. It's a sidecar rather
-    than a ``cell_table.parquet`` column so ``cell_table.parquet`` stays
-    purely per-cell.
+    Returns
+    -------
+    list of dict
+        `shards` with each ``shard_tar`` relative to `output_dir`.
     """
-    return pl.DataFrame(
-        [{key: shard[key] for key in SHARDS_SCHEMA} for shard in shards],
-        schema=SHARDS_SCHEMA,
-    )
+    (output_dir / shards_dir).mkdir(parents=True, exist_ok=True)
+    linked, copied = [], 0
+    for shard in shards:
+        source = pathlib.Path(shard["shard_tar"])
+        relative = f"{shards_dir}/{source.name}"
+        target = output_dir / relative
+        target.unlink(missing_ok=True)
+        try:
+            os.link(source, target)
+        except OSError:
+            shutil.copy2(source, target)
+            copied += 1
+        linked.append({**shard, "shard_tar": relative})
+    if copied:
+        logging.warning(
+            "Copied %d of %d shard(s): %s can't be hard-linked from where "
+            "snakemake left them (another filesystem?), so they take their "
+            "space twice.",
+            copied,
+            len(shards),
+            output_dir / shards_dir,
+        )
+    return linked
 
 
 def _read_manifest(path: str) -> List[Dict[str, str]]:
@@ -375,7 +402,7 @@ def main(cfg: DictConfig) -> None:
             manifest=tiles_manifest.csv \\
             shards_manifest=shards_manifest.csv \\
             output=cell_table.parquet \\
-            shards_output=shards.parquet \\
+            shards_dir=shards \\
             snakemake_config=snakemake_config.yaml
     """
     table_cfg: BuildCellImagesTableConfig = OmegaConf.to_object(cfg)
@@ -393,8 +420,11 @@ def main(cfg: DictConfig) -> None:
 
     output_path = output_dir / table_cfg.output
     table.write_parquet(output_path)
-    shards = _read_manifest(str(output_dir / table_cfg.shards_manifest))
-    build_shards_table(shards).write_parquet(output_dir / table_cfg.shards_output)
+    shards = link_shards(
+        _read_manifest(str(output_dir / table_cfg.shards_manifest)),
+        output_dir,
+        table_cfg.shards_dir,
+    )
 
     logging.info(
         "Wrote %s (%d cell(s) across %d tile(s), in %d shard(s))",

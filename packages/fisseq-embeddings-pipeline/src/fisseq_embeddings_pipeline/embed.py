@@ -3,8 +3,8 @@
 Hydra entry point (`python -m fisseq_embeddings_pipeline.embed`), backing
 the pipeline's only GPU-bound stage. Streams every cell in an experiment's
 per-well WebDataset shards (written by the nested snakemake's
-``make_well_shards`` rule -- see ``well_shards.py`` -- and listed in
-BUILD_CELL_IMAGES' ``shards.parquet``) through a pretrained Cell-DINO
+``make_well_shards`` rule -- see ``well_shards.py`` -- and published by
+BUILD_CELL_IMAGES under ``cell_images/<batch>/shards/``) through a pretrained Cell-DINO
 checkpoint (Meta's dinov2) and writes one row per cell to
 embeddings.parquet. Not gated by QC_FILTER: this GPU pass runs once per
 experiment regardless of how many times QC thresholds get retuned
@@ -59,6 +59,7 @@ import glob
 import logging
 import pathlib
 import re
+import sys
 from typing import Callable, Dict, List, Optional
 
 import hydra
@@ -68,6 +69,7 @@ import webdataset as wds
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 from polars import selectors as cs
+from tqdm import tqdm
 
 from fisseq_common.utils.log import setup_logging
 
@@ -110,10 +112,11 @@ class EmbedCellsConfig(AppConfig):
 
     Attributes
     ----------
-    shards_path : str or None
-        BUILD_CELL_IMAGES' ``shards.parquet``: every row's ``shard_tar`` is
-        one of this experiment's shards. Exactly one of ``shards_path`` and
-        ``shard_pattern`` must be set; the pipeline uses this one.
+    shards_dir : str or None
+        BUILD_CELL_IMAGES' ``shards/`` directory: every ``*.tar.gz`` in it is
+        one of this experiment's shards, read in name order. Exactly one of
+        ``shards_dir`` and ``shard_pattern`` must be set; the pipeline uses
+        this one.
     shard_pattern : str or None
         Path/brace pattern for a set of shards instead, e.g.
         ``"dataset-{000000..000042}.tar"``. A bare glob (``"dataset-*.tar"``)
@@ -175,7 +178,7 @@ class EmbedCellsConfig(AppConfig):
         ``webdataset``/``DataLoader`` worker processes. Defaults to ``4``.
     """
 
-    shards_path: Optional[str] = None
+    shards_dir: Optional[str] = None
     shard_pattern: Optional[str] = None
     batch_stem: str = MISSING
     checkpoint_path: str = MISSING
@@ -191,27 +194,22 @@ class EmbedCellsConfig(AppConfig):
 
 
 def shard_urls(cfg: EmbedCellsConfig) -> "str | List[str]":
-    """This run's shards: ``shards_path``'s ``shard_tar`` column, or
+    """This run's shards: every ``*.tar.gz`` in ``shards_dir``, or
     ``shard_pattern`` (a brace pattern passed through, a glob expanded).
 
     Raises
     ------
     ValueError
-        Unless exactly one of ``shards_path``/``shard_pattern`` is set; if a
-        non-brace ``shard_pattern`` matches no files; or if ``shards_path``
-        lists a shard that doesn't exist (its cells would otherwise just
-        silently go missing).
+        Unless exactly one of ``shards_dir``/``shard_pattern`` is set; if
+        ``shards_dir`` holds no shards; or if a non-brace ``shard_pattern``
+        matches no files.
     """
-    if (cfg.shards_path is None) == (cfg.shard_pattern is None):
-        raise ValueError("Set exactly one of shards_path and shard_pattern.")
-    if cfg.shards_path is not None:
-        urls = pl.read_parquet(cfg.shards_path)["shard_tar"].to_list()
-        missing = [u for u in urls if not pathlib.Path(u).is_file()]
-        if missing:
-            raise ValueError(
-                f"{len(missing)} shard(s) listed in {cfg.shards_path!r} don't "
-                f"exist, e.g. {missing[0]!r}"
-            )
+    if (cfg.shards_dir is None) == (cfg.shard_pattern is None):
+        raise ValueError("Set exactly one of shards_dir and shard_pattern.")
+    if cfg.shards_dir is not None:
+        urls = sorted(str(p) for p in pathlib.Path(cfg.shards_dir).glob("*.tar.gz"))
+        if not urls:
+            raise ValueError(f"shards_dir={cfg.shards_dir!r} holds no *.tar.gz shards")
         return urls
     if "{" in cfg.shard_pattern:
         return cfg.shard_pattern
@@ -241,7 +239,7 @@ def load_embedding_dataloader(cfg: EmbedCellsConfig) -> "torch.utils.data.DataLo
     Parameters
     ----------
     cfg : EmbedCellsConfig
-        Supplies ``shards_path``/``shard_pattern``, ``batch_size``,
+        Supplies ``shards_dir``/``shard_pattern``, ``batch_size``,
         ``num_workers``.
 
     Returns
@@ -573,7 +571,8 @@ def main(cfg: DictConfig) -> None:
     3. For each batch, embed via :func:`embed_batch` and accumulate one row
        per cell: the shard's location fields plus zero-padded
        ``emb_0000``..``emb_{D-1}`` columns (``EMBEDDING_SELECTOR``,
-       ``fisseq_common.schema``, matches these).
+       ``fisseq_common.schema``, matches these). A tqdm progress bar on
+       stderr counts cells embedded.
     4. Keep each cell's ``meta.json`` fields as its ``meta_*`` columns
        (``cell_metadata_exprs``, adding ``meta_batch``) and write
        ``embeddings.parquet``.
@@ -584,7 +583,7 @@ def main(cfg: DictConfig) -> None:
 
         python -m fisseq_embeddings_pipeline.embed \\
             output_dir=./out \\
-            shards_path=./shards.parquet \\
+            shards_dir=./shards \\
             batch_stem=experiment1 \\
             checkpoint_path=/data/channel_adaptive_dino_vitl16_pretrain_cells-ef7c17ff.pth \\
             device=cpu \\
@@ -601,7 +600,7 @@ def main(cfg: DictConfig) -> None:
 
     logging.info(
         "Embedding cells from %s (arch=%s, checkpoint=%s, device=%s)",
-        embed_cfg.shards_path or embed_cfg.shard_pattern,
+        embed_cfg.shards_dir or embed_cfg.shard_pattern,
         embed_cfg.arch,
         embed_cfg.checkpoint_path,
         embed_cfg.device,
@@ -612,13 +611,21 @@ def main(cfg: DictConfig) -> None:
 
     rows = []
     n_cells = 0
-    for keys, crops, masks, metas in dataloader:
-        embeddings = embed_batch(model, crops, masks, embed_cfg).cpu().numpy()
-        n_dims = embeddings.shape[1]
-        emb_cols = [f"emb_{i:04d}" for i in range(n_dims)]
-        for meta, emb_row in zip(metas, embeddings):
-            rows.append({**meta, **dict(zip(emb_cols, emb_row.tolist()))})
-        n_cells += len(keys)
+    # No total: the cell count isn't known until the shards are read. Under Nextflow stderr
+    # is .command.err, not a terminal, so refresh once a minute instead of flooding it.
+    with tqdm(
+        desc="Embedding cells",
+        unit="cell",
+        mininterval=0.1 if sys.stderr.isatty() else 60,
+    ) as progress:
+        for keys, crops, masks, metas in dataloader:
+            embeddings = embed_batch(model, crops, masks, embed_cfg).cpu().numpy()
+            n_dims = embeddings.shape[1]
+            emb_cols = [f"emb_{i:04d}" for i in range(n_dims)]
+            for meta, emb_row in zip(metas, embeddings):
+                rows.append({**meta, **dict(zip(emb_cols, emb_row.tolist()))})
+            n_cells += len(keys)
+            progress.update(len(keys))
 
     if rows:
         frame = pl.DataFrame(rows)

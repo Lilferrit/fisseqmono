@@ -10,9 +10,8 @@ cell to `embeddings.parquet`. Not gated by `QC_FILTER` -- this GPU pass
 runs once per experiment regardless of how many times QC thresholds get
 retuned afterward.
 
-The shards are read in place, under `phenotyping_dir`, from the paths
-`BUILD_CELL_IMAGES`' `shards.parquet` lists (nextflow.config binds that
-directory into this task's container). Each sample's `meta.json` carries
+The shards are every `*.tar.gz` in `BUILD_CELL_IMAGES`' `shards/`
+(`shards_dir`), read in name order. Each sample's `meta.json` carries
 the cell's key, QC fields and variant class (see
 [Cell Shards](tile_shard.md#output)); this stage keeps the same seven
 `meta_*` columns `QC_FILTER` sees (`utils.cell_table.cell_metadata_exprs`),
@@ -21,6 +20,10 @@ don't carry. It reads no table of `BUILD_CELL_METADATA`'s, so in the
 Nextflow workflow it starts as soon as `BUILD_CELL_IMAGES` finishes.
 `meta.json` and `cell_table.parquet` are built by the same function from the
 same CSVs, so a cell's `meta_*` values are identical here and in QC's input.
+
+Progress goes to stderr as a tqdm bar counting cells embedded and cells/s (no total: the
+cell count isn't known until the shards are read). Under Nextflow, where stderr is the task's
+`.command.err` rather than a terminal, it refreshes once a minute.
 
 See [Architecture](../architecture.md#embed_cells-cell-dino-inference-internals)
 for how the checkpoint's architecture is inferred from its own state dict
@@ -32,7 +35,7 @@ Extends the [common config fields](#common-config-fields) below.
 
 | Field | Default | Description |
 | ----- | ------- | ----------- |
-| `shards_path` | `null` | `BUILD_CELL_IMAGES`' `shards.parquet`: every row's `shard_tar` is one of this experiment's shards; a listed shard that doesn't exist raises. What the pipeline sets. Exactly one of `shards_path` / `shard_pattern` must be set. |
+| `shards_dir` | `null` | `BUILD_CELL_IMAGES`' `shards/`: every `*.tar.gz` in it is one of this experiment's shards; a directory with none raises. What the pipeline sets. Exactly one of `shards_dir` / `shard_pattern` must be set. |
 | `shard_pattern` | `null` | A path/brace pattern for a set of shards instead, e.g. `"dataset-{000000..000042}.tar"`. A bare glob (`"dataset-*.tar"`) also works. |
 | `batch_stem` | **required** | This experiment's identifier, written into every row as `meta_batch` (the shards' `meta.json` doesn't carry it). |
 | `checkpoint_path` | **required** | Path to the Cell-DINO checkpoint (`.pth`). |
@@ -62,7 +65,7 @@ downstream by `EMBEDDING_SELECTOR = cs.matches(r"^emb_\d+$")` (the shared stages
 ```bash
 uv run python -m fisseq_embeddings_pipeline.embed \
     output_dir=./out \
-    shards_path=/pipeline/cell_images/experiment1/shards.parquet \
+    shards_dir=/pipeline/cell_images/experiment1/shards \
     batch_stem=experiment1 \
     checkpoint_path=/path/to/checkpoint.pth \
     device=cpu \
