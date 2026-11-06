@@ -12,7 +12,8 @@ Pipeline
 1. Load every file in ``input_paths`` (CSV or parquet, detected by extension), tagging each
    row with which file it came from and its row index within that file (``origin_file`` /
    ``origin_row_idx``, published as ``meta_origin_file`` / ``meta_origin_row_idx``).
-   Concatenate everything into one lazy frame.
+   NaN and ±inf in every float column become null. Concatenate everything into one lazy
+   frame.
 2. Build the identity columns from Element's (see "Identity columns"), prefix every metadata
    column with ``meta_``, and write the result to a single output Parquet file.
 
@@ -28,6 +29,10 @@ Identity columns
   filter then passes every cell.
 
 Cells with a null target or variant are dropped.
+
+NaN and ±inf in any float column (features and metadata) are written as null. A CSV column
+with spellings polars does not parse as floats (``nan``, ``Inf``, ``Infinity``, ``NA``, ...)
+loads as String and is left as is.
 
 Metadata columns
 ----------------
@@ -131,9 +136,16 @@ _cs = ConfigStore.instance()
 _cs.store(name="input_main", node=InputStageConfig)
 
 
+def non_finite_to_null(lf: pl.LazyFrame) -> pl.LazyFrame:
+    """Replace NaN and ±inf with null in every float column."""
+    inf = float("inf")
+    return lf.with_columns(cs.float().replace([inf, -inf], None).fill_nan(None))
+
+
 def load_and_tag(path: str, infer_schema_length: int | None = 100) -> pl.LazyFrame:
     """
-    Scan a CSV or parquet file and tag each row with its file and row index.
+    Scan a CSV or parquet file, replace NaN and ±inf with null in its float columns
+    (:func:`non_finite_to_null`) and tag each row with its file and row index.
 
     Parameters
     ----------
@@ -155,6 +167,7 @@ def load_and_tag(path: str, infer_schema_length: int | None = 100) -> pl.LazyFra
     # Workaround: unsigned integer columns have been observed to hide negative
     # values (silently reinterpreted), so force them to signed integers.
     lf = lf.with_columns(cs.unsigned_integer().cast(pl.Int64))
+    lf = non_finite_to_null(lf)
 
     return lf.with_row_index(name="origin_row_idx").with_columns(
         pl.lit(str(path)).alias("origin_file")

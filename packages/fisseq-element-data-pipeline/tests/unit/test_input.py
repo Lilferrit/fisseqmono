@@ -236,3 +236,61 @@ def test_main_writes_element_input(tmp_path):
     assert result["aaChanges"].to_list() == ["M1K", "A2L|R4H", "WT"]
     assert result["editDistance"].to_list() == [0, 0, 0]
     assert result["meta_origin_file"].to_list() == [str(source)] * 3
+
+
+# ---------------------------------------------------------------------------
+# NaN / ±inf -> null
+# ---------------------------------------------------------------------------
+
+INF = float("inf")
+NAN = float("nan")
+
+
+def test_load_and_tag_replaces_non_finite_floats_with_null(tmp_path):
+    path = tmp_path / "a.parquet"
+    pl.DataFrame(
+        {
+            "f64": pl.Series([1.0, NAN, INF, -INF, None], dtype=pl.Float64),
+            "f32": pl.Series([NAN, 2.0, -INF, INF, None], dtype=pl.Float32),
+            "i": [1, 2, 3, 4, 5],
+            "s": ["a", "NaN", "inf", "b", None],
+        }
+    ).write_parquet(path)
+
+    out = load_and_tag(str(path)).collect()
+
+    assert out["f64"].to_list() == [1.0, None, None, None, None]
+    assert out["f32"].to_list() == [None, 2.0, None, None, None]
+    assert out.schema["f64"] == pl.Float64
+    assert out.schema["f32"] == pl.Float32
+    assert out["i"].to_list() == [1, 2, 3, 4, 5]
+    assert out["s"].to_list() == ["a", "NaN", "inf", "b", None]
+
+
+def test_load_and_tag_csv_non_finite_tokens_become_null(tmp_path):
+    path = tmp_path / "a.csv"
+    path.write_text("f\n1.5\nNaN\ninf\n-inf\n1e999\n")
+
+    out = load_and_tag(str(path)).collect()
+
+    assert out.schema["f"] == pl.Float64
+    assert out["f"].to_list() == [1.5, None, None, None, None]
+
+
+def test_main_output_has_no_non_finite_values(tmp_path):
+    source = tmp_path / "source.parquet"
+    _element_frame(
+        ["M1K_0001", "M2L_0001", "M3Q_0001"], ["M1K", "M2L", "M3Q"]
+    ).with_columns(
+        pl.Series("AreaShape_Area", [NAN, INF, 3.0]),
+        pl.Series("Confidence", [-INF, 0.5, NAN]),
+    ).collect().write_parquet(source)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump({"input_paths": [str(source)]}))
+
+    with patch("fisseq_element_data_pipeline.input.setup_logging"):
+        m.main.__wrapped__(_make_cfg(tmp_path, config_path))
+
+    result = pl.read_parquet(tmp_path / "out" / "output.parquet")
+    assert result["AreaShape_Area"].to_list() == [None, None, 3.0]
+    assert result["meta_Confidence"].to_list() == [None, 0.5, None]

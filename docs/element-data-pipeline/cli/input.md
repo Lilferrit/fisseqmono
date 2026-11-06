@@ -21,3 +21,8 @@ wt_label: WT                      # optional
 Writes `output.parquet` (`<output_root>.output.parquet` with `output_root` set): the feature
 columns, `upBarcode`, `editDistance`, `aaChanges`, then the `meta_*` columns. Cells with a null
 target or variant are dropped. See the [API reference](../api/input.md) for details.
+
+NaN and ±inf in every float column (features and metadata) are written as null. Only values
+that load as floats are affected: polars reads `NaN`, `inf`, `+inf`, `-inf` and overflowing
+numbers like `1e999` in a CSV as floats, but other spellings (`nan`, `Inf`, `Infinity`, `NA`,
+...) make the column String, and it stays String.
