@@ -59,6 +59,7 @@ import glob
 import logging
 import pathlib
 import re
+import sys
 from typing import Callable, Dict, List, Optional
 
 import hydra
@@ -68,6 +69,7 @@ import webdataset as wds
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, DictConfig, OmegaConf
 from polars import selectors as cs
+from tqdm import tqdm
 
 from fisseq_common.utils.log import setup_logging
 
@@ -573,7 +575,8 @@ def main(cfg: DictConfig) -> None:
     3. For each batch, embed via :func:`embed_batch` and accumulate one row
        per cell: the shard's location fields plus zero-padded
        ``emb_0000``..``emb_{D-1}`` columns (``EMBEDDING_SELECTOR``,
-       ``fisseq_common.schema``, matches these).
+       ``fisseq_common.schema``, matches these). A tqdm progress bar on
+       stderr counts cells embedded.
     4. Keep each cell's ``meta.json`` fields as its ``meta_*`` columns
        (``cell_metadata_exprs``, adding ``meta_batch``) and write
        ``embeddings.parquet``.
@@ -612,13 +615,21 @@ def main(cfg: DictConfig) -> None:
 
     rows = []
     n_cells = 0
-    for keys, crops, masks, metas in dataloader:
-        embeddings = embed_batch(model, crops, masks, embed_cfg).cpu().numpy()
-        n_dims = embeddings.shape[1]
-        emb_cols = [f"emb_{i:04d}" for i in range(n_dims)]
-        for meta, emb_row in zip(metas, embeddings):
-            rows.append({**meta, **dict(zip(emb_cols, emb_row.tolist()))})
-        n_cells += len(keys)
+    # No total: the cell count isn't known until the shards are read. Under Nextflow stderr
+    # is .command.err, not a terminal, so refresh once a minute instead of flooding it.
+    with tqdm(
+        desc="Embedding cells",
+        unit="cell",
+        mininterval=0.1 if sys.stderr.isatty() else 60,
+    ) as progress:
+        for keys, crops, masks, metas in dataloader:
+            embeddings = embed_batch(model, crops, masks, embed_cfg).cpu().numpy()
+            n_dims = embeddings.shape[1]
+            emb_cols = [f"emb_{i:04d}" for i in range(n_dims)]
+            for meta, emb_row in zip(metas, embeddings):
+                rows.append({**meta, **dict(zip(emb_cols, emb_row.tolist()))})
+            n_cells += len(keys)
+            progress.update(len(keys))
 
     if rows:
         frame = pl.DataFrame(rows)

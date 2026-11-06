@@ -22,6 +22,10 @@ Nextflow workflow it starts as soon as `BUILD_CELL_IMAGES` finishes.
 `meta.json` and `cell_table.parquet` are built by the same function from the
 same CSVs, so a cell's `meta_*` values are identical here and in QC's input.
 
+Progress goes to stderr as a tqdm bar counting cells embedded and cells/s (no total: the
+cell count isn't known until the shards are read). Under Nextflow, where stderr is the task's
+`.command.err` rather than a terminal, it refreshes once a minute.
+
 See [Architecture](../architecture.md#embed_cells-cell-dino-inference-internals)
 for how the checkpoint's architecture is inferred from its own state dict
 rather than assumed, and what real checkpoint shapes have been verified.
