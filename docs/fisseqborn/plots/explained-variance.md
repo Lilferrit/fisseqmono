@@ -53,19 +53,3 @@ the tail is long:
 The legend reads `0.9: 5 PCs` and so on. `palette=` sets the threshold line colors, keyed by
 threshold, and `x="fraction"` puts the fraction of all components on the x axis in place of the
 count.
-
-## Noise floor
-
-`pca_reduce(noise_floor=True)` fits PCA to a column-shuffled copy of the data as well, and keeps
-the components that explain more variance than the first shuffled component. Pass the result with
-`kind="scree"` to see that cut-off. It is picked up from the `Profiles` automatically, or you can
-pass `noise_floor=` yourself:
-
-```python
-reduced = profiles.pca_reduce(variance=0.9, noise_floor=True)
-(fb.ExplainedVariancePlot(reduced, kind="scree", title="Scree plot with noise floor")
-   .set(xlim=(0, 60))
-   .save("vis/scree_noise_floor.png"))
-```
-
-![Scree plot with noise floor](../images/explained-variance-scree.png){ width="420" }

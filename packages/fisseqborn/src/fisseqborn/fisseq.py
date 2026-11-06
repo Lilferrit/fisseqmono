@@ -1,4 +1,4 @@
-"""fisseq-specific theme: palettes, category orders and LMNA reference data.
+"""fisseq-specific theme: palettes and category orders.
 
 Plot classes consult `PALETTE` and `ORDERS` automatically when a hue/x column's levels
 are all known here, so fisseq plots get consistent colors without passing a palette.
@@ -9,6 +9,8 @@ import re
 from collections.abc import Iterable
 
 import seaborn as sns
+
+from . import genes
 
 PATHOGENIC = "Pathogenic/Likely pathogenic"
 UNCERTAIN = "Uncertain significance"
@@ -49,45 +51,15 @@ CLINVAR_ORDER: list[str] = [
     "Pathogenic",
 ]
 
-
-LMNA_LANDMARK_FEATURES: dict[str, str] = {
-    "Mean_NucleiExpanded_Intensity_MeanIntensity_CH1": "Lamin A intensity in the nucleus",
-    "Mean_NuclearBoundary_Intensity_MeanIntensity_CH1": "Lamin A intensity at the nuclear boundary",
-    "Mean_NucleiExpanded_Granularity_1_CH1": "Lamin A nuclear granularity",
-    "Mean_Nuclei_AreaShape_FormFactor": "Nuclear circularity",
-    "AreaShape_Area": "Cell Size",
-}
-
-LMNA_DOMAIN_REGIONS: dict[str, tuple[int, int]] = {
-    "Head": (1, 28),
-    "Coil 1A": (29, 67),
-    "L1": (68, 77),
-    "Coil 1B": (78, 222),
-    "Linker 12": (222, 241),
-    "Coil 2": (242, 386),
-    "Tail": (387, 416),
-    "NLS": (417, 420),
-    "Ig-fold": (421, 544),
-    "Unfolded": (545, 664),
-}
-
 #: The 20 amino acids in the order of the paper's variant effect maps (hydrophobic,
 #: special, polar, charged), top to bottom on `VariantEffectMap`'s y axis.
 AMINO_ACID_ORDER: list[str] = list("AVILGFYWCMPSTNQDEHKR")
 
 # Every known level, in the order it should appear on an axis / legend.
-ORDERS: list[list[str]] = [VARIANT_TYPE_ORDER, CLINVAR_ORDER, list(LMNA_DOMAIN_REGIONS)]
-
-#: Library tiles as ``(name, first, last)`` inclusive amino-acid ranges; neighbors overlap.
-LMNA_TILES: list[tuple[str, int, int]] = [
-    ("T1", 1, 96),
-    ("T2", 90, 185),
-    ("T3", 178, 273),
-    ("T4", 266, 361),
-    ("T5", 354, 449),
-    ("T6", 442, 535),
-    ("T7", 530, 623),
-    ("T8", 607, 664),
+ORDERS: list[list[str]] = [
+    VARIANT_TYPE_ORDER,
+    CLINVAR_ORDER,
+    *(list(gene.domains) for gene in genes.BUILTIN.values() if gene.domains),
 ]
 
 _BATCH_RE = re.compile(r"^(?P<time>T\d+)_(?P<replicate>R\d+)$")

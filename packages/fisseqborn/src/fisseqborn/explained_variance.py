@@ -13,9 +13,9 @@ from ._base import Plot
 
 class ExplainedVariancePlot(Plot):
     """Cumulative explained variance (and / or a scree plot) of every principal component,
-    with the components kept at chosen thresholds or at the noise floor marked.
+    with the components kept at chosen thresholds marked.
 
-    >>> reduced = profiles.pca_reduce(variance=0.9, noise_floor=True)
+    >>> reduced = profiles.pca_reduce(variance=0.9)
     >>> fb.ExplainedVariancePlot(reduced, thresholds=[0.7, 0.8, 0.9]).save("vis/pca.png")
 
     Parameters
@@ -23,8 +23,7 @@ class ExplainedVariancePlot(Plot):
     data : pl.DataFrame | Profiles
         One row per component, in order, with an ``explained_variance_ratio`` column, such
         as `Profiles.pca_explained_variance`. A `Profiles` returned by
-        `Profiles.pca_reduce` is also accepted: its ``pca_explained_variance`` is used, and
-        its ``pca_noise_floor`` unless ``noise_floor`` is given.
+        `Profiles.pca_reduce` is also accepted: its ``pca_explained_variance`` is used.
     kind : {"cumulative", "scree", "both"}
         ``"both"`` draws the scree bars on a second y axis behind the cumulative curve.
     x : {"components", "fraction"}
@@ -33,10 +32,6 @@ class ExplainedVariancePlot(Plot):
         Cumulative-variance ratios to mark: a dashed horizontal line at the ratio and a
         vertical line at the fewest components reaching it (as `Profiles.pca_reduce`
         chooses), labelled e.g. ``"0.9: 37 PCs"``.
-    noise_floor : float | None
-        Variance ratio of the first component of shuffled data (see
-        ``pca_reduce(noise_floor=True)``). Marked as a horizontal line on the scree plot
-        and as a vertical line at the number of components above it.
     palette : mapping | str | list | None
         Colors of the threshold lines, keyed by threshold.
     """
@@ -48,7 +43,6 @@ class ExplainedVariancePlot(Plot):
         kind: Literal["cumulative", "scree", "both"] = "cumulative",
         x: Literal["components", "fraction"] = "components",
         thresholds: Sequence[float] = (),
-        noise_floor: float | None = None,
         palette: Any = None,
         title: str | None = None,
         figsize: tuple[float, float] | None = None,
@@ -57,8 +51,6 @@ class ExplainedVariancePlot(Plot):
         if hasattr(data, "pca_explained_variance"):
             if data.pca_explained_variance is None:
                 raise ValueError("No PCA fitted; chain .pca_reduce() first")
-            if noise_floor is None:
-                noise_floor = data.pca_noise_floor
             data = data.pca_explained_variance
         data = _data.as_frame(data)
         super().__init__(data, title=title, figsize=figsize, dpi=dpi)
@@ -74,7 +66,6 @@ class ExplainedVariancePlot(Plot):
             data.get_column("explained_variance_ratio").cast(pl.Float64).to_numpy()
         )
         self.thresholds = list(thresholds)
-        self.noise_floor = noise_floor
         self.palette = _data.resolve_palette(self.thresholds, palette)
 
     def n_components(self, threshold: float) -> int:
@@ -100,23 +91,11 @@ class ExplainedVariancePlot(Plot):
 
         if self.kind == "scree":
             ax.bar(pos, self.ratios, width=width, color="grey")
-            if self.noise_floor is not None:
-                ax.axhline(
-                    self.noise_floor,
-                    linestyle="--",
-                    color="red",
-                    linewidth=1,
-                    label="noise floor",
-                )
             ax.set(ylabel="Explained variance ratio")
         else:
             if self.kind == "both":
                 scree_ax = ax.twinx()
                 scree_ax.bar(pos, self.ratios, width=width, color="lightgrey", zorder=0)
-                if self.noise_floor is not None:
-                    scree_ax.axhline(
-                        self.noise_floor, linestyle=":", color="red", linewidth=1
-                    )
                 scree_ax.set_ylabel("Explained variance ratio")
                 ax.set_zorder(scree_ax.get_zorder() + 1)
                 ax.patch.set_visible(False)
@@ -131,15 +110,6 @@ class ExplainedVariancePlot(Plot):
                     color=color,
                     linewidth=1,
                     label=f"{t:g}: {k} PCs",
-                )
-            if self.noise_floor is not None:
-                k = int(np.sum(self.ratios > self.noise_floor))
-                ax.axvline(
-                    self._xpos(k),
-                    linestyle=":",
-                    color="red",
-                    linewidth=1,
-                    label=f"noise floor: {k} PCs",
                 )
             ax.set(ylim=(0, 1.01), ylabel="Cumulative explained variance")
         ax.set(xlim=(0, xmax), xlabel=xlabel)

@@ -60,6 +60,20 @@ GNOMAD_FILTER = "Filters - joint"
 GNOMAD_AC, GNOMAD_AN = "Allele Count", "Allele Number"
 GNOMAD_SPLICE = "spliceai_ds_max"
 
+# Columns of the AlphaMissense web search's TSV export (the header line starts with "# ").
+ALPHAMISSENSE_PROTEIN = "protein variant"
+ALPHAMISSENSE_SCORE = "pathogenicity score"
+ALPHAMISSENSE_CLASS = "pathogenicity class"
+ALPHAMISSENSE_SNV = "is_snv"
+ALPHAMISSENSE_REVEL_SCORE = "REVEL pathogenicity score"
+ALPHAMISSENSE_REVEL_CLASS = "REVEL pathogenicity class"
+#: Provenance columns of the export, recorded in `Dataset.alphamissense`'s settings.
+ALPHAMISSENSE_PROVENANCE = {
+    "uniprot": "Uniprot ACC",
+    "gene": "Gene name",
+    "transcript": "Ensemble id",
+}
+
 #: The normalised ClinVar record columns `Dataset.clinvar` joins (with a ``meta_`` prefix).
 CLINVAR_SCHEMA = {
     "clinvar_clinical_significance": pl.String,
@@ -71,6 +85,12 @@ CLINVAR_SCHEMA = {
 
 #: ``clinvar.<YYYYMM>.<field>``: the columns bbi-lab/variant-annotation's ClinVar step adds.
 VARIANT_ANNOTATION_CLINVAR = re.compile(r"^clinvar\.(\d{6})\.(\w+)$")
+
+#: variant-annotation's AlphaMissense columns and the names they get.
+VARIANT_ANNOTATION_ALPHAMISSENSE = {
+    "alphamissense.pathogenicity": "alphamissense_pathogenicity",
+    "alphamissense.class": "alphamissense_class",
+}
 
 _HGVS = r"^p\.([A-Z][a-z]{2})(\d+)([A-Z][a-z]{2}|=)$"
 
@@ -169,10 +189,18 @@ def _blank_to_null(table: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def _download_gene(gene: str | None) -> str:
+    if gene is None:
+        raise ValueError(
+            "pass gene= (an HGNC symbol or a Gene) to download from gnomAD"
+        )
+    return gene
+
+
 def gnomad_rows(
     gnomad: "str | PathLike | pl.DataFrame | None",
     *,
-    gene: str = "LMNA",
+    gene: str | None = None,
     dataset: str = "gnomad_r4",
     splice_max: float | None = None,
     cache: "_cache.Cache" = False,
@@ -187,6 +215,7 @@ def gnomad_rows(
     """
     schema = _gnomad_api.VARIANT_SCHEMA
     if gnomad is None:
+        gene = _download_gene(gene)
         rows = _gnomad_api.fetch_variants(gene, dataset, cache=cache, refresh=refresh)
         return rows, f"gnomAD API ({dataset}, {gene})"
     source = "table" if isinstance(gnomad, pl.DataFrame) else str(gnomad)
@@ -296,6 +325,32 @@ def _stars_expr(schema: pl.Schema) -> pl.Expr | None:
     return status
 
 
+def _split_lists(
+    table: pl.DataFrame, protein_col: str, columns: dict[str, str]
+) -> pl.DataFrame:
+    """``key`` (from ``protein_col``) and the ``|``-separated list ``columns`` (renamed as
+    mapped) split into one row per element, blanks as null."""
+    lists = table.select(
+        hgvs_key_expr(protein_col).alias("key"),
+        *(
+            pl.col(c).cast(pl.String).str.split("|").alias(new)
+            for c, new in columns.items()
+        ),
+    )
+    n = pl.max_horizontal(pl.col(new).list.len() for new in columns.values())
+    return _blank_to_null(
+        lists.with_columns(pl.int_ranges(0, n.fill_null(0)).alias("__i"))
+        .explode("__i")
+        .select(
+            "key",
+            *(
+                pl.col(new).list.get(pl.col("__i"), null_on_oob=True)
+                for new in columns.values()
+            ),
+        )
+    )
+
+
 def variant_annotation_records(
     table: pl.DataFrame,
     *,
@@ -334,25 +389,9 @@ def variant_annotation_records(
     columns = fields[release]
     if "clinvar_clinical_significance" not in columns.values():
         raise ValueError(f"No clinvar.{release}.clinical_significance column")
-    lists = table.select(
-        hgvs_key_expr(protein_col).alias("key"),
-        *(
-            pl.col(c).cast(pl.String).str.split("|").alias(new)
-            for c, new in columns.items()
-        ),
+    records = _split_lists(table, protein_col, columns).with_columns(
+        pl.lit(f"{release[:4]}-{release[4:]}").alias("clinvar_release")
     )
-    n = pl.max_horizontal(pl.col(new).list.len() for new in columns.values())
-    records = _blank_to_null(
-        lists.with_columns(pl.int_ranges(0, n.fill_null(0)).alias("__i"))
-        .explode("__i")
-        .select(
-            "key",
-            *(
-                pl.col(new).list.get(pl.col("__i"), null_on_oob=True)
-                for new in columns.values()
-            ),
-        )
-    ).with_columns(pl.lit(f"{release[:4]}-{release[4:]}").alias("clinvar_release"))
     for column, dtype in CLINVAR_SCHEMA.items():
         if column not in records.columns:
             records = records.with_columns(pl.lit(None, dtype=dtype).alias(column))
@@ -364,7 +403,7 @@ def variant_annotation_records(
 def clinvar_records(
     clinvar: "str | PathLike | pl.DataFrame | pl.LazyFrame | None",
     *,
-    gene: str = "LMNA",
+    gene: str | None = None,
     protein_col: str = "mapped_hgvs_p",
     release: str | None = None,
     cache: "_cache.Cache" = False,
@@ -378,18 +417,148 @@ def clinvar_records(
     the gnomAD API.
     """
     if clinvar is None:
+        gene = _download_gene(gene)
         records = _gnomad_api.fetch_clinvar(gene, cache=cache, refresh=refresh)
         records = records.select(
             hgvs_key_expr("hgvsp").alias("key"), pl.exclude("hgvsp")
         )
         return records, f"gnomAD API ({gene})"
-    source = (
-        "table" if isinstance(clinvar, (pl.DataFrame, pl.LazyFrame)) else str(clinvar)
-    )
     records = variant_annotation_records(
         _read_table(clinvar), protein_col=protein_col, release=release
     )
-    return records, source
+    return records, source_name(clinvar)
+
+
+def source_name(source: "str | PathLike | pl.DataFrame | pl.LazyFrame") -> str:
+    """How a table source is recorded in the annotation settings."""
+    if isinstance(source, (pl.DataFrame, pl.LazyFrame)):
+        return "table"
+    return str(source)
+
+
+def variant_annotation_alphamissense(
+    table: pl.DataFrame,
+    *,
+    protein_col: str = "mapped_hgvs_p",
+    notes: list[str] | None = None,
+) -> pl.DataFrame | None:
+    """The AlphaMissense score and class of each key of variant-annotation's output
+    (``key``, ``alphamissense_pathogenicity`` and ``alphamissense_class``), or ``None``
+    when the table has neither ``alphamissense.*`` column.
+
+    Like the ClinVar fields they are ``|``-separated lists with one element per candidate
+    nucleotide variant. A key whose elements (or rows) disagree keeps the highest score and
+    its class, and a note says how many keys did.
+    """
+    columns = {
+        c: new
+        for c, new in VARIANT_ANNOTATION_ALPHAMISSENSE.items()
+        if c in table.columns
+    }
+    if not columns:
+        return None
+    _data.require_columns(table, protein_col)
+    entries = _split_lists(table, protein_col, columns)
+    for column in VARIANT_ANNOTATION_ALPHAMISSENSE.values():
+        if column not in entries.columns:
+            entries = entries.with_columns(pl.lit(None, dtype=pl.String).alias(column))
+    score, kind = pl.col("alphamissense_pathogenicity"), pl.col("alphamissense_class")
+    entries = entries.with_columns(score.cast(pl.Float64, strict=False)).filter(
+        pl.col("key").is_not_null() & (score.is_not_null() | kind.is_not_null())
+    )
+    return _highest_score(entries, notes).select(
+        "key", "alphamissense_pathogenicity", "alphamissense_class"
+    )
+
+
+def _highest_score(entries: pl.DataFrame, notes: list[str] | None) -> pl.DataFrame:
+    """One row per ``key`` of ``entries``: the one with the highest
+    ``alphamissense_pathogenicity``; a note says how many keys had several scores."""
+    score = pl.col("alphamissense_pathogenicity")
+    n_multiple = (
+        entries.group_by("key")
+        .agg(score.drop_nulls().n_unique().alias("n"))
+        .filter(pl.col("n") > 1)
+        .height
+    )
+    if n_multiple and notes is not None:
+        notes.append(
+            f"AlphaMissense: {n_multiple} variants have several different scores; "
+            "the highest was kept"
+        )
+    return (
+        entries.sort(score, descending=True, nulls_last=True, maintain_order=True)
+        .unique(subset=["key"], keep="first", maintain_order=True)
+        .sort("key")
+    )
+
+
+def alphamissense_table(
+    source: "str | PathLike | pl.DataFrame | pl.LazyFrame",
+    *,
+    notes: list[str] | None = None,
+) -> tuple[pl.DataFrame, dict[str, list[str]]]:
+    """The AlphaMissense web search's TSV export per key, and its provenance.
+
+    Columns: ``key`` (from ``protein variant``, ``p.Glu2Ala``), ``alphamissense_pathogenicity``,
+    ``alphamissense_class``, ``alphamissense_is_snv`` (``is_snv`` is ``"y"``), and
+    ``revel_score`` / ``revel_class``; the last three are null when the export lacks them.
+    A key with several rows keeps the one with the highest score (see `_highest_score`).
+    The provenance maps each `ALPHAMISSENSE_PROVENANCE` name to the export's distinct values.
+    """
+    table = _read_table(source)
+    table = _blank_to_null(table.rename(lambda c: c.removeprefix("#").strip()))
+    _data.require_columns(
+        table, ALPHAMISSENSE_PROTEIN, ALPHAMISSENSE_SCORE, ALPHAMISSENSE_CLASS
+    )
+
+    def optional(column: str) -> pl.Expr:
+        return pl.col(column) if column in table.columns else pl.lit(None, pl.String)
+
+    is_snv = (
+        pl.col(ALPHAMISSENSE_SNV).str.to_lowercase().eq("y").fill_null(False)
+        if ALPHAMISSENSE_SNV in table.columns
+        else pl.lit(None, pl.Boolean)
+    )
+    entries = table.select(
+        hgvs_key_expr(ALPHAMISSENSE_PROTEIN).alias("key"),
+        pl.col(ALPHAMISSENSE_SCORE)
+        .cast(pl.Float64, strict=False)
+        .alias("alphamissense_pathogenicity"),
+        pl.col(ALPHAMISSENSE_CLASS).cast(pl.String).alias("alphamissense_class"),
+        is_snv.alias("alphamissense_is_snv"),
+        optional(ALPHAMISSENSE_REVEL_SCORE)
+        .cast(pl.Float64, strict=False)
+        .alias("revel_score"),
+        optional(ALPHAMISSENSE_REVEL_CLASS).cast(pl.String).alias("revel_class"),
+    ).filter(pl.col("key").is_not_null())
+    provenance = {
+        name: table[column].drop_nulls().unique(maintain_order=True).to_list()
+        for name, column in ALPHAMISSENSE_PROVENANCE.items()
+        if column in table.columns
+    }
+    return _highest_score(entries, notes), provenance
+
+
+def filter_min_stars(
+    records: pl.DataFrame,
+    min_stars: int | None,
+    notes: list[str] | None = None,
+) -> pl.DataFrame:
+    """The ``records`` with at least ``min_stars`` review stars (from ``clinvar_stars``, else
+    ``clinvar_review_status``, ClinVar's own mapping); all of them when ``min_stars`` is
+    ``None``. Without either column nothing is dropped, and a note says so."""
+    if min_stars is None:
+        return records
+    stars = _stars_expr(records.schema)
+    if stars is None:
+        if notes is not None:
+            notes.append(
+                "The ClinVar records have no clinvar_stars or clinvar_review_status, "
+                f"so the {min_stars}-star review filter was not applied"
+            )
+        return records
+    return records.filter(stars.fill_null(0) >= min_stars)
 
 
 def clinvar_classes(
@@ -401,21 +570,12 @@ def clinvar_classes(
     """The ExCALIBR class of each key of `clinvar_records`: ``key`` and ``clinvar_class``
     (``"pathogenic"`` or ``"benign"``).
 
-    With ``min_stars``, records below that many review stars are dropped first (stars from
-    ``clinvar_stars``, else ``clinvar_review_status``, ClinVar's own mapping). Keys with
-    both pathogenic and benign calls are left out (see `_collapse_classes`).
+    With ``min_stars``, records below that many review stars are dropped first (see
+    `filter_min_stars`). Keys with both pathogenic and benign calls are left out (see
+    `_collapse_classes`).
     """
     notes = [] if notes is None else notes
-    table = records.lazy()
-    if min_stars is not None:
-        stars = _stars_expr(records.schema)
-        if stars is None:
-            notes.append(
-                "The ClinVar records have no clinvar_stars or clinvar_review_status, "
-                f"so the {min_stars}-star review filter was not applied"
-            )
-        else:
-            table = table.filter(stars.fill_null(0) >= min_stars)
+    table = filter_min_stars(records, min_stars, notes).lazy()
     rows = table.select(
         "key",
         _class_expr(pl.col("clinvar_clinical_significance")).alias("clinvar_class"),

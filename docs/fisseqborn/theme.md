@@ -9,7 +9,7 @@ Whenever a categorical column is used for color (`hue`, or `x` in a boxplot), fi
 1. uses the fisseq palette **if every level of the column appears in it**. Otherwise it uses seaborn's
    default palette for up to 10 levels, `tab20` for 11–20 and `husl` beyond that, so colors never
    repeat;
-2. puts known levels in canonical order (Synonymous, Single Missense, Frameshift, …; LMNA domains
+2. puts known levels in canonical order (Synonymous, Single Missense, Frameshift, …; domains of built-in genes
    N- to C-terminal) and sorts
    everything else *naturally*, so cluster `"2"` comes before `"10"`.
 
@@ -34,10 +34,34 @@ fisseq.VARIANT_TYPE_PALETTE     # variant type -> color
 fisseq.CLINVAR_PALETTE          # ClinVar significance -> color
 fisseq.PALETTE                  # both merged
 fisseq.VARIANT_TYPE_ORDER, fisseq.CLINVAR_ORDER
-fisseq.LMNA_DOMAIN_REGIONS      # domain -> (start, end) amino-acid positions
-fisseq.LMNA_TILES               # [(tile, start, end)] library tiles (neighbors overlap)
-fisseq.LMNA_LANDMARK_FEATURES   # CellProfiler feature -> readable name
 fisseq.AMINO_ACID_ORDER         # the 20 amino acids, top to bottom in a VariantEffectMap
+```
+
+## Genes
+
+A `Gene` holds the reference constants of one protein. Everything but `name` is optional, and a
+method that needs a missing field says so.
+
+```python
+import fisseqborn as fb
+
+fb.genes.LMNA.domains              # domain -> (start, end) amino-acid positions
+fb.genes.LMNA.tiles                # [(tile, start, end)] library tiles (neighbors overlap)
+fb.genes.LMNA.landmark_features    # CellProfiler feature -> readable name
+fb.genes.LMNA.reference_sequence   # wild-type coding sequence
+fb.genes.LMNA.protein_sequence     # ... translated, positions 1-based
+
+ds.domain(fb.genes.LMNA)           # or the name of a built-in gene: ds.domain("LMNA")
+fb.VariantEffectMap(profiles, feature, gene="LMNA")
+```
+
+There is no default gene; pass `gene` (or `regions=` / `tiles=`) where a method needs one. To use your
+own, define a `Gene`:
+
+```python
+kras = fb.Gene("KRAS", domains={"G domain": (1, 166), "HVR": (167, 188)})
+ds.domain(kras).gnomad(kras, cache=True)   # `name` is the symbol gnomAD downloads
+fb.genes.register(kras)                    # optional: look it up by name, and order its domains on axes
 ```
 
 ## Experiment palettes

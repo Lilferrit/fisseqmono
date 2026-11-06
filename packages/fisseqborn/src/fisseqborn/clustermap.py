@@ -90,7 +90,7 @@ class FeatureGroup:
         missing limit comes from that feature's own values.
     labels : bool | Mapping[str, str] | None
         Show feature names under the block (right of it when vertical). A mapping gives
-        display names (e.g. `fisseq.LMNA_LANDMARK_FEATURES`). Default: shown when the
+        display names (e.g. `genes.LMNA.landmark_features`). Default: shown when the
         block has <= 40 features.
     annot : bool
         Write each cell's value on it, formatted with ``fmt``.

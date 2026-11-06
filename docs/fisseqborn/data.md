@@ -15,7 +15,7 @@ profiles = (
       .variant_type()                                  # meta_variant_type + meta_is_control
       .median_across_batches(paired={"_median": "_KSnegLogP"})  # already z-scored per batch
       .clinvar("clinvar/annotated.tsv")                # meta_clinvar_annotation
-      .domain()                                        # meta_domain
+      .domain("LMNA")                                  # meta_domain
       .distinguishability(fb.OvwtScores.from_pipeline(run))
 )
 
@@ -164,6 +164,19 @@ per_variant.impact_score().save("impact.parquet")
 per_variant.drop_nonfinite().umap().cluster(n_neighbors=30).save("clusters.parquet")
 ```
 
+`concat` stacks the rows of other datasets (or frames) below a dataset, for example to combine
+two runs. Tag each one first so its rows stay distinguishable:
+
+```python
+both = (
+    fb.Profiles.from_pipeline(run_a).with_columns(meta_run=pl.lit("a"))
+    .concat(fb.Profiles.from_pipeline(run_b).with_columns(meta_run=pl.lit("b")))
+)
+```
+
+A column missing from one input is null in its rows. The result keeps the first dataset's class
+and settings.
+
 ## Profiles
 
 ### Normalization and aggregation
@@ -241,7 +254,7 @@ lamin = info.filter(pl.col("channels") == "CH1", pl.col("statistic") == "median"
 | `impact_score()` | `meta_impact_score`: the cosine distance to the median control profile, halved to run from 0 to 1 |
 | `impact_scores([0.7, 0.9])` | `meta_impact_score_0.7`, `meta_impact_score_0.9`: the impact score on the fewest PCs explaining each share of the variance (PCA is fitted once; the features are kept) |
 | `pca(n_components=5)` | `meta_pc_1 … meta_pc_5`, with the loadings on `.pca_loadings` (write them with `.save_pca_loadings(path)`) |
-| `pca_reduce(variance=0.9)` / `pca_reduce(noise_floor=True)` | replaces the features with `X_0 … X_k` |
+| `pca_reduce(variance=0.9)` / `pca_reduce(variance=0.9, whiten=True)` | replaces the features with `X_0 … X_k` |
 | `umap(n_neighbors=30)` / `umap(n_components=3)` | `meta_notebook_umap_1 … _<n>` (or `output_cols=`); needs `fisseqborn[umap]` |
 | `cluster("leiden", n_neighbors=15)` / `cluster("kmeans", n_clusters=8)` | `meta_cluster_idx`; Leiden needs `fisseqborn[cluster]` |
 | `distinguishability(ovwt)` | `meta_distinguishability_score` |
@@ -276,10 +289,11 @@ Every dataset has these methods. They read the `meta_aa_changes` labels:
 |---|---|
 | `variant_type()` | `meta_variant_type` (Synonymous, Single Missense, Frameshift, Nonsense, 3nt Deletion, WT, Other) and `meta_is_control` |
 | `position()` | `meta_position`, the leading position of the first codon. Use `strict=True` for single substitutions only. |
-| `domain()` | `meta_domain`, from `fisseq.LMNA_DOMAIN_REGIONS`, for single substitutions |
-| `tile()` | `meta_tile`, from `fisseq.LMNA_TILES`. Use `allow_multiple=True` to list both tiles in an overlap. |
-| `gnomad(source=None)` | `meta_gnomad_in`, `_allele_count`, `_allele_number`, `_allele_frequency`, `_spliceai_ds_max` (and `_clinvar_class` from a browser CSV), for single substitutions. Downloads the gene from the gnomAD API without a `source`. |
-| `clinvar(source=None)` | From [variant-annotation](https://github.com/bbi-lab/variant-annotation)'s output, or downloaded from the gnomAD API without a `source`: the most severe record's `meta_clinvar_*` fields, `meta_clinvar_conditions` (diseases, from NCBI), `meta_clinvar_class` (the calibration control class) and `meta_clinvar_annotation`: `fisseq.PATHOGENIC` (pathogenic or likely pathogenic), `fisseq.UNCERTAIN` (uncertain significance), else the variant type |
+| `domain(gene)` | `meta_domain`, from the gene's `domains` (or `regions=`), for single substitutions |
+| `tile(gene)` | `meta_tile`, from the gene's `tiles` (or `tiles=`). Use `allow_multiple=True` to list both tiles in an overlap. |
+| `gnomad(source=None, gene=)` | `meta_gnomad_in`, `_allele_count`, `_allele_number`, `_allele_frequency`, `_spliceai_ds_max` (and `_clinvar_class` from a browser CSV), for single substitutions. Downloads `gene` from the gnomAD API without a `source`. |
+| `clinvar(source=None, gene=)` | From [variant-annotation](https://github.com/bbi-lab/variant-annotation)'s output, or downloaded from the gnomAD API without a `source`: the most severe record's `meta_clinvar_*` fields, `meta_clinvar_conditions` (diseases, from NCBI), `meta_clinvar_class` (the calibration control class) and `meta_clinvar_annotation`: `fisseq.PATHOGENIC` (pathogenic or likely pathogenic), `fisseq.UNCERTAIN` (uncertain significance), else the variant type |
+| `alphamissense(source)` | From the AlphaMissense web search's TSV export for a protein: `meta_alphamissense_pathogenicity`, `_class` and `_is_snv`, and `meta_revel_score` / `_class` where the export has REVEL, for single substitutions. Replaces the AlphaMissense columns `clinvar` takes from a variant-annotation table. |
 | `excalibr(score)` | ACMG/AMP evidence points for a score: `meta_excalibr_group(s)`, `_lr`, `_posterior`, `_points`, `_oob`, and the fitted `Calibration` on `.calibration`. Needs one row per variant. See [Evidence calibration](calibration.md). |
 
 ## OvWT distinguishability
@@ -393,7 +407,7 @@ once per group, leaving the others out with `--exclude`.
 | `bad_mask = ... is_null() \| is_nan() \| is_infinite()` | `.drop_nonfinite()` |
 | `pycytominer.feature_select(profiles=..., operation=[...])` | `.feature_select(operations=[...])` |
 | `map_elements(variant_classification, ...)` | `.variant_type()` |
-| `add_clinvar_annotation(df, path)` / `add_domain(df, LMNA_DOMAIN_REGIONS)` / `get_tile` | `.clinvar(path)` (variant-annotation output) / `.domain()` / `.tile()` |
+| `add_clinvar_annotation(df, path)` / `add_domain(df, regions)` / `get_tile` | `.clinvar(path)` (variant-annotation output) / `.domain(gene)` / `.tile(gene)` |
 | `add_distinguishability_score(df, ovwt_dir)` | `.distinguishability(fb.OvwtScores.from_pipeline(run))` |
 | `compute_impact_score(lf)` | `.impact_score()` |
 | `PCA(n_components=None)` + `searchsorted(...)` | `.pca_reduce(variance=0.9)` |

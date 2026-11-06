@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 
 import polars as pl
@@ -83,19 +84,25 @@ def test_position_domain_and_tile():
             {"meta_aa_changes": ["A5V", "A95fs", "A222V", "A300-|L301-", "WT", "A700V"]}
         )
     )
-    df = ds.position().position(strict=True, output_col="strict").domain().tile().df
+    df = (
+        ds.position()
+        .position(strict=True, output_col="strict")
+        .domain("LMNA")
+        .tile("LMNA")
+        .df
+    )
     assert df["meta_position"].to_list() == [5, 95, 222, 300, None, 700]
     assert df["strict"].to_list() == [5, None, 222, None, None, 700]
     # overlapping ranges: the first listed wins
     assert df["meta_domain"].to_list() == ["Head", None, "Coil 1B", None, None, None]
     assert df["meta_tile"].to_list() == ["T1", "T1", "T3", "T4", None, None]
-    both = ds.tile(allow_multiple=True).df["meta_tile"].to_list()
+    both = ds.tile("LMNA", allow_multiple=True).df["meta_tile"].to_list()
     assert both == ["T1", "T1,T2", "T3", "T4", None, None]
 
 
 def test_domain_custom_regions():
     ds = fb.Dataset(pl.DataFrame({"meta_aa_changes": ["A1V", "A5V"]}))
-    df = ds.domain({"first": (1, 2)}, output_col="region").df
+    df = ds.domain(regions={"first": (1, 2)}, output_col="region").df
     assert df["region"].to_list() == ["first", None]
 
 
@@ -183,6 +190,100 @@ def test_clinvar(tmp_path, monkeypatch):
     assert out.clinvar(path, conditions=False).df.height == len(variants)
 
 
+def test_clinvar_alphamissense(caplog):
+    clinvar = variant_annotation(
+        [f"NP_000268.1:p.Ala{p}Val" for p in [2, 3, 4, 5, 6]] + ["NP_000268.1:p.Ala7Ter"],
+        ["Benign", None, "Pathogenic", "Benign", None, None],
+        ["criteria provided, single submitter", None, "no assertion criteria provided",
+         "criteria provided, single submitter", None, None],
+    ).with_columns(
+        pl.Series(
+            "alphamissense.pathogenicity", ["0.85|", "||0.12|", "0.91", "0.3|0.9", "|", ""]
+        ),
+        pl.Series(
+            "alphamissense.class",
+            ["likely_pathogenic|", "||likely_benign|", "likely_pathogenic",
+             "likely_benign|likely_pathogenic", "|", ""],
+        ),
+    )  # fmt: skip
+    variants = ["A2V", "A3V", "A4V", "A5V", "A6V", "A2V:tag", "A1A"]
+    ds = fb.Dataset(pl.DataFrame({"meta_aa_changes": variants})).variant_type()
+    with caplog.at_level(logging.WARNING):
+        df = ds.clinvar(clinvar, conditions=False).df
+    # A3V has no ClinVar record and A4V's has no stars: both are still scored
+    assert df["meta_alphamissense_pathogenicity"].to_list() == [
+        0.85, 0.12, 0.91, 0.9, None, None, None
+    ]  # fmt: skip
+    assert df["meta_alphamissense_pathogenicity"].dtype == pl.Float64
+    assert df["meta_alphamissense_class"].to_list() == [
+        "likely_pathogenic", "likely_benign", "likely_pathogenic", "likely_pathogenic",
+        None, None, None,
+    ]  # fmt: skip
+    assert df["meta_clinvar_clinical_significance"][2] is None
+    assert "1 variants have several different scores" in caplog.text
+    without = ds.clinvar(clinvar.drop("^alphamissense.*$"), conditions=False)
+    assert not any(c.startswith("meta_alphamissense") for c in without.columns)
+
+
+ALPHAMISSENSE_EXPORT = """\
+# Uniprot ACC\tEntry name\tGene name\tEnsemble id\tprotein variant\tis_snv\ta.a.1\tposition\ta.a.2\tpathogenicity score\tpathogenicity class\tREVEL pathogenicity score\tREVEL pathogenicity class
+P02545\tLMNA_HUMAN\tLMNA\tENST00000368300.9\tp.Glu2Ala\ty\tE\t2\tA\t0.1865\tlikely_benign\t\t
+P02545\tLMNA_HUMAN\tLMNA\tENST00000368300.9\tp.Glu2Cys\t\tE\t2\tC\t0.9283\tlikely_pathogenic\t\t
+P02545\tLMNA_HUMAN\tLMNA\tENST00000368300.9\tp.Glu2Gln\ty\tE\t2\tQ\t0.3581\tambiguous\t0.274\tlikely_benign
+P02545\tLMNA_HUMAN\tLMNA\tENST00000368300.9\tp.Glu2Gln\ty\tE\t2\tQ\t0.6\tlikely_pathogenic\t0.3\tlikely_benign
+"""  # noqa: E501
+
+
+def test_alphamissense(tmp_path, caplog):
+    path = tmp_path / "AlphaMissense-Search-P02545.tsv"
+    path.write_text(ALPHAMISSENSE_EXPORT)
+    variants = ["E2A", "E2C", "E2Q", "E2A:tag", "E2-|E3-", "R482W"]
+    ds = fb.Dataset(pl.DataFrame({"meta_aa_changes": variants}))
+    with caplog.at_level(logging.WARNING):
+        out = ds.alphamissense(path)
+    df = out.df
+    assert df["meta_alphamissense_pathogenicity"].to_list() == [
+        0.1865, 0.9283, 0.6, None, None, None
+    ]  # fmt: skip
+    assert df["meta_alphamissense_class"].to_list() == [
+        "likely_benign", "likely_pathogenic", "likely_pathogenic", None, None, None
+    ]  # fmt: skip
+    assert df["meta_alphamissense_is_snv"].to_list() == [
+        True, False, True, None, None, None
+    ]  # fmt: skip
+    assert df["meta_revel_score"].to_list() == [None, None, 0.3, None, None, None]
+    assert df["meta_revel_score"].dtype == pl.Float64
+    assert df["meta_revel_class"][2] == "likely_benign"
+    assert "1 variants have several different scores" in caplog.text
+    assert out.annotations["alphamissense"] == {
+        "source": str(path),
+        "uniprot": ["P02545"],
+        "gene": ["LMNA"],
+        "transcript": ["ENST00000368300.9"],
+    }
+    # a frame source gives the same result, and running it again replaces the columns
+    frame = pl.read_csv(path, separator="\t", infer_schema_length=0)
+    assert ds.alphamissense(frame).df.equals(df)
+    assert out.alphamissense(path).df.equals(df)
+
+
+def test_alphamissense_optional_columns():
+    frame = pl.DataFrame(
+        {
+            "protein variant": ["p.Glu2Ala"],
+            "pathogenicity score": ["0.1865"],
+            "pathogenicity class": ["likely_benign"],
+        }
+    )
+    ds = fb.Dataset(pl.DataFrame({"meta_aa_changes": ["E2A"]})).alphamissense(frame)
+    assert ds.df.row(0) == ("E2A", 0.1865, "likely_benign", None, None, None)
+    assert ds.annotations["alphamissense"] == {"source": "table"}
+    with pytest.raises(ValueError, match="pathogenicity score"):
+        fb.Dataset(pl.DataFrame({"meta_aa_changes": ["E2A"]})).alphamissense(
+            frame.drop("pathogenicity score")
+        )
+
+
 def test_clinvar_needs_variant_type():
     ds = fb.Dataset(pl.DataFrame({"meta_aa_changes": ["A1A"]}))
     with pytest.raises(ValueError, match="meta_variant_type"):
@@ -233,6 +334,56 @@ def test_polars_passthroughs(labels):
     assert repr(ds) == "Dataset(2 meta columns, 1 feature columns)"
 
 
+def test_concat(labels):
+    extra = pl.DataFrame({"meta_aa_changes": ["A1V"], "meta_run": ["b"]})
+    stacked = labels.with_columns(meta_run=pl.lit("a")).concat(extra, extra.lazy())
+    df = stacked.df
+    assert df.height == len(LABELS) + 2
+    assert df["meta_run"].to_list() == ["a"] * len(LABELS) + ["b", "b"]
+    assert df["feature_0"].null_count() == 2
+    assert labels.concat().df.equals(labels.df)
+    assert labels.concat(labels).df.height == 2 * len(LABELS)
+
+
+def test_concat_keeps_class_and_settings():
+    frame = pl.DataFrame(
+        {"meta_variant": ["A1V"], "f_median": [1.0], "f_KSnegLogP": [2.0]}
+    )
+    profiles = fb.Profiles(
+        frame,
+        variant_col="meta_variant",
+        batch_col="meta_run",
+        passthrough=["KSnegLogP"],
+    )
+    stacked = profiles.concat(profiles, frame)
+    assert isinstance(stacked, fb.Profiles)
+    assert (stacked.variant_col, stacked.batch_col) == ("meta_variant", "meta_run")
+    assert stacked.passthrough == ("KSnegLogP",)
+    assert stacked.values == ["f_median"]
+    assert stacked.df.height == 3
+
+
+def test_concat_rejects_mismatches(labels):
+    other = fb.Dataset(labels, variant_col="feature_0")
+    with pytest.raises(ValueError, match="variant_col differs"):
+        labels.concat(other)
+    with pytest.raises(TypeError, match="got list"):
+        labels.concat([1, 2])
+
+
+def test_concat_calibration_and_annotations(labels):
+    a, b = labels.filter(pl.lit(True)), labels.filter(pl.lit(True))
+    calibration = object()
+    a.calibration = b.calibration = calibration
+    a.annotations = {"gnomad": {"source": "x"}, "clinvar": {"release": "202601"}}
+    b.annotations = {"gnomad": {"source": "x"}, "clinvar": {"release": "202501"}}
+    stacked = a.concat(b, labels.df)
+    assert stacked.calibration is calibration
+    assert stacked.annotations == {"gnomad": {"source": "x"}}
+    assert a.concat(labels).calibration is None
+    assert a.annotations["clinvar"] == {"release": "202601"}
+
+
 def test_save_and_read(labels, tmp_path):
     out = tmp_path / "nested" / "labels.parquet"
     labels.save(out)
@@ -245,3 +396,32 @@ def test_plots_accept_datasets(profiles):
     assert plot.data.equals(profiles)
     plot.plot()
     fb.Heatmap.correlation(ds, ["feature_0", "feature_1"]).plot()
+
+
+def test_clinvar_min_stars_applies_to_every_column():
+    table = variant_annotation(
+        ["p.Ala1Val", "p.Ala2Val", "p.Ala2Val", "p.Ala3Val"],
+        ["Pathogenic", "Pathogenic", "Benign", "Pathogenic"],
+        stars=["0", "0", "1", "2"],
+    )
+    ds = fb.Dataset(
+        pl.DataFrame({"meta_aa_changes": ["A1V", "A2V", "A3V"]})
+    ).variant_type()
+
+    def run(**kw):
+        return ds.clinvar(table, conditions=False, **kw).df
+
+    df = run()
+    assert df["meta_clinvar_clinical_significance"].to_list() == [
+        None,
+        "Benign",
+        "Pathogenic",
+    ]
+    assert df["meta_clinvar_stars"].to_list() == [None, 1, 2]
+    assert df["meta_clinvar_annotation"].to_list() == [
+        "Single Missense",
+        "Single Missense",
+        fisseq.PATHOGENIC,
+    ]
+    assert run(min_stars=None)["meta_clinvar_stars"].to_list() == [0, 0, 2]
+    assert run(min_stars=2)["meta_clinvar_stars"].to_list() == [None, None, 2]

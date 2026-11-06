@@ -9,9 +9,9 @@ plus chainable datasets that load and prepare the fisseq pipeline's outputs.
 ...    .save("vis/impact.png"))
 """
 
-from . import fisseq
+from . import fisseq, genes
 from ._base import Config, FigurePlot, Plot, config
-from .batch_correlation import BatchCorrelationHeatmap
+from .batch_correlation import BatchCorrelationGrid, BatchCorrelationHeatmap
 from .blocklist import Blocklists
 from .box import BoxPlot
 from .calibration import Calibration, CalibrationPlot
@@ -20,6 +20,7 @@ from .correlation import CorrelationPlot
 from .dataset import Dataset
 from .embedding import EmbeddingPlot
 from .explained_variance import ExplainedVariancePlot
+from .genes import Gene
 from .global_aggregate import write_global
 from .heatmap import Heatmap
 from .ovwt import OvwtScores
@@ -27,10 +28,11 @@ from .pairplot import PairPlot
 from .profiles import Profiles
 from .roc import RocPlot
 from .summary import ClusterSummary
-from .variant_map import VariantEffectMap, VariantEffectMapAxes
+from .variant_map import RegionTrack, VariantEffectMap, VariantEffectMapAxes
 from .volcano import VolcanoPlot
 
 __all__ = [
+    "BatchCorrelationGrid",
     "BatchCorrelationHeatmap",
     "Blocklists",
     "BoxPlot",
@@ -46,16 +48,19 @@ __all__ = [
     "ExplainedVariancePlot",
     "FeatureGroup",
     "FigurePlot",
+    "Gene",
     "Heatmap",
     "OvwtScores",
     "PairPlot",
     "Plot",
     "Profiles",
+    "RegionTrack",
     "RocPlot",
     "VariantEffectMap",
     "VariantEffectMapAxes",
     "VolcanoPlot",
     "config",
     "fisseq",
+    "genes",
     "write_global",
 ]

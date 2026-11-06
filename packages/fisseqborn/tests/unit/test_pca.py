@@ -1,7 +1,6 @@
 import numpy as np
 import polars as pl
 import pytest
-from matplotlib.lines import Line2D
 
 import fisseqborn as fb
 
@@ -36,20 +35,21 @@ def test_pca_reduce_keeps_every_components_variance(pca_profiles):
     assert ev["cumulative_explained_variance"][-1] == pytest.approx(1.0)
     assert ev["retained"].sum() == len(reduced.features)
     assert ev.filter("retained")["component"].to_list() == reduced.features
-    assert reduced.pca_noise_floor is None
     # chained transforms drop the stale fit, like pca_loadings
     assert (
         reduced.with_columns(pl.lit(1).alias("meta_x")).pca_explained_variance is None
     )
 
 
-def test_pca_reduce_noise_floor_is_stored(pca_profiles):
-    reduced = pca_profiles.pca_reduce(noise_floor=True)
-    ratios = reduced.pca_explained_variance["explained_variance_ratio"].to_numpy()
-    assert 0 < reduced.pca_noise_floor < 1
-    assert len(reduced.features) == max(
-        1, int((ratios > reduced.pca_noise_floor).sum())
-    )
+def test_pca_reduce_whiten(pca_profiles):
+    plain = pca_profiles.pca_reduce(variance=0.9)
+    white = pca_profiles.pca_reduce(variance=0.9, whiten=True)
+    assert white.features == plain.features
+    assert white.pca_explained_variance.equals(plain.pca_explained_variance)
+    x_plain = plain.df.select(plain.features).to_numpy()
+    x_white = white.df.select(white.features).to_numpy()
+    np.testing.assert_allclose(x_white.var(axis=0, ddof=1), 1.0)
+    np.testing.assert_allclose(x_white, x_plain / x_plain.std(axis=0, ddof=1))
 
 
 def test_impact_scores_match_pca_reduce(pca_profiles):
@@ -83,7 +83,7 @@ def _dashed_lines(ax):
 
 @pytest.mark.parametrize("kind", ["cumulative", "both"])
 def test_explained_variance_plot_marks_thresholds(pca_profiles, kind):
-    reduced = pca_profiles.pca_reduce(variance=0.9, noise_floor=True)
+    reduced = pca_profiles.pca_reduce(variance=0.9)
     plot = fb.ExplainedVariancePlot(reduced, kind=kind, thresholds=[0.5, 0.9])
     fig, ax = plot.plot()
     curve = ax.get_lines()[0]
@@ -94,7 +94,6 @@ def test_explained_variance_plot_marks_thresholds(pca_profiles, kind):
     labels = ax.get_legend_handles_labels()[1]
     k = plot.n_components(0.9)
     assert f"0.9: {k} PCs" in labels
-    assert any(label.startswith("noise floor") for label in labels)
     assert len(_dashed_lines(ax)) == 4  # a horizontal and a vertical line per threshold
     if kind == "both":
         assert len(fig.axes) == 2 and len(fig.axes[1].patches) == 6
@@ -102,14 +101,9 @@ def test_explained_variance_plot_marks_thresholds(pca_profiles, kind):
 
 def test_explained_variance_plot_scree_and_fraction(pca_profiles):
     ev = pca_profiles.pca_reduce().pca_explained_variance
-    _, ax = fb.ExplainedVariancePlot(
-        ev, kind="scree", x="fraction", noise_floor=0.05
-    ).plot()
+    _, ax = fb.ExplainedVariancePlot(ev, kind="scree", x="fraction").plot()
     assert len(ax.patches) == 6
     assert ax.patches[-1].get_x() + ax.patches[-1].get_width() / 2 == pytest.approx(1.0)
-    assert any(
-        isinstance(ln, Line2D) and ln.get_ydata()[0] == 0.05 for ln in ax.get_lines()
-    )
 
 
 def test_explained_variance_plot_needs_a_fit(pca_profiles):
