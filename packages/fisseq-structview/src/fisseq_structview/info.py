@@ -5,7 +5,14 @@ import pathlib
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from .data import CLINVAR_CLASS, CLINVAR_CLASSES, VARIANT_TYPE, ClinvarCalls, RunScores
+from .data import (
+    CLINVAR_CLASS,
+    CLINVAR_CLASSES,
+    VARIANT_TYPE,
+    ClinvarCalls,
+    FeatureProfiles,
+    RunScores,
+)
 from .regions import Track
 from .structure import Structure
 
@@ -19,8 +26,8 @@ class DataInfo:
 
     #: Section title -> (label, value) rows.
     sections: dict[str, list[tuple[str, str]]]
-    #: (batch, OvWT result rows), in the run's order.
-    batches: list[tuple[str, int | None]]
+    #: (batch, OvWT result rows, feature-profile variants), in the run's order.
+    batches: list[tuple[str, int | None, int | None]]
     #: One row per structure, `STRUCTURE_COLUMNS`.
     structures: list[tuple[str, ...]]
 
@@ -41,8 +48,10 @@ def data_info(
     params_source: pathlib.Path | None = None,
     clinvar: ClinvarCalls | None = None,
     tracks: Sequence[Track] = (),
+    features: FeatureProfiles | None = None,
 ) -> DataInfo:
-    """Describe ``run`` (``None``: no scores loaded), the structures and the annotations.
+    """Describe ``run`` (``None``: no scores loaded), ``features`` (``None``: none loaded),
+    the structures and the annotations.
 
     Parameters
     ----------
@@ -70,7 +79,6 @@ def data_info(
         sections["Launch"] = [("Parameters file", str(params_source))]
     if run is None:
         sections["Run"] = [("Scores", "none loaded")]
-        batches: list[tuple[str, int | None]] = []
     else:
         by_type = (
             run.table(run.scores[0], True)
@@ -90,7 +98,32 @@ def data_info(
             ("Scores", ", ".join(run.scores)),
             ("Pooling", "median across batches, batch-corrected or raw"),
         ]
-        batches = [(b, run.batch_rows.get(b)) for b in run.batches]
+    if features is not None:
+        sections["Features"] = [
+            ("Source", features.source),
+            ("Batches", str(len(features.batches))),
+            ("Variants", f"{features.wide.height:,}"),
+            ("Features", f"{len(features.features):,}"),
+            *[(f"  {kind}", f"{n:,}") for kind, n in features.types.items()],
+            ("Landmarks", features.gene or "—"),
+            *[(f"  {features.labels[f]}", f) for f in features.landmarks],
+            (
+                "Pooling",
+                "z-scored per batch against its synonymous variants, "
+                "median across batches",
+            ),
+        ]
+    names = list(run.batches if run is not None else ())
+    if features is not None:
+        names += [b for b in features.batches if b not in names]
+    batches = [
+        (
+            b,
+            None if run is None else run.batch_rows.get(b),
+            None if features is None else features.batch_rows.get(b),
+        )
+        for b in names
+    ]
     annotations = []
     if clinvar is not None:
         counts = dict(clinvar.table.group_by(CLINVAR_CLASS).len().rows())

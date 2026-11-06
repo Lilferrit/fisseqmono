@@ -1,12 +1,15 @@
 """The colors of the variant-effect notebooks, shared by the structure and the effect map.
 
-Scores are drawn like ``fb.VariantEffectMap(..., cmap="Blues", vmin=0.5, vmax=1.0,
-center=None)``: a sequential Blues scale from AUROC 0.5 (chance) to 1.0. Values outside the
-range take the end colors, as matplotlib clips them, and missing values are fisseqborn's
+Distinguishability scores are drawn like ``fb.VariantEffectMap(..., cmap="Blues", vmin=0.5,
+vmax=1.0, center=None)``: a sequential Blues scale from AUROC 0.5 (chance) to 1.0. Feature
+z-scores are drawn like the notebooks' landmark plots, ``cmap="RdBu_r", center=0, clip=3``.
+The colormap is one of `COLORSCALES`, chosen in the app. Values outside the range take the
+end colors, as matplotlib clips them, and missing values are fisseqborn's
 ``missing_color="0.6"`` gray. The viewer gets the scale quantized into `N_BINS` colors (one
 viewer component per color; see `viewer`).
 """
 
+import functools
 from collections.abc import Mapping
 
 import plotly.colors as pc
@@ -14,8 +17,17 @@ import plotly.colors as pc
 #: The colorscale of the notebooks' OvWT maps.
 COLORSCALE = "Blues"
 
+#: The colormaps the app offers (plotly names).
+COLORSCALES: tuple[str, ...] = ("Blues", "Reds", "RdBu_r")
+
+#: The colormap of each color source (`DEFAULT_COLORSCALE["features"]` for z-scores).
+DEFAULT_COLORSCALE = {"ovwt": "Blues", "features": "RdBu_r"}
+
 #: The notebooks' ``vmin`` and ``vmax`` for distinguishability scores.
 DEFAULT_RANGE: tuple[float, float] = (0.5, 1.0)
+
+#: The default range of feature z-scores (the notebooks' ``clip=3``).
+FEATURE_RANGE: tuple[float, float] = (-3.0, 3.0)
 
 #: The range of a fraction (the frac_deleterious aggregation).
 FRACTION_RANGE: tuple[float, float] = (0.0, 1.0)
@@ -44,11 +56,16 @@ def _hex(color: str) -> str:
     return f"#{round(r):02X}{round(g):02X}{round(b):02X}"
 
 
-def bin_colors(n_bins: int = N_BINS) -> list[str]:
-    """``n_bins`` hex colors evenly sampled along `COLORSCALE`, lightest first."""
-    scale = pc.get_colorscale(COLORSCALE)
+@functools.cache
+def _bins(colorscale: str, n_bins: int) -> tuple[str, ...]:
+    scale = pc.get_colorscale(colorscale)
     samples = pc.sample_colorscale(scale, [i / (n_bins - 1) for i in range(n_bins)])
-    return [_hex(c) for c in samples]
+    return tuple(_hex(c) for c in samples)
+
+
+def bin_colors(n_bins: int = N_BINS, colorscale: str = COLORSCALE) -> list[str]:
+    """``n_bins`` hex colors evenly sampled along ``colorscale``, low end first."""
+    return list(_bins(colorscale, n_bins))
 
 
 def residue_colors(
@@ -56,10 +73,11 @@ def residue_colors(
     low: float = DEFAULT_RANGE[0],
     high: float = DEFAULT_RANGE[1],
     n_bins: int = N_BINS,
+    colorscale: str = COLORSCALE,
 ) -> dict[int, str]:
-    """Residue -> hex color of its value on `COLORSCALE` over ``[low, high]`` (binned;
+    """Residue -> hex color of its value on ``colorscale`` over ``[low, high]`` (binned;
     values outside the range take the end colors)."""
-    palette = bin_colors(n_bins)
+    palette = _bins(colorscale, n_bins)
     return {
         r: palette[quantize(normalize(v, low, high), n_bins)] for r, v in values.items()
     }

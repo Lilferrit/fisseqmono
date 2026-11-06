@@ -55,6 +55,22 @@ def test_frac_deleterious_threshold_is_strict(variants):
     )
 
 
+def test_frac_deleterious_absolute():
+    df = pl.DataFrame(
+        {
+            VARIANT: ["K2E", "K2R", "K2N", "K2D"],
+            VARIANT_TYPE: ["Single Missense"] * 4,
+            POSITION: [2] * 4,
+            WT: ["K"] * 4,
+            SCORE: [2.5, -3.0, 1.0, -1.5],
+        }
+    )
+    df = apply_offset(df, 0)
+    assert _values(per_position(df, "frac_deleterious", threshold=2.0))[2] == 0.25
+    got = per_position(df, "frac_deleterious", threshold=2.0, absolute=True)
+    assert _values(got)[2] == 0.5
+
+
 def test_type_filter_and_counts(variants):
     df = apply_offset(filter_types(variants, ["Single Missense", "Nonsense"]), 0)
     out = per_position(df, "max")

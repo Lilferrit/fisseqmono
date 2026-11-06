@@ -81,3 +81,26 @@ RUN = {
         "K2E": 0.72, "K2R": 0.58, "A4V": 0.86, "Y5F": 0.42, "A4*": 0.97,
     },
 }  # fmt: skip
+
+
+def write_feature_run(
+    root: pathlib.Path, batches: Mapping[str, Mapping[str, float]]
+) -> pathlib.Path:
+    """``feature_select_batchwise/<batch>/aggregates/{median,KS}.parquet`` from each
+    batch's ``{label: value}``: ``Area_median`` is the value, ``Area_KS`` twice it, and
+    ``Empty_median`` has no values."""
+    for batch, values in batches.items():
+        d = root / "feature_select_batchwise" / batch / "aggregates"
+        d.mkdir(parents=True)
+        labels = list(values)
+        pl.DataFrame(
+            {
+                "meta_aa_changes": labels,
+                "Area_median": [values[v] for v in labels],
+                "Empty_median": pl.Series([None] * len(labels), dtype=pl.Float64),
+            }
+        ).write_parquet(d / "median.parquet")
+        pl.DataFrame(
+            {"meta_aa_changes": labels, "Area_KS": [2 * values[v] for v in labels]}
+        ).write_parquet(d / "KS.parquet")
+    return root

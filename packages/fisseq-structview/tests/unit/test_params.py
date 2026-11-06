@@ -109,6 +109,10 @@ regions:
             "pipeline_dir: run\nstructures: [a.pdb]\nclinvar: {min_stars: 2}\n",
             "needs a path or a gene",
         ),
+        (
+            "pipeline_dir: run\nstructures: [a.pdb]\ngene: [LMNA]\n",
+            "gene: must be a string",
+        ),
         ("structures: [a.pdb]\n", "no pipeline_dir"),
         ("pipeline_dir: run\n", "no structures"),
     ],
@@ -129,3 +133,10 @@ def test_unreadable_files(tmp_path):
         load_params(_write(tmp_path, "- a\n- b\n"))
     with pytest.raises(ParamsError, match="unknown parameter"):
         load_params(_write(tmp_path, "pipline_dir: x\n"))
+
+
+def test_gene(tmp_path):
+    path = _write(tmp_path, "pipeline_dir: run\nstructures: [a.pdb]\ngene: LMNA\n")
+    assert merge(load_params(path), {}, path).gene == "LMNA"
+    assert merge(load_params(path), {"gene": "KRAS"}, path).gene == "KRAS"
+    assert merge({"pipeline_dir": "r", "structures": ["a.pdb"]}, {}).gene is None

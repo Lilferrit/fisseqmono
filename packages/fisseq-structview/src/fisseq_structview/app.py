@@ -1,13 +1,15 @@
 """The Dash app: a dash-molstar structure colored by per-residue scores, linked to an
 interactive variant effect map.
 
-`create_app` builds the layout from what was loaded: without a run's scores (`RunScores` is
-``None``) the score controls and map are left out and the structure is drawn gray. The work of
+`create_app` builds the layout from what was loaded: a run's distinguishability scores
+(`RunScores`), its feature profiles (`FeatureProfiles`), or both, with a "Color by" switch
+between them. With neither, the score controls and map are left out and the structure is drawn
+gray. The work of
 each callback is a plain function (`compute_view`, `map_figures`, `link_residue`) so it can be
 tested without a browser.
 
-Layout: a nav bar with the controls that apply to both panels (score, corrected or raw,
-numbering offset), the info popup and the light/dark toggle; then the structure and the map,
+Layout: a nav bar with the controls that apply to both panels (what to color by, the score or
+feature, corrected or raw, the colormap, numbering offset), the info popup and the light/dark toggle; then the structure and the map,
 each with its own controls below it. Warnings are a modal shown when the page loads (and when a
 control change can't be applied).
 
@@ -32,6 +34,7 @@ from dash import Input, Output, State, dcc, html
 
 from . import viewer
 from .aggregate import (
+    DEFAULT_FEATURE_THRESHOLD,
     DEFAULT_METHOD,
     DEFAULT_THRESHOLD,
     DEFAULT_TYPES,
@@ -42,8 +45,23 @@ from .aggregate import (
     filter_types,
     per_position,
 )
-from .colors import DEFAULT_RANGE, FRACTION_RANGE, residue_colors
-from .data import CLINVAR_CLASS, CLINVAR_CLASSES, ClinvarCalls, RunScores, default_score
+from .colors import (
+    COLORSCALE,
+    COLORSCALES,
+    DEFAULT_COLORSCALE,
+    DEFAULT_RANGE,
+    FEATURE_RANGE,
+    FRACTION_RANGE,
+    residue_colors,
+)
+from .data import (
+    CLINVAR_CLASS,
+    CLINVAR_CLASSES,
+    ClinvarCalls,
+    FeatureProfiles,
+    RunScores,
+    default_score,
+)
 from .effect_map import (
     CELL_PX,
     CELL_PX_RANGE,
@@ -88,17 +106,23 @@ STATIC_GRAPH = {"displayModeBar": False, "scrollZoom": False, "doubleClick": Fal
 class ViewSettings:
     """Everything the UI controls choose."""
 
+    #: What colors the views: ``"ovwt"`` (`score`) or ``"features"`` (`feature`).
+    source: str = "ovwt"
     score: str | None = None
     corrected: bool = True
+    feature: str | None = None
+    #: One of `colors.COLORSCALES`; ``None``: the source's default (`DEFAULT_COLORSCALE`).
+    colorscale: str | None = None
     method: str = DEFAULT_METHOD
     types: tuple[str, ...] = DEFAULT_TYPES
     #: The structure's color range; ``None``: `structure_range`'s default.
     structure_vmin: float | None = None
     structure_vmax: float | None = None
-    #: The map's color range (the notebooks' ``vmin``/``vmax``); ``None``: `DEFAULT_RANGE`.
+    #: The map's color range (the notebooks' ``vmin``/``vmax``); ``None``: `value_range`.
     map_vmin: float | None = None
     map_vmax: float | None = None
-    threshold: float = DEFAULT_THRESHOLD
+    #: The deleterious threshold; ``None``: the source's default (`threshold_value`).
+    threshold: float | None = None
     offset: int = 0
     fade: bool = False
     plddt_cutoff: float = DEFAULT_PLDDT_CUTOFF
@@ -108,14 +132,38 @@ class ViewSettings:
     structure_clinvar: tuple[str, ...] = ()
 
     @property
+    def features(self) -> bool:
+        """Whether the views show a feature's z-scores."""
+        return self.source == "features"
+
+    @property
+    def colormap(self) -> str:
+        """The colorscale: the one chosen, else the source's default."""
+        return self.colorscale or DEFAULT_COLORSCALE.get(self.source, COLORSCALE)
+
+    @property
+    def threshold_value(self) -> float:
+        """The deleterious threshold: the one chosen, else the source's default (an AUROC,
+        or a |z|)."""
+        if self.threshold is not None:
+            return self.threshold
+        return DEFAULT_FEATURE_THRESHOLD if self.features else DEFAULT_THRESHOLD
+
+    @property
+    def value_range(self) -> tuple[float, float]:
+        """The default range of a value: `FEATURE_RANGE` for z-scores, else
+        `DEFAULT_RANGE`."""
+        return FEATURE_RANGE if self.features else DEFAULT_RANGE
+
+    @property
     def map_range(self) -> tuple[float, float]:
         """The color range of the map's scores."""
-        return _range(self.map_vmin, self.map_vmax, DEFAULT_RANGE)
+        return _range(self.map_vmin, self.map_vmax, self.value_range)
 
     @property
     def default_structure_range(self) -> tuple[float, float]:
-        """`FRACTION_RANGE` for ``frac_deleterious`` (a fraction), else `DEFAULT_RANGE`."""
-        return FRACTION_RANGE if self.method == "frac_deleterious" else DEFAULT_RANGE
+        """`FRACTION_RANGE` for ``frac_deleterious`` (a fraction), else `value_range`."""
+        return FRACTION_RANGE if self.method == "frac_deleterious" else self.value_range
 
     @property
     def structure_range(self) -> tuple[float, float]:
@@ -143,6 +191,8 @@ class View:
     cells: pl.DataFrame
     #: Warnings about the numbering (residues outside the structure, wild-type mismatches).
     messages: tuple[str, ...] = field(default=())
+    #: What the values are, for the map's color bar.
+    label: str = ""
 
 
 def coloring_key(viewer_data: dict[str, Any]) -> str:
@@ -178,8 +228,10 @@ def compute_view(
     structure: Structure,
     settings: ViewSettings,
     clinvar: ClinvarCalls | None = None,
+    features: FeatureProfiles | None = None,
 ) -> View:
-    """Aggregate, map and color for ``settings``.
+    """Aggregate, map and color for ``settings``: ``run``'s score, or with
+    ``settings.source == "features"``, a feature of ``features``.
 
     Raises
     ------
@@ -187,15 +239,25 @@ def compute_view(
         If the positions don't line up with the structure (see `match_positions`).
     """
     faded = faded_residues(structure, settings)
-    if run is None or settings.score is None:
-        return View(
-            viewer.viewer_data(structure, {}, faded), pl.DataFrame(), pl.DataFrame()
-        )
-    variants = run.table(settings.score, settings.corrected)
+    if settings.features:
+        if features is None or settings.feature is None:
+            return View(
+                viewer.viewer_data(structure, {}, faded), pl.DataFrame(), pl.DataFrame()
+            )
+        variants = features.table(settings.feature)
+        label = f"{features.label(settings.feature)} (z)"
+    else:
+        if run is None or settings.score is None:
+            return View(
+                viewer.viewer_data(structure, {}, faded), pl.DataFrame(), pl.DataFrame()
+            )
+        variants = run.table(settings.score, settings.corrected)
+        label = settings.score + (" (corrected)" if settings.corrected else "")
     table = per_position(
         apply_offset(filter_types(variants, settings.types), settings.offset),
         settings.method,
-        settings.threshold,
+        settings.threshold_value,
+        absolute=settings.features,
     )
     match = match_positions(
         table,
@@ -215,7 +277,9 @@ def compute_view(
             f"{len(match.wt_mismatches)} scored residues have a wild type that differs "
             "from the structure."
         )
-    colors = residue_colors(match.values, *settings.structure_range)
+    colors = residue_colors(
+        match.values, *settings.structure_range, colorscale=settings.colormap
+    )
     cells = map_cells(
         variants, settings.offset, None if clinvar is None else clinvar.table
     )
@@ -225,6 +289,7 @@ def compute_view(
         table.filter(pl.col(RESIDUE).is_in(list(match.values))),
         cells,
         tuple(messages),
+        label,
     )
 
 
@@ -240,7 +305,6 @@ def map_figures(
     """The effect map of ``view`` with ``selected`` outlined and ``tracks`` on top, and its
     labels and color bar figures."""
     method = METHODS.get(settings.method, settings.method)
-    score_label = f"{settings.score}" + (" (corrected)" if settings.corrected else "")
     return (
         effect_map_figure(
             view.cells,
@@ -254,15 +318,18 @@ def map_figures(
             theme=theme,
             tracks=tracks,
             clinvar_classes=settings.map_clinvar,
+            colorscale=settings.colormap,
+            value_label="z" if settings.features else None,
         ),
         labels_figure(view.table, method, theme, tracks),
         colorbar_figure(
             settings.map_range,
-            score_label,
+            view.label,
             settings.structure_range,
             method,
             theme,
             len(tracks),
+            colorscale=settings.colormap,
         ),
     )
 
@@ -309,18 +376,24 @@ def _settings(
     map_vmax: float | None,
     map_clinvar: Sequence[str] | None = None,
     structure_clinvar: Sequence[str] | None = None,
+    source: str | None = None,
+    feature: str | None = None,
+    colorscale: str | None = None,
 ) -> ViewSettings:
     """`ViewSettings` from the control values, in the order of `create_app`'s inputs."""
     return ViewSettings(
+        source=source or base.source,
         score=score,
         corrected=corrected == "corrected",
+        feature=feature,
+        colorscale=colorscale or None,
         method=method or DEFAULT_METHOD,
         types=tuple(types or ()),
         structure_vmin=_number(structure_vmin),
         structure_vmax=_number(structure_vmax),
         map_vmin=_number(map_vmin),
         map_vmax=_number(map_vmax),
-        threshold=DEFAULT_THRESHOLD if threshold is None else float(threshold),
+        threshold=_number(threshold),
         offset=base.offset if offset is None else int(offset),
         fade=bool(fade),
         plddt_cutoff=DEFAULT_PLDDT_CUTOFF if cutoff is None else float(cutoff),
@@ -333,15 +406,23 @@ def _settings(
 # --- layout pieces -------------------------------------------------------------------------
 
 
-def _control(label: str, component: Any, wide: bool = False) -> html.Div:
+def _control(label: Any, component: Any, wide: bool = False) -> html.Div:
     return html.Div(
         [html.Label(label), component],
         className="sv-control" + (" sv-control-wide" if wide else ""),
     )
 
 
-def _nav_item(label: str, component: Any) -> html.Div:
-    return html.Div([html.Label(label), component], className="sv-nav-item")
+def _nav_item(
+    label: str, component: Any, id: str | None = None, show: bool = True
+) -> html.Div:
+    kw = {"id": id} if id else {}
+    return html.Div(
+        [html.Label(label), component],
+        className="sv-nav-item",
+        style={} if show else {"display": "none"},
+        **kw,
+    )
 
 
 def _range_inputs(prefix: str, value: tuple, placeholder: tuple) -> html.Div:
@@ -422,26 +503,27 @@ def _info_body(info: DataInfo, messages: Sequence[str]) -> html.Div:
                 ),
             ]
     if info.batches:
+
+        def count(n: int | None) -> html.Td:
+            return html.Td("—" if n is None else f"{n:,}", className="num")
+
         body += [
             html.H4(f"Batches ({len(info.batches)})"),
             html.Table(
                 [
                     html.Thead(
                         html.Tr(
-                            [html.Th("Batch"), html.Th("OvWT rows", className="num")]
+                            [
+                                html.Th("Batch"),
+                                html.Th("OvWT rows", className="num"),
+                                html.Th("Feature variants", className="num"),
+                            ]
                         )
                     ),
                     html.Tbody(
                         [
-                            html.Tr(
-                                [
-                                    html.Td(batch),
-                                    html.Td(
-                                        "—" if n is None else f"{n:,}", className="num"
-                                    ),
-                                ]
-                            )
-                            for batch, n in info.batches
+                            html.Tr([html.Td(batch), count(n), count(m)])
+                            for batch, n, m in info.batches
                         ]
                     ),
                 ]
@@ -547,6 +629,58 @@ def _fade_options(plddt: bool) -> list[dict[str, Any]]:
     return [{"label": " fade pLDDT below", "value": "fade", "disabled": not plddt}]
 
 
+#: Most options the feature dropdown holds at once: Dash's dropdown indexes every substring of
+#: every option's label and value when it mounts, which freezes the page with thousands of
+#: features. The search runs on the server (`feature_options`) instead.
+FEATURE_OPTIONS_LIMIT = 100
+
+
+def _feature_option(features: FeatureProfiles, f: str) -> dict[str, Any]:
+    if f in features.labels:
+        return {
+            "label": features.labels[f],
+            "value": f,
+            "search": f"{features.labels[f]} {f}",
+        }
+    return {"label": f, "value": f}
+
+
+def feature_options(
+    features: FeatureProfiles | None,
+    search: str | None = None,
+    value: str | None = None,
+    limit: int = FEATURE_OPTIONS_LIMIT,
+) -> list[dict[str, Any]]:
+    """The feature dropdown's options: up to ``limit`` features (landmarks, by name, first)
+    whose name or column contains every word of ``search`` (case-insensitive), plus ``value``,
+    which the dropdown would otherwise clear."""
+    if features is None:
+        return []
+    tokens = (search or "").lower().split()
+    matches = []
+    for f in features.features:
+        if len(matches) >= limit:
+            break
+        text = f"{features.labels.get(f, '')} {f}".lower()
+        if all(t in text for t in tokens):
+            matches.append(f)
+    if value in features.features and value not in matches:
+        matches.append(value)
+    return [_feature_option(features, f) for f in matches]
+
+
+def _threshold_label(settings: ViewSettings) -> str:
+    return "Deleterious threshold " + ("(|z| >)" if settings.features else "(score >)")
+
+
+def _map_hint(settings: ViewSettings) -> str:
+    value = "z-score vs. synonymous" if settings.features else "score"
+    return (
+        f"Scroll sideways (shift + wheel, or the scrollbar). Colors: {value}; gray: none; "
+        "dots: wild type. Below: the per-position value that colors the structure."
+    )
+
+
 def create_app(
     run: RunScores | None,
     structures: Structure | Sequence[Structure],
@@ -559,13 +693,15 @@ def create_app(
     tracks: Sequence[Track] = (),
     clinvar: ClinvarCalls | None = None,
     params_source: Any = None,
+    features: FeatureProfiles | None = None,
 ) -> dash.Dash:
     """Build the app.
 
     Parameters
     ----------
     run : RunScores | None
-        The run's scores; ``None`` leaves the score controls and map out.
+        The run's distinguishability scores. Without them and without ``features``, the
+        score controls and map are left out.
     structures : Structure | Sequence[Structure]
         One structure, or several to choose from in the nav bar.
     settings : ViewSettings | None
@@ -586,6 +722,9 @@ def create_app(
         ClinVar calls to mark on the map and, if toggled, the structure.
     params_source : path | None
         The parameters file, for the info popup.
+    features : FeatureProfiles | None
+        The run's feature profiles. With both sources, a "Color by" switch picks one
+        (distinguishability first).
 
     Raises
     ------
@@ -598,10 +737,15 @@ def create_app(
     if not structures:
         raise ValueError("create_app needs at least one structure")
     settings = settings or ViewSettings()
+    has_scores = run is not None or features is not None
+    initial_values: dict[str, Any] = {}
+    if run is None and features is not None:
+        initial_values["source"] = "features"
     if run is not None and settings.score is None:
-        settings = ViewSettings(
-            **{**settings.__dict__, "score": default_score(run.scores)}
-        )
+        initial_values["score"] = default_score(run.scores)
+    if features is not None and settings.feature is None:
+        initial_values["feature"] = features.features[0]
+    settings = ViewSettings(**{**settings.__dict__, **initial_values})
     labels = list(labels or [s.path.name for s in structures])
     offsets = [
         settings.offset if o is None else o
@@ -621,6 +765,7 @@ def create_app(
                 structure,
                 ViewSettings(**{**settings.__dict__, "offset": offsets[i]}),
                 clinvar,
+                features,
             )
         except MappingError as err:
             errors[i] = err
@@ -649,6 +794,7 @@ def create_app(
         params_source=params_source,
         clinvar=clinvar,
         tracks=tracks,
+        features=features,
     )
     layout_rows = rows(len(tracks))
 
@@ -685,17 +831,36 @@ def create_app(
             style={} if len(structures) > 1 else {"display": "none"},
         ),
     ]
-    if run is not None:
+    if has_scores:
+        # Every control a callback reads is in the layout; those of the source not shown
+        # (or not loaded) are hidden.
+        ovwt_shown = run is not None and not settings.features
         nav += [
+            _nav_item(
+                "Color by",
+                dcc.RadioItems(
+                    [
+                        {"label": " distinguishability", "value": "ovwt"},
+                        {"label": " feature", "value": "features"},
+                    ],
+                    settings.source,
+                    id="source",
+                    inline=True,
+                ),
+                id="source-item",
+                show=run is not None and features is not None,
+            ),
             _nav_item(
                 "Score",
                 dcc.Dropdown(
-                    run.scores,
+                    run.scores if run is not None else [],
                     settings.score,
                     id="score",
                     clearable=False,
                     style={"width": "220px"},
                 ),
+                id="score-item",
+                show=ovwt_shown,
             ),
             _nav_item(
                 "Batches",
@@ -707,6 +872,37 @@ def create_app(
                     "corrected" if settings.corrected else "raw",
                     id="corrected",
                     inline=True,
+                ),
+                id="corrected-item",
+                show=ovwt_shown,
+            ),
+            _nav_item(
+                "Feature",
+                dcc.Dropdown(
+                    feature_options(features, value=settings.feature),
+                    settings.feature,
+                    id="feature",
+                    clearable=False,
+                    labels={
+                        "search": f"Search {len(features.features):,} features"
+                        if features is not None
+                        else "Search"
+                    },
+                    optionHeight=40,
+                    style={"width": "340px"},
+                ),
+                id="feature-item",
+                show=features is not None and settings.features,
+            ),
+            _nav_item(
+                "Colormap",
+                dcc.Dropdown(
+                    list(COLORSCALES),
+                    settings.colormap,
+                    id="colorscale",
+                    clearable=False,
+                    searchable=False,
+                    style={"width": "110px"},
                 ),
             ),
             _nav_item(
@@ -742,7 +938,7 @@ def create_app(
 
     # Structure panel and its controls.
     structure_controls: list[Any] = []
-    if run is not None:
+    if has_scores:
         structure_controls += [
             _control(
                 "Aggregate per position",
@@ -759,18 +955,18 @@ def create_app(
                 dcc.Checklist(list(VARIANT_TYPES), list(settings.types), id="types"),
             ),
             _control(
-                "Deleterious threshold (score >)",
+                html.Span(_threshold_label(settings), id="threshold-label"),
                 dcc.Input(
                     id="threshold",
                     type="number",
-                    value=settings.threshold,
+                    value=settings.threshold_value,
                     step=0.01,
                     debounce=True,
                     style={"width": "80px"},
                 ),
             ),
             _control(
-                "Color range (Blues)",
+                "Color range",
                 _range_inputs(
                     "structure",
                     (settings.structure_vmin, settings.structure_vmax),
@@ -827,7 +1023,7 @@ def create_app(
             [
                 html.Div(
                     "Structure · click a residue to find it on the map"
-                    if run is not None
+                    if has_scores
                     else "Structure",
                     className="sv-card-title",
                 ),
@@ -841,7 +1037,7 @@ def create_app(
     ]
 
     # Map panel and its controls.
-    if run is not None:
+    if has_scores:
         fig, labels_fig, colorbar = map_figures(
             initial, settings, structure, tracks=tracks
         )
@@ -900,11 +1096,11 @@ def create_app(
                                 wide=True,
                             ),
                             _control(
-                                "Color range (Blues)",
+                                "Color range",
                                 _range_inputs(
                                     "map",
                                     (settings.map_vmin, settings.map_vmax),
-                                    DEFAULT_RANGE,
+                                    settings.value_range,
                                 ),
                             ),
                             html.Div(
@@ -919,9 +1115,8 @@ def create_app(
                                 style=clinvar_style,
                             ),
                             html.Div(
-                                "Scroll sideways (shift + wheel, or the scrollbar). Gray: no "
-                                "score; dots: wild type. Below: the per-position value that "
-                                "colors the structure.",
+                                _map_hint(settings),
+                                id="map-hint",
                                 className="sv-hint",
                                 style={"flex": "1 1 100%"},
                             ),
@@ -1034,7 +1229,7 @@ def create_app(
             False,
         )
 
-    if run is None:
+    if not has_scores:
 
         @app.callback(
             Output("viewer", "data"),
@@ -1055,11 +1250,50 @@ def create_app(
     @app.callback(
         Output("structure-vmin", "placeholder"),
         Output("structure-vmax", "placeholder"),
+        Output("map-vmin", "placeholder"),
+        Output("map-vmax", "placeholder"),
         Input("method", "value"),
+        Input("source", "value"),
     )
-    def _structure_placeholders(method):
-        low, high = ViewSettings(method=method).default_structure_range
-        return f"{low}", f"{high}"
+    def _range_placeholders(method, source):
+        s = ViewSettings(method=method, source=source or settings.source)
+        return (*map(str, s.default_structure_range), *map(str, s.value_range))
+
+    @app.callback(
+        Output("score-item", "style"),
+        Output("corrected-item", "style"),
+        Output("feature-item", "style"),
+        Output("colorscale", "value"),
+        Output("threshold", "value"),
+        Output("threshold-label", "children"),
+        Output("map-hint", "children"),
+        Input("source", "value"),
+        prevent_initial_call=True,
+    )
+    def _switch_source(source):
+        # The new source's controls, colormap and threshold.
+        s = ViewSettings(source=source)
+        show, hide = {}, {"display": "none"}
+        return (
+            hide if s.features else show,
+            hide if s.features else show,
+            show if s.features else hide,
+            s.colormap,
+            s.threshold_value,
+            _threshold_label(s),
+            _map_hint(s),
+        )
+
+    if features is not None:
+
+        @app.callback(
+            Output("feature", "options"),
+            Input("feature", "search_value"),
+            Input("feature", "value"),
+            prevent_initial_call=True,
+        )
+        def _feature_search(search, value):
+            return feature_options(features, search, value)
 
     @app.callback(
         Output("offset", "value"),
@@ -1086,6 +1320,9 @@ def create_app(
         Input("map-vmax", "value"),
         Input("map-clinvar", "value"),
         Input("structure-clinvar", "value"),
+        Input("source", "value"),
+        Input("feature", "value"),
+        Input("colorscale", "value"),
     ]
 
     @app.callback(
@@ -1113,7 +1350,7 @@ def create_app(
         s = _settings(settings, *values)
         structure = current_structure(index)
         try:
-            view = compute_view(run, structure, s, clinvar)
+            view = compute_view(run, structure, s, clinvar, features)
         except MappingError as err:
             return (
                 *(dash.no_update,) * 8,

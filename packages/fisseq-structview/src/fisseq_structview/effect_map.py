@@ -1,8 +1,8 @@
 """An interactive variant effect map: substituted amino acid by structure residue.
 
 The same layout and colors as `fisseqborn.VariantEffectMap` in the variant-effect notebooks:
-rows in `fisseqborn.fisseq.AMINO_ACID_ORDER`, one column per position, Blues from 0.5 to 1.0,
-gray for variants without a score and a black dot on each position's wild-type cell. Below it,
+rows in `fisseqborn.fisseq.AMINO_ACID_ORDER`, one column per position, colored on the chosen
+colormap (Blues from 0.5 to 1.0 for distinguishability), gray for variants without a score and a black dot on each position's wild-type cell. Below it,
 the per-position aggregate that colors the structure.
 
 Instead of wrapping long proteins into rows, the map is drawn at its full length with a fixed
@@ -289,8 +289,9 @@ def _region_traces(
             )
 
 
-def _hover(row: dict) -> str:
-    text = f"{row[VARIANT]}: {row[SCORE]:.3f}<br>{row[N_EXPERIMENTS]} experiments"
+def _hover(row: dict, value_label: str | None = None) -> str:
+    value = f"{value_label} = {row[SCORE]:.3f}" if value_label else f"{row[SCORE]:.3f}"
+    text = f"{row[VARIANT]}: {value}<br>{row[N_EXPERIMENTS]} experiments"
     if row.get(SIGNIFICANCE):
         stars = row.get(STARS)
         text += f"<br>ClinVar: {row[SIGNIFICANCE]}"
@@ -314,6 +315,8 @@ def effect_map_figure(
     theme: str | None = None,
     tracks: Sequence[Track] = (),
     clinvar_classes: Collection[str] = (),
+    colorscale: str = COLORSCALE,
+    value_label: str | None = None,
 ) -> go.Figure:
     """The effect map at full length: region bars on top, the per-position aggregate below.
 
@@ -341,6 +344,10 @@ def effect_map_figure(
         Region bars, top to bottom.
     clinvar_classes : Collection[str]
         `data.CLINVAR_CLASSES` keys whose variants get a triangle.
+    colorscale : str
+        The plotly colorscale of the map and the track (`colors.COLORSCALES`).
+    value_label : str | None
+        Names the value in a cell's hover (e.g. ``"z"``); ``None``: the bare value.
     """
     colors = _theme(theme)
     layout = rows(len(tracks))
@@ -355,7 +362,7 @@ def effect_map_figure(
         r, aa = cell[RESIDUE], cell[AA]
         if r in col:
             z[row[aa], col[r]] = cell[SCORE]
-            text[row[aa], col[r]] = _hover(cell)
+            text[row[aa], col[r]] = _hover(cell, value_label)
     for j, r in enumerate(span):
         wt = structure.residues.get(r)
         for aa, i in row.items():
@@ -371,7 +378,7 @@ def effect_map_figure(
             z=z,
             text=text,
             hoverinfo="text",
-            colorscale=COLORSCALE,
+            colorscale=colorscale,
             zmin=zrange[0],
             zmax=zrange[1],
             showscale=False,
@@ -406,7 +413,7 @@ def effect_map_figure(
                 line=dict(color=colors["line"], width=1),
                 marker=dict(
                     color=values,
-                    colorscale=COLORSCALE,
+                    colorscale=colorscale,
                     cmin=track_range[0],
                     cmax=track_range[1],
                     size=max(3, min(6, cell_px * 0.6)),
@@ -563,8 +570,9 @@ def colorbar_figure(
     track_label: str,
     theme: str | None = None,
     n_regions: int = 0,
+    colorscale: str = COLORSCALE,
 ) -> go.Figure:
-    """The color bars of the map and of the track, beside their rows."""
+    """The color bars of the map and of the track, beside their rows, on ``colorscale``."""
     colors = _theme(theme)
     layout = rows(n_regions)
     fig = go.Figure()
@@ -580,7 +588,7 @@ def colorbar_figure(
                 hoverinfo="skip",
                 marker=dict(
                     color=[low, high],
-                    colorscale=COLORSCALE,
+                    colorscale=colorscale,
                     cmin=low,
                     cmax=high,
                     opacity=0,

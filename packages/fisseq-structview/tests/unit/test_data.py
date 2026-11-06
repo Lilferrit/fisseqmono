@@ -13,8 +13,10 @@ from fisseq_structview.data import (
     VARIANT,
     WT,
     default_score,
+    landmark_columns,
     load_clinvar,
     load_distinguishability,
+    load_features,
 )
 from fisseq_structview.info import data_info
 from fisseq_structview.params import ClinvarSpec
@@ -91,7 +93,7 @@ def test_data_info_lists_batches_and_structures(run_dir, pdb_path):
         labels=["A", "B"],
         offsets=[0, 3],
     )
-    assert info.batches == [(b, len(v)) for b, v in RUN.items()]
+    assert info.batches == [(b, len(v), None) for b, v in RUN.items()]
     run_rows = dict(info.sections["Run"])
     assert run_rows["Batches"] == "2" and run_rows["Layout"] == "detected"
     assert "auroc_median_fold" in run_rows["Scores"]
@@ -143,3 +145,67 @@ def test_unreadable_clinvar_warns(run_dir, tmp_path, caplog):
     with caplog.at_level(logging.WARNING):
         assert load_clinvar(run, ClinvarSpec(path=tmp_path / "missing.tsv")) is None
     assert "ClinVar" in caplog.text
+
+
+def test_load_features_zscores_per_batch_and_pools_by_median(feature_run_dir):
+    features = load_features(feature_run_dir)
+    assert features.batches == ("batch1", "batch2")
+    # Every aggregate type; the all-null feature is dropped.
+    assert features.features == ("Area_KS", "Area_median")
+    assert features.types == {"KS": 1, "median": 1}
+    table = features.table("Area_median")
+    assert (
+        table.columns
+        == load_distinguishability(feature_run_dir).table("auroc_median_fold").columns
+    )
+    a4v = table.filter(pl.col(VARIANT) == "A4V").row(0, named=True)
+    # batch1: controls 0.50, 0.52, 0.48 (mean 0.50, std 0.02), A4V 0.90 -> z 20;
+    # batch2: controls 0.49, 0.51, 0.50 (mean 0.50, std 0.01), A4V 0.86 -> z 36.
+    assert a4v[SCORE] == pytest.approx(28.0, rel=1e-5)
+    assert a4v[POSITION] == 4 and a4v[WT] == "A"
+    assert features.batch_rows == {b: len(v) for b, v in RUN.items()}
+    with pytest.raises(ValueError, match="No feature 'Nope'"):
+        features.table("Nope")
+
+
+def test_load_features_without_feature_select_returns_none(run_dir):
+    assert load_features(run_dir) is None
+
+
+def test_landmarks_first(feature_run_dir):
+    from fisseqborn import genes
+
+    genes.register(
+        genes.Gene("TESTGENE", landmark_features={"Area": "Cell area", "Nope": "x"})
+    )
+    features = load_features(feature_run_dir, gene="TESTGENE")
+    assert features.landmarks == ["Area_median", "Area_KS"]  # median first
+    assert features.label("Area_KS") == "Cell area (KS)"
+    assert landmark_columns(["Area_median", "Area_X_median"], "TESTGENE") == {
+        "Area_median": "Cell area (median)"
+    }
+    with pytest.raises(ValueError, match="unknown gene"):
+        load_features(feature_run_dir, gene="NOT_A_GENE")
+
+
+def test_load_clinvar_from_features(feature_run_dir, tmp_path):
+    features = load_features(feature_run_dir)
+    calls = load_clinvar(
+        features, ClinvarSpec(path=_annotation_table(tmp_path / "a.tsv"))
+    )
+    assert calls.table.height == 3
+
+
+def test_data_info_lists_features(feature_run_dir, pdb_path):
+    run = load_distinguishability(feature_run_dir)
+    features = load_features(feature_run_dir)
+    info = data_info(
+        run,
+        [load_structure(pdb_path)],
+        plddt=[True],
+        plddt_forced=False,
+        features=features,
+    )
+    rows = dict(info.sections["Features"])
+    assert rows["Features"] == "2" and rows["Batches"] == "2"
+    assert info.batches == [(b, len(v), len(v)) for b, v in RUN.items()]
