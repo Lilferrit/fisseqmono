@@ -112,3 +112,24 @@ def test_missing_ovwt_still_serves(tmp_path, pdb_path, monkeypatch):
         [str(tmp_path / "empty_run"), "--structure", str(pdb_path)], monkeypatch
     )
     assert "app" in served
+
+
+def test_serves_features(feature_run_dir, pdb_path, monkeypatch):
+    served = _run([str(feature_run_dir), "--structure", str(pdb_path)], monkeypatch)
+    layout = served["app"].layout
+    layout_json = json.dumps(layout.to_plotly_json(), default=str)
+    assert "id='feature'" in layout_json and "Area_median" in layout_json
+    _, params = cli.parse_params(
+        [str(feature_run_dir), "--structure", str(pdb_path), "--gene", "LMNA"]
+    )
+    assert params.gene == "LMNA"
+
+
+def test_unknown_gene_exits(feature_run_dir, pdb_path, capsys, monkeypatch):
+    with pytest.raises(SystemExit) as err:
+        _run(
+            [str(feature_run_dir), "--structure", str(pdb_path), "--gene", "NOPE"],
+            monkeypatch,
+        )
+    assert err.value.code == 2
+    assert "--gene: unknown gene 'NOPE'" in capsys.readouterr().err

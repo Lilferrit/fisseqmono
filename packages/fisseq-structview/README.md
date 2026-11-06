@@ -1,7 +1,8 @@
 # fisseq-structview
 
-A web app that paints a pipeline run's per-position distinguishability (OvWT AUROC) scores onto
-a protein structure, linked to an interactive variant effect map of the same run.
+A web app that paints a pipeline run's per-position distinguishability (OvWT AUROC) scores, or
+its feature profiles, onto a protein structure, linked to an interactive variant effect map of
+the same run.
 
 ```bash
 uv run fisseq-structview parameters.yaml                   # everything from the file
@@ -15,8 +16,20 @@ Structures are PDB (`.pdb`/`.ent`) or mmCIF (`.cif`/`.mmcif`) files, optionally 
 more than one, a dropdown in the nav bar switches between them. At launch, the app reads every
 batch's `ovwt_batchwise*/<batch>/results.parquet` through `fisseqborn.OvwtScores`. For every
 score column it pools each variant across batches, both corrected (`OvwtScores.correct`, which
-keeps the AUROC scale) and raw, taking the median, and keeps the result in memory. Everything
-else is chosen in the browser.
+keeps the AUROC scale) and raw, taking the median, and keeps the result in memory.
+
+If the run also has feature-selection outputs (`feature_select_batchwise*/<batch>/aggregates/`),
+the app reads every aggregate type there (median, KS, AUROC, ...) through
+`fisseqborn.Profiles.from_pipeline`. It prepares them the way the PCA-embedding notebook does:
+
+1. Z-score each batch against its own synonymous variants (`normalize(by="meta_experiment")`).
+2. Take each feature's median across batches (`median_across_batches`).
+
+Features with no value left are dropped. Every feature of every type stays in memory: for a
+1,700-feature CellProfiler run with three aggregate types and 12,000 variants, that's about
+230 MB, and a launch takes about 15 s.
+
+Everything else is chosen in the browser.
 
 ## Parameters file
 
@@ -36,6 +49,7 @@ structures:                            # a path, or a mapping
     label: Lamin C                     # the dropdown's name; default: the file name
     chain: A                           # default: chain, else the first protein chain
     offset: 0                          # default: offset
+gene: LMNA                             # optional: list its landmark features first
 track: embeddings                      # layout, batches, exclude, variant_col, cache and
 offset: 0                              # refresh too: the flags below, by the same names
 check_wt: true
@@ -61,14 +75,23 @@ An unknown key, a wrong type, a region whose start is after its end, or a missin
 
 - **Nav bar:** controls that apply to both panels:
   - the structure, when there's more than one;
-  - the score (default `auroc_median_fold`);
-  - corrected or raw;
+  - **Color by** distinguishability or feature, when the run has both (otherwise the one it
+    has);
+  - for distinguishability, the score (default `auroc_median_fold`) and corrected or raw;
+  - for features, the feature. Type to search its name or column; the list shows the first
+    100 matches. With `gene`, that gene's landmark features (`fisseqborn.genes`) come first
+    under their readable names (e.g. "Lamin A intensity in the nucleus (median)"), and the
+    first one is shown at launch;
+  - the colormap: Blues, Reds or RdBu_r. Switching Color by resets it to that source's default
+    (Blues for distinguishability, RdBu_r for features);
   - the numbering offset (structure residue = score position + offset).
 
   Its ⓘ button opens a summary of the data:
   - the parameters file;
   - the run's source and how it was read;
-  - every batch used, with its number of OvWT rows;
+  - the feature profiles: how many features of each aggregate type, the landmarks and how they
+    were pooled;
+  - every batch used, with its number of OvWT rows and feature-profile variants;
   - variant counts by class;
   - each structure's file, chain, residues, pLDDT detection and offset;
   - the ClinVar source, release and counts, and the region tracks;
@@ -77,8 +100,9 @@ An unknown key, a wrong type, a region whose start is after its end, or a missin
   ☾/☀ switches between light and dark (remembered by the browser; the first visit follows the
   system setting).
 - **Structure** (left), with its controls below it:
-  - the aggregation per position: median, mean, min, max, or the fraction of variants scoring
-    above a deleterious threshold;
+  - the aggregation per position: median, mean, min, max, or the fraction of variants above a
+    deleterious threshold. For features this is the fraction with |z| above it, since a
+    feature can deviate either way (default 2; 0.6 for an AUROC);
   - the variant classes aggregated (single missense by default; nonsense and synonymous
     optional);
   - the structure's color range;
@@ -103,10 +127,11 @@ An unknown key, a wrong type, a region whose start is after its end, or a missin
   sets the cell width, keeping the residue in the middle of the view in place. Next to the zoom
   slider is the map's own color range.
 
-The colors are those of the variant-effect notebooks
-(`fb.VariantEffectMap(cmap="Blues", vmin=0.5, vmax=1.0)`), with gray (`"0.6"`) for no score. The
-structure and the map each have a color range, defaulting to 0.5–1.0. The fraction-deleterious
-aggregation defaults to 0–1.
+The default colors are those of the variant-effect notebooks: for distinguishability
+`fb.VariantEffectMap(cmap="Blues", vmin=0.5, vmax=1.0)`, and for features the landmark plots'
+`cmap="RdBu_r", center=0, clip=3`. Gray (`"0.6"`) means no value. The structure and the map
+each have a color range, defaulting to 0.5–1.0 for scores and −3 to 3 for feature z-scores.
+The fraction-deleterious aggregation defaults to 0–1.
 
 Linking:
 - clicking a map cell selects its residue in the structure and zooms to it;
@@ -128,6 +153,7 @@ it with the reason.
 | `--layout`, `--track` | detected, `embeddings` | which pipeline wrote the run, and which embeddings-pipeline track to read |
 | `--batches`, `--exclude` | all | which batches to read |
 | `--variant-col` | `meta_aa_changes` | variant label column |
+| `--gene` | | a `fisseqborn.genes` gene (e.g. `LMNA`) whose landmark features are listed first |
 | `--cache`, `--refresh` | | for remote runs, as in fisseqborn |
 | `--chain` | first protein chain | chain to color |
 | `--offset` | 0 | initial numbering offset (also adjustable in the app) |
@@ -144,8 +170,11 @@ it with the reason.
 - A ClinVar table that can't be read logs a warning and leaves the ClinVar markers out. Its
   calls are matched with `fisseqborn.Dataset.clinvar`, offline unless `conditions: true` (NCBI)
   or no path is given (`gene`'s calls from gnomAD).
-- A run without OvWT outputs logs a warning. The app still serves the structure, in gray, without
-  the score controls or the map, and says so in the warnings dialog.
+- A run without OvWT outputs logs a warning and says so in the warnings dialog. With feature
+  profiles, the app colors by feature only. Without them either, it still serves the
+  structure, in gray, without the score controls or the map.
+- A run without feature-selection aggregates colors by distinguishability only. An unknown
+  `gene` stops the launch.
 - If no scored position falls on the structure's residues, the app exits with both residue
   ranges and points at `--offset`. The same applies when over 10% of the wild-type residues in
   the variant labels (`A12V` → `A`) disagree with the structure. In the app, the same problems

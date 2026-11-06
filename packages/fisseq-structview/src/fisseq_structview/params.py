@@ -67,6 +67,8 @@ class Params:
     batches: tuple[str, ...] | None = None
     exclude: tuple[str, ...] | None = None
     variant_col: str = "meta_aa_changes"
+    #: A `fisseqborn.genes` gene whose landmark features are listed first.
+    gene: str | None = None
     cache: bool | str = False
     refresh: bool = False
     chain: str | None = None
@@ -349,6 +351,7 @@ def merge(
         batches=_str_list(values.get("batches"), f"{where}: batches"),
         exclude=_str_list(values.get("exclude"), f"{where}: exclude"),
         variant_col=str(values.get("variant_col", "meta_aa_changes")),
+        gene=_optional_str(values.get("gene"), f"{where}: gene"),
         cache=cache,
         refresh=_bool(values.get("refresh", False), f"{where}: refresh"),
         chain=None if chain is None else str(chain),

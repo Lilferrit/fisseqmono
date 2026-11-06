@@ -1,12 +1,13 @@
-"""``fisseq-structview``: serve a run's distinguishability scores on one or more structures.
+"""``fisseq-structview``: serve a run's distinguishability scores and feature profiles on one
+or more structures.
 
     fisseq-structview parameters.yaml [--port 8051 ...]     (or --params parameters.yaml)
     fisseq-structview <pipeline_dir> --structure model_a.cif model_b.pdb [--port 8050]
 
 Launch parameters come from a YAML file (`params`), and any flag given overrides the file's
-value. The run's OvWT scores are read and pooled at launch (see `data`); the score,
-aggregation and the rest are chosen in the browser. A run without OvWT outputs still serves
-the structures, gray, with a warning.
+value. The run's OvWT scores and, if it has them, its feature profiles are read and pooled at
+launch (see `data`); the score or feature, aggregation and the rest are chosen in the browser.
+A run with neither still serves the structures, gray, with a warning.
 """
 
 import argparse
@@ -16,7 +17,7 @@ import sys
 from collections.abc import Sequence
 
 from .app import ViewSettings, create_app
-from .data import load_clinvar, load_distinguishability
+from .data import load_clinvar, load_distinguishability, load_features
 from .mapping import MappingError
 from .params import ParamsError, load_params, merge, resolve_paths
 from .regions import track
@@ -76,6 +77,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     data.add_argument(
         "--variant-col", help="variant label column (default: meta_aa_changes)"
+    )
+    data.add_argument(
+        "--gene",
+        help="list this gene's landmark features first (a fisseqborn.genes gene, e.g. LMNA)",
     )
     data.add_argument(
         "--cache",
@@ -176,29 +181,38 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         structures.append(structure)
 
+    read = dict(
+        layout=params.layout,
+        track=params.track,
+        batches=params.batches,
+        exclude=params.exclude,
+        cache=params.cache,
+        refresh=params.refresh,
+        variant_col=params.variant_col,
+    )
     try:
-        run = load_distinguishability(
-            params.pipeline_dir,
-            layout=params.layout,
-            track=params.track,
-            batches=params.batches,
-            exclude=params.exclude,
-            cache=params.cache,
-            refresh=params.refresh,
-            variant_col=params.variant_col,
-        )
+        run = load_distinguishability(params.pipeline_dir, **read)
     except ValueError as err:
         parser.exit(2, f"error: {err}\n")
+    try:
+        features = load_features(params.pipeline_dir, gene=params.gene, **read)
+    except ValueError as err:
+        where = f"{params.source}: gene" if params.source else "--gene"
+        parser.exit(2, f"error: {where}: {err}\n")
     notes = []
     if run is None:
         notes.append(
-            f"No distinguishability (OvWT) scores found in {params.pipeline_dir}: "
-            "showing the structure only."
+            f"No distinguishability (OvWT) scores found in {params.pipeline_dir}"
+            + (
+                ": showing the structure only."
+                if features is None
+                else "; coloring by feature only."
+            )
         )
 
     clinvar = None
-    if params.clinvar is not None and run is not None:
-        clinvar = load_clinvar(run, params.clinvar)
+    if params.clinvar is not None and (run or features) is not None:
+        clinvar = load_clinvar(run or features, params.clinvar)
         if clinvar is None:
             notes.append(
                 f"Couldn't read ClinVar calls from {params.clinvar.path or params.clinvar.gene}"
@@ -228,6 +242,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             tracks=tracks,
             clinvar=clinvar,
             params_source=params.source,
+            features=features,
         )
     except MappingError as err:
         parser.exit(2, f"error: {err}\n")

@@ -1,9 +1,15 @@
-"""Load a pipeline run's distinguishability scores once, at launch.
+"""Load a pipeline run's distinguishability scores and feature profiles once, at launch.
 
 `load_distinguishability` reads every batch's OvWT ``results.parquet`` with
 `fisseqborn.OvwtScores.from_pipeline` and pools each score column into one value per variant,
 both batch-corrected (`OvwtScores.correct`, which keeps the AUROC scale) and raw, taking the
-median across batches. The app then only filters and groups these small in-memory tables.
+median across batches.
+
+`load_features` reads every batch's feature-selection aggregates with
+`fisseqborn.Profiles.from_pipeline`, z-scores each batch against its own synonymous variants
+and takes each feature's median across batches.
+
+The app then only filters and groups these in-memory tables.
 """
 
 import logging
@@ -66,6 +72,11 @@ class RunScores:
         """The score columns, in the order the run has them."""
         return list(dict.fromkeys(score for score, _ in self.tables))
 
+    @property
+    def variants(self) -> pl.Series:
+        """Every variant label, sorted."""
+        return self.tables[(self.scores[0], True)][VARIANT].unique().sort()
+
     def table(self, score: str, corrected: bool = True) -> pl.DataFrame:
         """The per-variant table of ``score``."""
         try:
@@ -96,6 +107,18 @@ def score_columns(scores: fb.OvwtScores) -> list[str]:
     return known + [c for c in numeric if c not in known]
 
 
+def _label_columns(variant_col: str) -> list[pl.Expr]:
+    """`VARIANT`, `VARIANT_TYPE`, `POSITION` and `WT` of a table with ``variant_col``,
+    `VARIANT_TYPE` and `POSITION`."""
+    label = pl.col(variant_col)
+    return [
+        label.alias(VARIANT),
+        pl.col(VARIANT_TYPE),
+        pl.col(POSITION),
+        label.str.extract(r"^([A-Z])\d+[A-Z]$", 1).alias(WT),
+    ]
+
+
 def _per_variant(scores: fb.OvwtScores, score: str, corrected: bool) -> pl.DataFrame:
     if corrected:
         pooled = scores.correct(score).per_variant(f"{score}_corrected")
@@ -103,17 +126,12 @@ def _per_variant(scores: fb.OvwtScores, score: str, corrected: bool) -> pl.DataF
     else:
         pooled = scores.per_variant(score)
         value = score
-    variant_col = scores.variant_col
-    label = pl.col(variant_col)
     return (
         pooled.variant_type(output_col=VARIANT_TYPE, control_col=None)
         .position(strict=True, output_col=POSITION)
         .lazy()
         .select(
-            label.alias(VARIANT),
-            pl.col(VARIANT_TYPE),
-            pl.col(POSITION),
-            label.str.extract(r"^([A-Z])\d+[A-Z]$", 1).alias(WT),
+            *_label_columns(scores.variant_col),
             pl.col(value).cast(pl.Float64).fill_nan(None).alias(SCORE),
             pl.col("meta_n_experiments").alias(N_EXPERIMENTS),
         )
@@ -210,6 +228,233 @@ def load_distinguishability(
     )
 
 
+@dataclass(frozen=True)
+class FeatureProfiles:
+    """A run's per-variant feature profiles, z-scored per batch and pooled across batches.
+
+    Attributes
+    ----------
+    source : str
+        The run directory as given.
+    batches : tuple[str, ...]
+        The batches read.
+    wide : pl.DataFrame
+        One row per variant: `VARIANT`, `VARIANT_TYPE`, `POSITION`, `WT`, `N_EXPERIMENTS`
+        and one Float32 column per feature (``<feature>_<type>``, e.g.
+        ``AreaShape_Area_median``), each a z-score against the synonymous variants.
+    features : tuple[str, ...]
+        The feature columns: the gene's landmark features first, then the rest in the run's
+        order.
+    labels : Mapping[str, str]
+        Feature column -> readable name, for the landmark features.
+    batch_rows : Mapping[str, int]
+        Batch -> its number of variants.
+    gene : str | None
+        The gene whose landmark features come first.
+    layout, track, variant_col : str | None
+        How the run was read (``layout`` ``None``: detected).
+    """
+
+    source: str
+    batches: tuple[str, ...]
+    wide: pl.DataFrame = field(repr=False)
+    features: tuple[str, ...] = ()
+    labels: Mapping[str, str] = field(default_factory=dict)
+    batch_rows: Mapping[str, int] = field(default_factory=dict)
+    gene: str | None = None
+    layout: str | None = None
+    track: str | None = None
+    variant_col: str | None = None
+
+    @property
+    def landmarks(self) -> list[str]:
+        """The landmark feature columns, in `features` order."""
+        return [f for f in self.features if f in self.labels]
+
+    @property
+    def types(self) -> dict[str, int]:
+        """Aggregate type (the column suffix, e.g. ``median``) -> its number of features."""
+        counts: dict[str, int] = {}
+        for f in self.features:
+            kind = f.rpartition("_")[2]
+            counts[kind] = counts.get(kind, 0) + 1
+        return counts
+
+    @property
+    def variants(self) -> pl.Series:
+        """Every variant label, sorted."""
+        return self.wide[VARIANT].unique().sort()
+
+    def label(self, feature: str) -> str:
+        """The feature's readable name, else its column name."""
+        return self.labels.get(feature, feature)
+
+    def table(self, feature: str) -> pl.DataFrame:
+        """The per-variant table of ``feature``, with the columns of `RunScores.table`."""
+        if feature not in self.features:
+            raise ValueError(f"No feature {feature!r} in {self.source}")
+        return self.wide.select(
+            VARIANT,
+            VARIANT_TYPE,
+            POSITION,
+            WT,
+            pl.col(feature).cast(pl.Float64).fill_nan(None).alias(SCORE),
+            N_EXPERIMENTS,
+        )
+
+
+def landmark_columns(columns: Sequence[str], gene: str | None) -> dict[str, str]:
+    """Column -> readable name of ``gene``'s landmark features among ``columns``: each
+    landmark key's ``<key>_<type>`` columns, in the gene's order (``median`` first), named
+    ``"<name> (<type>)"``.
+
+    Raises
+    ------
+    ValueError
+        If ``gene`` isn't a gene `fisseqborn.genes.resolve` knows.
+    """
+    if gene is None:
+        return {}
+    from fisseqborn import genes
+
+    landmarks = genes.resolve(gene).landmark_features or {}
+    out: dict[str, str] = {}
+    for key, name in landmarks.items():
+        prefix = f"{key}_"
+        matches = [
+            (col, col[len(prefix) :])
+            for col in columns
+            if col.startswith(prefix) and col[len(prefix) :].isalnum()
+        ]
+        # The median (what the notebooks plot) first, then the run's order.
+        matches.sort(key=lambda m: m[1] != "median")
+        out.update((col, f"{name} ({kind})") for col, kind in matches)
+    return out
+
+
+def load_features(
+    run_dir: "str | PathLike[str]",
+    *,
+    layout: str | None = None,
+    track: str = "embeddings",
+    batches: Sequence[str] | None = None,
+    exclude: Sequence[str] | None = None,
+    cache: "bool | str | PathLike[str]" = False,
+    refresh: bool = False,
+    variant_col: str = "meta_aa_changes",
+    gene: str | None = None,
+) -> FeatureProfiles | None:
+    """Read, z-score and pool a run's feature profiles; ``None`` if the run has none.
+
+    Every aggregate type the run wrote (``feature_select_batchwise/<batch>/aggregates/
+    <type>.parquet``) is read with `fisseqborn.Profiles.from_pipeline`, each batch is
+    z-scored against its own synonymous variants (``normalize(by=<batch>)``) and each
+    feature's median is taken across batches (``median_across_batches``). Features without
+    any value are dropped.
+
+    Parameters
+    ----------
+    run_dir : str | PathLike
+        A pipeline output directory, or ``"user@host:/path"`` for a remote one.
+    layout, track, batches, exclude, cache, refresh, variant_col
+        Passed to `fisseqborn.Profiles.from_pipeline`.
+    gene : str | None
+        A gene of `fisseqborn.genes` whose landmark features are listed first.
+
+    Raises
+    ------
+    ValueError
+        If ``gene`` is unknown.
+    """
+    landmark_columns([], gene)  # an unknown gene fails before the slow read
+    try:
+        profiles = fb.Profiles.from_pipeline(
+            run_dir,
+            types=None,
+            layout=layout,
+            track=track,
+            batches=batches,
+            exclude=exclude,
+            cache=cache,
+            refresh=refresh,
+            variant_col=variant_col,
+        )
+        columns = profiles.columns
+    except FileNotFoundError as err:
+        logger.info("No feature profiles in %s (%s)", run_dir, err)
+        return None
+    if variant_col not in columns:
+        logger.warning(
+            "The feature aggregates in %s have no %r column (pass --variant-col); "
+            "feature coloring is off",
+            run_dir,
+            variant_col,
+        )
+        return None
+    if not profiles.values:
+        logger.warning(
+            "The feature aggregates in %s have no feature columns; feature coloring is off",
+            run_dir,
+        )
+        return None
+    counts = (
+        profiles.lazy()
+        .group_by(profiles.batch_col, maintain_order=True)
+        .len()
+        .collect()
+        .rows()
+    )
+    pooled = (
+        profiles.variant_type().normalize(by=profiles.batch_col).median_across_batches()
+    )
+    values = pooled.values  # before adding the (non-meta_) label columns
+    pooled = pooled.variant_type(output_col=VARIANT_TYPE, control_col=None).position(
+        strict=True, output_col=POSITION
+    )
+    wide = (
+        pooled.lazy()
+        .select(
+            *_label_columns(variant_col),
+            pl.col("meta_n_experiments").alias(N_EXPERIMENTS),
+            *(pl.col(c).cast(pl.Float32).fill_nan(None).alias(c) for c in values),
+        )
+        .collect()
+    )
+    empty = [c for c in values if wide[c].null_count() == wide.height]
+    if empty:
+        logger.info("Dropping %d features without any value", len(empty))
+        wide = wide.drop(empty)
+    kept = [c for c in values if c not in set(empty)]
+    if not kept:
+        logger.warning(
+            "No feature in %s has a value after pooling; feature coloring is off",
+            run_dir,
+        )
+        return None
+    labels = landmark_columns(kept, gene)
+    features = (*labels, *(c for c in kept if c not in labels))
+    batch_names = tuple(batch for batch, _ in counts)
+    logger.info(
+        "Loaded %d features for %d variants from %d batches of %s",
+        len(features),
+        wide.height,
+        len(batch_names),
+        run_dir,
+    )
+    return FeatureProfiles(
+        source=str(run_dir),
+        batches=batch_names,
+        wide=wide,
+        features=features,
+        labels=labels,
+        batch_rows=dict(counts),
+        gene=gene,
+        layout=layout,
+        track=track,
+        variant_col=variant_col,
+    )
+
+
 #: Columns of `load_clinvar`'s table.
 CLINVAR_CLASS = "clinvar_class"
 SIGNIFICANCE = "clinical_significance"
@@ -245,12 +490,14 @@ class ClinvarCalls:
     release: str | None
 
 
-def load_clinvar(run: RunScores, spec: "ClinvarSpec") -> ClinvarCalls | None:
-    """ClinVar calls for ``run``'s variants via `fisseqborn.Dataset.clinvar`; ``None``
-    (with a warning) if they can't be read."""
+def load_clinvar(
+    run: "RunScores | FeatureProfiles", spec: "ClinvarSpec"
+) -> ClinvarCalls | None:
+    """ClinVar calls for ``run``'s variants (its scores' or its features') via
+    `fisseqborn.Dataset.clinvar`; ``None`` (with a warning) if they can't be read."""
     import fisseqborn.fisseq as fisseq
 
-    labels = run.table(run.scores[0], True)[VARIANT].unique().sort()
+    labels = run.variants
     source = str(spec.path) if spec.path is not None else f"gnomAD ({spec.gene})"
     try:
         annotated = (

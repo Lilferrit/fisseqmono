@@ -11,15 +11,18 @@ from fisseq_structview.app import (
     coloring_key,
     compute_view,
     create_app,
+    feature_options,
     link_residue,
     map_figures,
     map_title,
 )
-from fisseq_structview.colors import MISSING_GRAY
+from fisseq_structview.colors import MISSING_GRAY, bin_colors
 from fisseq_structview.data import (
     CLINVAR_CLASSES,
     ClinvarCalls,
+    FeatureProfiles,
     load_distinguishability,
+    load_features,
 )
 from fisseq_structview.mapping import MappingError
 from fisseq_structview.structure import load_structure
@@ -256,3 +259,136 @@ def test_clinvar_sites_on_the_structure_only_when_toggled(run, structure):
         4: CLINVAR_CLASSES["pathogenic"][1]
     }
     assert coloring_key(on.viewer_data) != coloring_key(off.viewer_data)
+
+
+@pytest.fixture
+def both(feature_run_dir):
+    return load_distinguishability(feature_run_dir), load_features(feature_run_dir)
+
+
+def test_feature_view_is_diverging_around_zero(both, structure):
+    run, features = both
+    s = ViewSettings(source="features", feature="Area_median")
+    assert s.colormap == "RdBu_r" and s.threshold_value == 2.0
+    assert s.map_range == (-3.0, 3.0) and s.structure_range == (-3.0, 3.0)
+    view = compute_view(run, structure, s, features=features)
+    rdbu = bin_colors(colorscale="RdBu_r")
+    colors = _colors(view)
+    assert colors[4] == int(rdbu[-1].lstrip("#"), 16)  # A4V: z 28, clipped at +3
+    assert view.label == "Area_median (z)"
+    fig, _, bar = map_figures(view, s, structure)
+    assert fig.data[0].colorscale == go_scale("RdBu_r")
+    assert "z = " in "".join(t for row in fig.data[0].text for t in row)
+    assert bar.data[0].marker.colorbar.title.text == "Area_median (z)"
+
+
+def go_scale(name):
+    import plotly.graph_objects as go
+
+    return go.Heatmap(colorscale=name).colorscale
+
+
+def test_colormap_defaults_per_source_and_can_be_chosen(both, structure):
+    run, features = both
+    assert ViewSettings().colormap == "Blues"
+    assert ViewSettings(source="features").colormap == "RdBu_r"
+    s = ViewSettings(score="auroc_median_fold", colorscale="Reds")
+    view = compute_view(run, structure, s, features=features)
+    reds = bin_colors(colorscale="Reds")
+    assert set(_colors(view).values()) - {int(MISSING_GRAY.lstrip("#"), 16)} <= {
+        int(c.lstrip("#"), 16) for c in reds
+    }
+    fig, _, bar = map_figures(view, s, structure)
+    assert fig.data[0].colorscale == go_scale("Reds")
+    assert bar.data[0].marker.colorscale == go_scale("Reds")
+
+
+def test_app_with_features_only(feature_run_dir, structure):
+    features = load_features(feature_run_dir)
+    app = create_app(None, structure, features=features)
+    assert {"plot", "feature", "source", "colorscale", "score"} <= _ids(app.layout)
+    assert _by_id(app.layout, "source").value == "features"
+    assert _by_id(app.layout, "source-item").style == {"display": "none"}
+    assert _by_id(app.layout, "score-item").style == {"display": "none"}
+    assert _by_id(app.layout, "feature-item").style == {}
+    assert _by_id(app.layout, "feature").value == features.features[0]
+    assert _by_id(app.layout, "colorscale").value == "RdBu_r"
+    assert _by_id(app.layout, "threshold").value == 2.0
+    json.dumps(app.layout.to_plotly_json(), default=str)
+
+
+def test_app_with_both_sources(both, structure):
+    run, features = both
+    app = create_app(run, structure, features=features)
+    assert _by_id(app.layout, "source-item").style == {}
+    assert _by_id(app.layout, "source").value == "ovwt"
+    assert _by_id(app.layout, "feature-item").style == {"display": "none"}
+    assert _by_id(app.layout, "colorscale").value == "Blues"
+    options = _by_id(app.layout, "feature").options
+    assert [o["value"] for o in options] == list(features.features)
+
+
+@pytest.fixture
+def many_features():
+    features = (
+        "Lamin_Intensity_median",
+        *(f"Nuclei_Texture_{i}_median" for i in range(300)),
+    )
+    wide = pl.DataFrame(
+        {
+            "variant": ["M1V"],
+            "variant_type": ["Single Missense"],
+            "position": [1],
+            "wt": ["M"],
+            "n_experiments": [1],
+            **{f: [0.5] for f in features},
+        }
+    )
+    return FeatureProfiles(
+        source="run",
+        batches=(),
+        wide=wide,
+        features=features,
+        labels={"Lamin_Intensity_median": "Lamin A intensity (median)"},
+    )
+
+
+def test_feature_options_are_capped_with_landmarks_first(many_features):
+    options = feature_options(many_features, limit=50)
+    assert len(options) == 50
+    assert options[0] == {
+        "label": "Lamin A intensity (median)",
+        "value": "Lamin_Intensity_median",
+        "search": "Lamin A intensity (median) Lamin_Intensity_median",
+    }
+    assert options[1] == {
+        "label": "Nuclei_Texture_0_median",
+        "value": "Nuclei_Texture_0_median",
+    }
+
+
+def test_feature_options_search_every_word_of_name_or_column(many_features):
+    def values(search, value=None):
+        return [o["value"] for o in feature_options(many_features, search, value)]
+
+    assert values("lamin A") == ["Lamin_Intensity_median"]
+    assert values("intensity_MEDIAN") == ["Lamin_Intensity_median"]
+    assert values("texture 29") == [
+        f"Nuclei_Texture_{i}_median" for i in range(300) if "29" in str(i)
+    ]
+    assert values("nothing") == []
+    # The selected feature stays, so the dropdown doesn't clear it.
+    assert values("lamin", "Nuclei_Texture_299_median") == [
+        "Lamin_Intensity_median",
+        "Nuclei_Texture_299_median",
+    ]
+    assert values(None, "Nuclei_Texture_299_median")[-1] == "Nuclei_Texture_299_median"
+    assert len(values("")) == 100
+    assert feature_options(None, "x") == []
+
+
+def test_feature_dropdown_starts_with_at_most_the_limit(many_features, structure):
+    app = create_app(None, structure, features=many_features)
+    dropdown = _by_id(app.layout, "feature")
+    assert len(dropdown.options) == 100
+    assert dropdown.labels == {"search": "Search 301 features"}

@@ -29,6 +29,9 @@ DEFAULT_TYPES: tuple[str, ...] = ("Single Missense",)
 #: Default score above which a variant counts as deleterious: an AUROC this far above 0.5.
 DEFAULT_THRESHOLD = 0.6
 
+#: Default |z| above which a variant counts as deleterious, for feature z-scores.
+DEFAULT_FEATURE_THRESHOLD = 2.0
+
 #: Columns of `per_position`'s output.
 RESIDUE = "residue"
 VALUE = "value"
@@ -50,7 +53,7 @@ def apply_offset(df: pl.DataFrame, offset: int) -> pl.DataFrame:
     return df.with_columns((pl.col(POSITION) + int(offset)).alias(RESIDUE))
 
 
-def _method_expr(method: str, threshold: float) -> pl.Expr:
+def _method_expr(method: str, threshold: float, absolute: bool = False) -> pl.Expr:
     score = pl.col(SCORE)
     match method:
         case "median":
@@ -62,12 +65,15 @@ def _method_expr(method: str, threshold: float) -> pl.Expr:
         case "max":
             return score.max()
         case "frac_deleterious":
-            return (score > threshold).mean()
+            return ((score.abs() if absolute else score) > threshold).mean()
     raise ValueError(f"Unknown aggregation {method!r}; choose from {list(METHODS)}")
 
 
 def per_position(
-    df: pl.DataFrame, method: str = DEFAULT_METHOD, threshold: float = DEFAULT_THRESHOLD
+    df: pl.DataFrame,
+    method: str = DEFAULT_METHOD,
+    threshold: float = DEFAULT_THRESHOLD,
+    absolute: bool = False,
 ) -> pl.DataFrame:
     """One row per residue with a score, sorted by residue.
 
@@ -82,6 +88,8 @@ def per_position(
         type).
     threshold : float
         The deleterious threshold.
+    absolute : bool
+        Compare ``|score|`` with ``threshold`` (feature z-scores, which deviate either way).
 
     Returns
     -------
@@ -90,7 +98,7 @@ def per_position(
         disagree), `VALUE`, `N_VARIANTS` and `DETAILS` (``"A12V 0.731"`` per variant, best
         first).
     """
-    agg = _method_expr(method, threshold)
+    agg = _method_expr(method, threshold, absolute)
     return (
         df.filter(pl.col(RESIDUE).is_not_null() & pl.col(SCORE).is_not_null())
         .sort(SCORE, descending=True)
