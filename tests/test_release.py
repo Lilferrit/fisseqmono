@@ -34,27 +34,30 @@ def _versions(root: Path) -> set[str]:
     }
 
 
-def _url_tags(root: Path) -> list[str]:
+def _url_tags(root: Path, package: str = "fisseq-common") -> list[str]:
     return [
         tag
         for p in release.pyprojects(root)
         for tag in re.findall(
-            r"fisseqmono@(v[^#]+)#subdirectory=packages/fisseq-common", p.read_text()
+            rf"fisseqmono@(v[^#]+)#subdirectory=packages/{package}\b", p.read_text()
         )
     ]
 
 
 def test_current_versions_agree():
-    """The workspace is released as one version, and every package pins fisseq-common to it."""
+    """The workspace is released as one version, and every package pins fisseq-common (and
+    fisseq-structview fisseqborn) to it."""
     (version,) = _versions(ROOT)
     assert _url_tags(ROOT) == [f"v{version}"] * 3
+    assert _url_tags(ROOT, "fisseqborn") == [f"v{version}"]
 
 
 def test_release_sets_every_version_and_url(workspace):
     changed = release.release("9.8.7", root=workspace, lock=False)
-    assert len(changed) == 5
+    assert len(changed) == 6
     assert _versions(workspace) == {"9.8.7"}
     assert _url_tags(workspace) == ["v9.8.7"] * 3
+    assert _url_tags(workspace, "fisseqborn") == ["v9.8.7"]
     # Only the version and the tags changed.
     for path in release.pyprojects(ROOT):
         before = path.read_text().splitlines()

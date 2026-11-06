@@ -1,0 +1,21 @@
+# fisseq-structview's unit tests, on pull requests that change it or what it depends on
+# (fisseqborn, and fisseq-common under it). It has no integration tests.
+name: fisseq-structview
+
+on:
+  pull_request:
+    paths:
+      - packages/fisseq-structview/**
+      - packages/fisseqborn/**
+      - packages/fisseq-common/**
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/_package.yml
+      - .github/workflows/pkg-fisseq-structview.yml
+  workflow_dispatch:
+
+jobs:
+  tests:
+    uses: ./.github/workflows/_package.yml
+    with:
+      package: fisseq-structview

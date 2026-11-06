@@ -1,6 +1,6 @@
 # AGENTS.md — fisseqmono
 
-One uv workspace, four packages. Each package keeps its own detailed guide; this file covers
+One uv workspace, five packages. Each package keeps its own detailed guide; this file covers
 what spans them.
 
 | Package | Guide |
@@ -9,15 +9,16 @@ what spans them.
 | `packages/fisseq-data-pipeline` | [`packages/fisseq-data-pipeline/AGENTS.md`](packages/fisseq-data-pipeline/AGENTS.md) |
 | `packages/fisseq-embeddings-pipeline` | [`packages/fisseq-embeddings-pipeline/AGENTS.md`](packages/fisseq-embeddings-pipeline/AGENTS.md) |
 | `packages/fisseqborn` | [`packages/fisseqborn/README.md`](packages/fisseqborn/README.md) and `docs/fisseqborn/` |
+| `packages/fisseq-structview` | [`packages/fisseq-structview/README.md`](packages/fisseq-structview/README.md) and `docs/structview/` |
 
-Documentation for all four is one MkDocs site: `mkdocs.yml` and `docs/` at the root
+Documentation for all five is one MkDocs site: `mkdocs.yml` and `docs/` at the root
 (`docs/<package>/`, `docs/common/`, `docs/diff-reports/`).
 
 ## Layout and dependencies
 
 - Python 3.13 only (`>=3.13,<3.14`: Hydra 1.3 crashes on 3.14), pinned by `.python-version`.
   One `uv.lock`, one ruff config (root `pyproject.toml`), one `.pre-commit-config.yaml`.
-- The root is a virtual workspace (not a package). `uv sync` installs its dev group: all four
+- The root is a virtual workspace (not a package). `uv sync` installs its dev group: all five
   packages plus pytest, ruff and pre-commit; `--group docs` adds MkDocs.
 - `fisseq-common`'s base install is polars, pyarrow, numpy. The heavy dependencies
   (scikit-learn, xgboost, hydra, scipy) are its `stages` extra. The pipelines
@@ -25,7 +26,10 @@ Documentation for all four is one MkDocs site: `mkdocs.yml` and `docs/` at the r
   nothing in the base modules may import a `stages` dependency.
 - Every package lists `fisseq-common` by git URL pinned to the release tag, with
   `[tool.uv.sources] fisseq-common = { workspace = true }` so the workspace uses its own copy.
-- A package imports no other workspace package except `fisseq-common`.
+- A package imports no other workspace package except `fisseq-common`. One exception:
+  `fisseq-structview` (a Dash app over a run's outputs) reads them through fisseqborn, which it
+  lists the same way (git URL pinned to the tag, plus a workspace source). Nothing may depend
+  on fisseq-structview.
 
 ## Shared code (fisseq-common)
 
@@ -105,5 +109,5 @@ workflow" button), so run them locally before merging.
 ## Releases
 
 One version for the whole workspace. `uv run python scripts/release.py X.Y.Z` sets it in the
-five `pyproject.toml` files and the three `fisseq-common` git URLs, then runs `uv lock`;
-commit and tag `vX.Y.Z`.
+six `pyproject.toml` files, the three `fisseq-common` git URLs and fisseq-structview's
+`fisseqborn` one, then runs `uv lock`; commit and tag `vX.Y.Z`.

@@ -1,6 +1,6 @@
 # One documentation site for the fisseqmono workspace: uv run --group docs mkdocs build --strict
 site_name: FISSEQ
-site_description: fisseq-common, fisseq-data-pipeline, fisseq-embeddings-pipeline and fisseqborn
+site_description: fisseq-common, fisseq-data-pipeline, fisseq-embeddings-pipeline, fisseqborn and fisseq-structview
 repo_url: https://github.com/Lilferrit/fisseqmono
 repo_name: Lilferrit/fisseqmono
 nav:
@@ -70,6 +70,7 @@ nav:
     - Volcano plots: fisseqborn/plots/volcano.md
     - Calibration: fisseqborn/plots/calibration.md
   - API reference: fisseqborn/api.md
+- fisseq-structview: structview/index.md
 - Diff reports:
   - About: diff-reports/README.md
   - 01 Metadata counts: diff-reports/01-metadata-counts.md
