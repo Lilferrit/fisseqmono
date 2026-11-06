@@ -2,11 +2,11 @@
 
     uv run python scripts/release.py 2.1.0
 
-Sets ``version`` in the root pyproject.toml and the four packages', and points the three
+Sets ``version`` in the root pyproject.toml and the five packages', and points the three
 packages' ``fisseq-common @ git+https://github.com/Lilferrit/fisseqmono@vX.Y.Z#...`` dependency
-at the new tag, then runs ``uv lock``. Commit the result and tag it ``vX.Y.Z``: the git URLs
-(used when a package is installed outside the workspace) then resolve to that commit.
-``--no-lock`` skips ``uv lock``.
+(and fisseq-structview's ``fisseqborn`` one) at the new tag, then runs ``uv lock``. Commit
+the result and tag it ``vX.Y.Z``: the git URLs (used when a package is installed outside the
+workspace) then resolve to that commit. ``--no-lock`` skips ``uv lock``.
 """
 
 from __future__ import annotations
@@ -23,14 +23,17 @@ PACKAGES = (
     "fisseq-data-pipeline",
     "fisseq-embeddings-pipeline",
     "fisseqborn",
+    "fisseq-structview",
 )
 
 _VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 #: ``version = "..."`` in the [project] table (the first one in the file).
 _PROJECT_VERSION = re.compile(r'^(version\s*=\s*")[^"]*(")', re.M)
-#: The tag in a fisseq-common git URL.
-_COMMON_URL = re.compile(
-    r"(github\.com/Lilferrit/fisseqmono@)v[^#\"]+(#subdirectory=packages/fisseq-common)"
+#: The tag in a git URL of a workspace package (fisseq-common, or fisseqborn for
+#: fisseq-structview).
+_WORKSPACE_URL = re.compile(
+    r"(github\.com/Lilferrit/fisseqmono@)v[^#\"]+"
+    r"(#subdirectory=packages/(?:fisseq-common|fisseqborn))"
 )
 
 
@@ -43,11 +46,11 @@ def pyprojects(root: Path = ROOT) -> list[Path]:
 
 
 def set_version(text: str, version: str) -> str:
-    """``text`` (a pyproject.toml) with its project version and fisseq-common URL tag set."""
+    """``text`` (a pyproject.toml) with its project version and workspace URL tags set."""
     text, n = _PROJECT_VERSION.subn(rf"\g<1>{version}\g<2>", text, count=1)
     if n != 1:
         raise ValueError('no `version = "..."` line')
-    return _COMMON_URL.sub(rf"\g<1>v{version}\g<2>", text)
+    return _WORKSPACE_URL.sub(rf"\g<1>v{version}\g<2>", text)
 
 
 def release(version: str, root: Path = ROOT, lock: bool = True) -> list[Path]:

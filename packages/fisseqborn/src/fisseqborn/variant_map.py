@@ -25,9 +25,10 @@ from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Colormap, to_rgb
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
+from matplotlib.patches import Polygon, Rectangle
 from matplotlib.ticker import MaxNLocator
 
-from . import _data, _variants, fisseq
+from . import _data, _variants, fisseq, genes
 from ._base import FigurePlot, config
 
 # Layout sizes, in inches. Landscape: positions run left to right and the panels stack
@@ -35,6 +36,8 @@ from ._base import FigurePlot, config
 _CELL = 0.12  # one heatmap cell (a position by an amino acid)
 _REGIONS_H = 0.2
 _REGIONS_GAP = 0.04
+_TRACK_GAP = 0.03  # between stacked region bars
+_STRIPE = 0.035  # width of one stripe where regions overlap
 _MEAN_H = 0.6
 _MEAN_GAP = 0.06
 _MARGINAL_W = 1.0
@@ -62,20 +65,59 @@ class VariantEffectMapAxes:
     Attributes
     ----------
     heatmaps : list[Axes]
-    regions, means, marginals : list[Axes]
-        The region bars, position-mean lines and per-amino-acid strips; empty when that
-        panel is turned off.
+    regions : list[list[Axes]]
+        Each row's region bars, in track order; empty when there are no regions.
+    means, marginals : list[Axes]
+        The position-mean lines and per-amino-acid strips; empty when that panel is
+        turned off.
     colorbar : Axes
     positions : list[tuple[int, int]]
         Each row's inclusive ``(first, last)`` position range.
     """
 
     heatmaps: list[Axes]
-    regions: list[Axes]
+    regions: list[list[Axes]]
     means: list[Axes]
     marginals: list[Axes]
     colorbar: Axes
     positions: list[tuple[int, int]]
+
+
+@dataclasses.dataclass(frozen=True)
+class RegionTrack:
+    """One region bar of a `VariantEffectMap`; pass several to stack them.
+
+    >>> fb.VariantEffectMap(profiles, feature, regions=[
+    ...     fb.RegionTrack(fb.genes.LMNA.domains, label="domain"),
+    ...     fb.RegionTrack({t: (a, b) for t, a, b in fb.genes.LMNA.tiles},
+    ...                    label="tile", palette="Set2"),
+    ... ], mean_regions="tile")
+
+    Attributes
+    ----------
+    regions : Mapping[str, tuple[int, int]]
+        Name -> inclusive ``(first, last)`` position range. Positions in several regions
+        are striped in all their colors.
+    label : str | None
+        Drawn at the start of the bar (left of it; above it in portrait).
+    palette : mapping | str | list | None
+        Colors for the region names. Default: the fisseq palette if it covers every name,
+        else seaborn's default.
+    """
+
+    regions: Mapping[str, tuple[int, int]]
+    label: str | None = None
+    palette: Mapping[Any, Any] | str | Sequence[Any] | None = None
+
+    def __post_init__(self) -> None:
+        if not self.regions:
+            raise ValueError("a RegionTrack needs at least one region")
+        for name, (first, last) in self.regions.items():
+            if first > last:
+                raise ValueError(
+                    f"region {name!r} must be (first, last), got ({first}, {last})"
+                )
+        object.__setattr__(self, "regions", dict(self.regions))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -126,11 +168,20 @@ class VariantEffectMap(FigurePlot):
         ``"portrait"`` turns the map on its side: positions run down the page, amino
         acids across the top, the region bar on the left and the position means on the
         right.
-    regions : Mapping[str, tuple[int, int]] | None, default `fisseq.LMNA_DOMAIN_REGIONS`
-        Protein regions (name -> inclusive range) drawn as a labelled bar above the
-        heatmap and coloring the position means. When ranges overlap, the first one
-        listed wins. ``None`` hides the bar.
+    gene : Gene | str | None
+        Gene whose ``domains`` are the default ``regions`` (a name picks a built-in gene).
+    regions : Mapping[str, tuple[int, int]] | RegionTrack | Sequence[RegionTrack] | None
+        Protein regions drawn as bars above the heatmap (left of it in portrait), naming
+        each region and coloring the position means. A mapping (name -> inclusive range)
+        is one bar; a list of `RegionTrack` objects stacks several, e.g. domains and
+        tiles, each with its own label and palette. Positions in several regions of a bar
+        are striped in all their colors (their mean points split between the first two).
+        Default: ``gene.domains``; with neither, no bar.
     region_palette : mapping | str | list | None
+        Colors of a ``regions`` mapping; a `RegionTrack` carries its own ``palette``.
+    mean_regions : str | int | None
+        The bar, by `RegionTrack` label or index, whose regions color the position-mean
+        points. Default: the first.
     position_mean : bool, default True
         Draw the mean of each position's non-synonymous substitutions below the heatmap.
     marginal : bool, default False
@@ -158,8 +209,13 @@ class VariantEffectMap(FigurePlot):
         positions: tuple[int, int] | None = None,
         positions_per_row: int | None = None,
         orientation: str = "landscape",
-        regions: Mapping[str, tuple[int, int]] | None = fisseq.LMNA_DOMAIN_REGIONS,
+        gene: genes.Gene | str | None = None,
+        regions: Mapping[str, tuple[int, int]]
+        | RegionTrack
+        | Sequence[RegionTrack]
+        | None = None,
         region_palette: Mapping[Any, Any] | str | Sequence[Any] | None = None,
+        mean_regions: str | int | None = None,
         position_mean: bool = True,
         marginal: bool = False,
         cmap: str | Colormap = "RdBu_r",
@@ -222,12 +278,15 @@ class VariantEffectMap(FigurePlot):
         self.positions_per_row = positions_per_row
         self.orientation = orientation
 
-        self.regions = dict(regions) if regions is not None else None
-        self.region_palette = (
-            _data.resolve_palette(list(self.regions), region_palette)
-            if self.regions
-            else None
-        )
+        if regions is None and gene is not None:
+            regions = genes.resolve(gene).domains
+        tracks, self.regions = self._region_tracks(regions, region_palette)
+        #: The region bars, in drawing order.
+        self.region_tracks = tracks
+        self._track_palettes = [
+            _data.resolve_palette(list(t.regions), t.palette) for t in tracks
+        ]
+        self._mean_track = self._pick_track(mean_regions)
         self.position_mean, self.marginal = position_mean, marginal
         self.cmap = mpl.colormaps[cmap] if isinstance(cmap, str) else cmap
         self.vmin, self.vmax, self.center, self.clip = vmin, vmax, center, clip
@@ -235,6 +294,54 @@ class VariantEffectMap(FigurePlot):
         self.wild_type_marker = wild_type_marker
         self.cbar_label = value if cbar_label is None else cbar_label
         self._highlights: list[_Highlight] = []
+
+    @staticmethod
+    def _region_tracks(
+        regions: Any, region_palette: Any
+    ) -> tuple[list[RegionTrack], dict[str, tuple[int, int]] | None]:
+        """The bars of ``regions``, and ``regions`` itself when it is a plain mapping."""
+        if regions is None:
+            return [], None
+        if isinstance(regions, RegionTrack):
+            regions = [regions]
+        if isinstance(regions, Mapping):
+            track = RegionTrack(regions, palette=region_palette)
+            return [track], dict(track.regions)
+        tracks = list(regions)
+        if not all(isinstance(t, RegionTrack) for t in tracks):
+            raise TypeError(
+                "regions must be a mapping of name -> (first, last), a RegionTrack or a "
+                "sequence of RegionTracks"
+            )
+        if region_palette is not None:
+            raise ValueError(
+                "region_palette applies to a regions mapping; give each RegionTrack its "
+                "own palette="
+            )
+        return tracks, None
+
+    def _pick_track(self, mean_regions: str | int | None) -> int | None:
+        """Index of the bar that colors the position means."""
+        if not self.region_tracks:
+            if mean_regions is not None:
+                raise ValueError("mean_regions needs regions")
+            return None
+        if mean_regions is None:
+            return 0
+        if isinstance(mean_regions, int):
+            if not 0 <= mean_regions < len(self.region_tracks):
+                raise ValueError(
+                    f"mean_regions={mean_regions} is out of range for "
+                    f"{len(self.region_tracks)} region bars"
+                )
+            return mean_regions
+        labels = [t.label for t in self.region_tracks]
+        if labels.count(mean_regions) != 1:
+            raise ValueError(
+                f"mean_regions={mean_regions!r} must name exactly one RegionTrack; "
+                f"labels: {labels}"
+            )
+        return labels.index(mean_regions)
 
     # ----- layers ---------------------------------------------------------------------
 
@@ -352,11 +459,27 @@ class VariantEffectMap(FigurePlot):
         )
         return cells, colors
 
-    def _region_of(self, position: int) -> str | None:
-        for name, (lo, hi) in (self.regions or {}).items():
-            if lo <= position <= hi:
-                return name
-        return None
+    def _regions_at(self, position: int, track: int) -> list[str]:
+        """Every region of bar ``track`` covering ``position``, in the order listed."""
+        return [
+            name
+            for name, (lo, hi) in self.region_tracks[track].regions.items()
+            if lo <= position <= hi
+        ]
+
+    def _runs(
+        self, lo: int, hi: int, track: int
+    ) -> list[tuple[int, int, tuple[str, ...]]]:
+        """``(first, last, regions)`` runs of consecutive positions in ``lo..hi`` covered
+        by the same regions of bar ``track`` (uncovered runs left out)."""
+        runs: list[tuple[int, int, tuple[str, ...]]] = []
+        for p in range(lo, hi + 1):
+            names = tuple(self._regions_at(p, track))
+            if runs and runs[-1][2] == names and runs[-1][1] == p - 1:
+                runs[-1] = (runs[-1][0], p, names)
+            elif names:
+                runs.append((p, p, names))
+        return runs
 
     def _chunks(self) -> list[tuple[int, int]]:
         first, last = self.positions
@@ -390,7 +513,12 @@ class VariantEffectMap(FigurePlot):
         # --- layout, in inches from the bottom left. "along" is the position direction
         # (a row's length), "across" the stacking of the panels around one heatmap.
         heat_along, heat_across = per_row * _CELL, len(mat.index) * _CELL
-        regions = _REGIONS_H + _REGIONS_GAP if self.regions else 0.0
+        n_tracks = len(self.region_tracks)
+        regions = (
+            n_tracks * _REGIONS_H + (n_tracks - 1) * _TRACK_GAP + _REGIONS_GAP
+            if n_tracks
+            else 0.0
+        )
         means = _MEAN_H + _MEAN_GAP if self.position_mean else 0.0
         strip = regions + heat_across + means
         marginal = _MARGINAL_GAP + _MARGINAL_W if self.marginal else 0.0
@@ -426,11 +554,14 @@ class VariantEffectMap(FigurePlot):
             ax = add(*rect(regions, heat_across, heat_along))
             self._draw_heatmap(ax, mat.loc[:, lo:hi], cmap, norm, wild_type, per_row)
             handle.heatmaps.append(ax)
-            if self.regions:
-                rax = add(*rect(0.0, _REGIONS_H, heat_along))
+            bars = []
+            for k in range(n_tracks):
+                rax = add(*rect(k * (_REGIONS_H + _TRACK_GAP), _REGIONS_H, heat_along))
                 (rax.sharey if self._portrait else rax.sharex)(ax)
-                self._draw_regions(rax, lo, hi)
-                handle.regions.append(rax)
+                self._draw_regions(rax, lo, hi, k)
+                bars.append(rax)
+            if bars:
+                handle.regions.append(bars)
             if position_means is not None:
                 share_ax = handle.means[0] if handle.means else None
                 share = {"sharex" if self._portrait else "sharey": share_ax}
@@ -463,7 +594,7 @@ class VariantEffectMap(FigurePlot):
                 handle.marginals.append(max_)
             self._draw_highlights(ax, lo, hi)
         if self._portrait:
-            label_ax = (handle.regions or handle.heatmaps)[0]
+            label_ax = handle.regions[0][0] if handle.regions else handle.heatmaps[0]
             label_ax.set_ylabel("position", fontsize=_FONTSIZE + 1)
         else:
             bottom = (handle.means or handle.heatmaps)[-1]
@@ -536,7 +667,7 @@ class VariantEffectMap(FigurePlot):
             ax.xaxis.tick_top()
             ax.tick_params(labelsize=_FONTSIZE, length=2, pad=1)
             ax.tick_params(axis="x", length=0)
-            if self.regions:
+            if self.region_tracks:
                 ax.tick_params(axis="y", labelleft=False, length=0)
         else:
             ax.set_xlim(*along)
@@ -549,31 +680,47 @@ class VariantEffectMap(FigurePlot):
             ax.tick_params(labelsize=_FONTSIZE, length=2, pad=1)
             ax.tick_params(axis="y", length=0)
 
-    def _draw_regions(self, ax: Axes, lo: int, hi: int) -> None:
-        assert self.regions is not None and self.region_palette is not None
+    def _draw_regions(self, ax: Axes, lo: int, hi: int, track: int) -> None:
+        palette = self._track_palettes[track]
         if self._portrait:
-            # keep the y axis: it carries the position ticks, outside the bar
+            # the first bar keeps the y axis: it carries the position ticks, outside it
             ax.set_xlim(0, 1)
             ax.xaxis.set_visible(False)
             for spine in ax.spines.values():
                 spine.set_visible(False)
             ax.tick_params(labelsize=_FONTSIZE, length=2, pad=1)
+            if track > 0:
+                ax.tick_params(axis="y", labelleft=False, length=0)
         else:
             ax.set_ylim(0, 1)
             ax.axis("off")
-        claimed: set[int] = set()  # overlapping ranges: the first region listed wins
-        for name, (start, end) in self.regions.items():
-            span = [
-                p for p in range(max(start, lo), min(end, hi) + 1) if p not in claimed
-            ]
-            if not span:
-                continue
-            claimed.update(span)
-            p0, p1 = span[0] - 0.5, span[-1] + 0.5
-            color = self.region_palette[name]
-            (ax.axhspan if self._portrait else ax.axvspan)(
-                p0, p1, color=color, linewidth=0
+        label = self.region_tracks[track].label
+        if label is not None:
+            ax.text(
+                *((0.5, 1.02) if self._portrait else (-0.005, 0.5)),
+                label,
+                transform=ax.transAxes,
+                ha="center" if self._portrait else "right",
+                va="bottom" if self._portrait else "center",
+                rotation=90 if self._portrait else 0,
+                fontsize=_FONTSIZE,
             )
+        runs = self._runs(lo, hi, track)
+        span = ax.axhspan if self._portrait else ax.axvspan
+        for first, last, names in runs:
+            colors = [palette[name] for name in names]
+            span(first - 0.5, last + 0.5, color=colors[0], linewidth=0)
+            if len(colors) > 1:
+                self._draw_stripes(ax, first - 0.5, last + 0.5, colors)
+        # each region's label sits on its longest run of positions no other region shares
+        solo: dict[str, tuple[int, int]] = {}
+        for first, last, names in runs:
+            if len(names) == 1:
+                best = solo.get(names[0])
+                if best is None or last - first > best[1] - best[0]:
+                    solo[names[0]] = (first, last)
+        for name, (first, last) in solo.items():
+            p0, p1 = first - 0.5, last + 0.5
             if (p1 - p0) * _CELL >= len(name) * _FONTSIZE * 0.6 / 72:
                 ax.text(
                     *self._cell_xy((p0 + p1) / 2, 0.5),
@@ -582,24 +729,73 @@ class VariantEffectMap(FigurePlot):
                     va="center",
                     rotation=90 if self._portrait else 0,
                     fontsize=_FONTSIZE,
-                    color=_text_color(color),
+                    color=_text_color(palette[name]),
                 )
+
+    def _draw_stripes(
+        self, ax: Axes, p0: float, p1: float, colors: Sequence[Any]
+    ) -> None:
+        """45-degree stripes cycling through ``colors`` over positions ``p0..p1`` of the
+        region bar (whose first color is already filled in). Worked out in inches so the
+        angle holds whatever the bar's shape; the phase follows the absolute position, so
+        stripes line up across runs and wrapped rows."""
+        band = _STRIPE * np.sqrt(2)  # a stripe's width along the bar
+        u0, u1 = p0 * _CELL, p1 * _CELL
+        clip = Rectangle(
+            self._cell_xy(p0, 0.0),
+            *((1.0, p1 - p0) if self._portrait else (p1 - p0, 1.0)),
+            transform=ax.transData,
+        )
+        for n in range(
+            int(np.floor(u0 / band)), int(np.ceil((u1 + _REGIONS_H) / band))
+        ):
+            if n % len(colors) == 0:
+                continue  # the base fill
+            s = n * band
+            # u + v in [s, s + band], v (across) from 0 to _REGIONS_H
+            corners = [(s, 0), (s + band, 0), (s + band - _REGIONS_H, _REGIONS_H),
+                       (s - _REGIONS_H, _REGIONS_H)]  # fmt: skip
+            xy = [self._cell_xy(u / _CELL, v / _REGIONS_H) for u, v in corners]
+            patch = Polygon(
+                xy, closed=True, facecolor=colors[n % len(colors)], linewidth=0
+            )
+            ax.add_patch(patch)
+            patch.set_clip_path(clip)
 
     def _draw_means(self, ax: Axes, means: pd.Series, lo: int, hi: int) -> None:
         x = means.index.to_numpy()
         y = means.to_numpy()
         ok = np.isfinite(y)
-        if self.region_palette:
-            colors = [
-                self.region_palette.get(self._region_of(int(p)), "black")  # type: ignore[arg-type]
-                for p in x[ok]
-            ]
-        else:
-            colors = ["black"] * int(ok.sum())
+        # a point in several regions is split between the first two's colors
+        k = self._mean_track
+        palette = self._track_palettes[k] if k is not None else {}
+        covering = [
+            [palette[name] for name in self._regions_at(int(p), k)] or ["black"]
+            if k is not None
+            else ["black"]
+            for p in x[ok]
+        ]
+        single = np.array([len(c) == 1 for c in covering], dtype=bool)
+        colors = [c[0] for c, one in zip(covering, single) if one]
         end = hi + 0.5
+        px, py = x[ok], y[ok]
+        for p, v, c in zip(
+            px[~single], py[~single], [c for c in covering if len(c) > 1]
+        ):
+            ax.plot(
+                *((v, p) if self._portrait else (p, v)),
+                linestyle="",
+                marker="o",
+                markersize=np.sqrt(5),
+                markeredgewidth=0,
+                fillstyle="top" if self._portrait else "left",
+                markerfacecolor=c[0],
+                markerfacecoloralt=c[1],
+                zorder=3,
+            )
         if self._portrait:
             ax.plot(y, x, color="black", linewidth=0.7)  # NaNs break the line at gaps
-            ax.scatter(y[ok], x[ok], s=5, c=colors, linewidths=0, zorder=3)
+            ax.scatter(py[single], px[single], s=5, c=colors, linewidths=0, zorder=3)
             ax.vlines(0, lo - 0.5, end, color="0.5", linestyle="--", linewidth=0.6)
             for side in ("left", "right"):
                 ax.spines[side].set_bounds(lo - 0.5, end)
@@ -612,7 +808,7 @@ class VariantEffectMap(FigurePlot):
             ax.set_xlabel("mean", fontsize=_FONTSIZE)
         else:
             ax.plot(x, y, color="black", linewidth=0.7)  # NaNs break the line at gaps
-            ax.scatter(x[ok], y[ok], s=5, c=colors, linewidths=0, zorder=3)
+            ax.scatter(px[single], py[single], s=5, c=colors, linewidths=0, zorder=3)
             ax.hlines(0, lo - 0.5, end, color="0.5", linestyle="--", linewidth=0.6)
             for side in ("top", "bottom"):
                 ax.spines[side].set_bounds(lo - 0.5, end)

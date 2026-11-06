@@ -175,22 +175,6 @@ def impact_score_expr(features: Sequence[str], *, control_col: str) -> pl.Expr:
     return (1 - dot / (norm_a * norm_b)) / 2
 
 
-def pca_noise_floor(
-    x: np.ndarray, explained_variance_ratio: np.ndarray, seed: int
-) -> tuple[int, float]:
-    """Number of components that explain more variance than the first PC of ``x`` with
-    every column shuffled independently (same marginals, no correlation structure), and
-    that noise-floor ratio."""
-    from sklearn.decomposition import PCA
-
-    rng = np.random.default_rng(seed)
-    shuffled = x.copy()
-    for col in range(shuffled.shape[1]):
-        rng.shuffle(shuffled[:, col])
-    noise_floor = PCA(n_components=1).fit(shuffled).explained_variance_ratio_[0]
-    return int(np.sum(explained_variance_ratio > noise_floor)), float(noise_floor)
-
-
 def cluster_labels(
     x: np.ndarray,
     *,

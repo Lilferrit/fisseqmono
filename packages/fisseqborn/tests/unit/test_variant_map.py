@@ -3,6 +3,9 @@ import math
 import numpy as np
 import polars as pl
 import pytest
+from matplotlib.collections import PathCollection
+from matplotlib.colors import to_hex
+from matplotlib.patches import Polygon
 
 import fisseqborn as fb
 from fisseqborn import fisseq
@@ -77,7 +80,7 @@ def test_positions_range_and_wrapping(variants):
     assert list(plot.matrix().columns) == [12, 13, 14, 15, 16]
 
     _, axes = fb.VariantEffectMap(
-        variants, "z", positions_per_row=5, marginal=True
+        variants, "z", gene="LMNA", positions_per_row=5, marginal=True
     ).plot()
     assert len(axes.heatmaps) == math.ceil(12 / 5)
     assert axes.positions == [(10, 14), (15, 19), (20, 21)]
@@ -96,6 +99,116 @@ def test_panels_can_be_turned_off(variants):
     ).plot()
     assert axes.regions == axes.means == axes.marginals == []
     assert len(axes.heatmaps) == 1
+
+
+def _stripes(ax):
+    return [p for p in ax.patches if isinstance(p, Polygon)]
+
+
+@pytest.mark.parametrize("orientation", ["landscape", "portrait"])
+def test_overlapping_regions_are_striped(variants, orientation):
+    regions = {"A": (10, 14), "B": (13, 21)}
+    plot = fb.VariantEffectMap(
+        variants, "z", regions=regions, region_palette=["red", "blue"],
+        orientation=orientation,
+    )  # fmt: skip
+    assert plot._runs(10, 21, 0) == [(10, 12, ("A",)), (13, 14, ("A", "B")),
+                                  (15, 21, ("B",))]  # fmt: skip
+    _, axes = plot.plot()
+    [rax] = axes.regions[0]
+    stripes = _stripes(rax)
+    assert stripes and {to_hex(p.get_facecolor()) for p in stripes} == {"#0000ff"}
+    # every stripe is clipped to the overlap, 12.5..14.5 along the positions
+    along = 1 if orientation == "portrait" else 0
+    for p in stripes:
+        box = p.get_clip_box()  # a Rectangle clip path becomes the clip box
+        data = rax.transData.inverted().transform(box.get_points())[:, along]
+        assert sorted(data) == pytest.approx([12.5, 14.5])
+    # each label sits on its own region's unshared positions
+    labels = {t.get_text(): t.get_position()[along] for t in rax.texts}
+    assert labels == {"A": pytest.approx(11.0), "B": pytest.approx(18.0)}
+    # a mean point in the overlap is split between both colors
+    [split] = [line for line in axes.means[0].lines if line.get_marker() == "o"][:1]
+    assert to_hex(split.get_markerfacecolor()) == "#ff0000"
+    assert to_hex(split.get_markerfacecoloralt()) == "#0000ff"
+
+
+def test_disjoint_regions_have_no_stripes(variants):
+    _, axes = fb.VariantEffectMap(
+        variants, "z", regions={"A": (10, 14), "B": (15, 21)}
+    ).plot()
+    assert _stripes(axes.regions[0][0]) == []
+    assert not [line for line in axes.means[0].lines if line.get_marker() == "o"]
+
+
+def _tracks():
+    return [
+        fb.RegionTrack({"D1": (10, 15), "D2": (16, 21)}, label="domain"),
+        fb.RegionTrack({"T1": (10, 17), "T2": (14, 21)}, label="tile",
+                       palette={"T1": "red", "T2": "blue"}),
+    ]  # fmt: skip
+
+
+def _mean_colors(ax):
+    [points] = [c for c in ax.collections if isinstance(c, PathCollection)]
+    return {to_hex(c) for c in points.get_facecolors()}
+
+
+def test_region_tracks_stack(variants):
+    _, axes = fb.VariantEffectMap(variants, "z", regions=_tracks(),
+                                  positions_per_row=6).plot()  # fmt: skip
+    assert [len(bars) for bars in axes.regions] == [2, 2]
+    for domain, tile in axes.regions:
+        assert _stripes(domain) == []
+        assert _stripes(tile)  # T1 / T2 overlap at 14-17, on both rows
+        assert domain.get_position().y0 > tile.get_position().y1  # stacked downward
+        assert [t.get_text() for t in tile.texts][0] == "tile"
+    # the tile palette is honored; the means default to the first (domain) bar
+    assert {to_hex(p.get_facecolor()) for p in _stripes(axes.regions[0][1])} == {
+        "#0000ff"
+    }
+    assert "#ff0000" not in _mean_colors(axes.means[0])
+
+
+@pytest.mark.parametrize("mean_regions", ["tile", 1])
+def test_mean_regions_picks_the_bar(variants, mean_regions):
+    _, axes = fb.VariantEffectMap(
+        variants, "z", regions=_tracks(), mean_regions=mean_regions
+    ).plot()
+    assert _mean_colors(axes.means[0]) == {"#ff0000", "#0000ff"}
+
+
+def test_region_track_validation(variants):
+    with pytest.raises(ValueError, match="at least one"):
+        fb.RegionTrack({})
+    with pytest.raises(ValueError, match="first, last"):
+        fb.RegionTrack({"A": (5, 2)})
+    with pytest.raises(ValueError, match="exactly one"):
+        fb.VariantEffectMap(variants, "z", regions=_tracks(), mean_regions="nope")
+    with pytest.raises(ValueError, match="out of range"):
+        fb.VariantEffectMap(variants, "z", regions=_tracks(), mean_regions=2)
+    with pytest.raises(ValueError, match="needs regions"):
+        fb.VariantEffectMap(variants, "z", mean_regions=0)
+    with pytest.raises(ValueError, match="own palette"):
+        fb.VariantEffectMap(variants, "z", regions=_tracks(), region_palette="Set2")
+    with pytest.raises(TypeError, match="RegionTrack"):
+        fb.VariantEffectMap(variants, "z", regions=[{"A": (10, 12)}])
+    # a single track, and a plain mapping, are one bar
+    plot = fb.VariantEffectMap(variants, "z", regions=_tracks()[0])
+    assert plot.regions is None and len(plot.region_tracks) == 1
+    plot = fb.VariantEffectMap(variants, "z", regions={"A": (10, 12)})
+    assert plot.regions == {"A": (10, 12)}
+
+
+def test_region_tracks_portrait(variants):
+    _, axes = fb.VariantEffectMap(
+        variants, "z", regions=_tracks(), orientation="portrait"
+    ).plot()
+    [(domain, tile)] = axes.regions
+    assert domain.get_position().x1 < tile.get_position().x0  # left to right
+    assert domain.get_ylabel() == "position"
+    assert any(t.get_visible() and t.get_text() for t in domain.get_yticklabels())
+    assert not tile.yaxis.get_tick_params()["labelleft"]
 
 
 def test_color_scale(variants):
@@ -177,7 +290,9 @@ def test_highlight_hue(variants):
 
 
 def test_portrait(variants):
-    plot = fb.VariantEffectMap(variants, "z", orientation="portrait", marginal=True)
+    plot = fb.VariantEffectMap(
+        variants, "z", gene="LMNA", orientation="portrait", marginal=True
+    )
     fig, axes = plot.highlight(pl.col("meta_aa_changes") == "A10V").plot()
     heat = axes.heatmaps[0]
     assert heat.get_images()[0].get_array().shape == (
@@ -196,7 +311,12 @@ def test_portrait(variants):
     assert box.height * height == pytest.approx(12 * 0.12)
 
     _, axes = fb.VariantEffectMap(
-        variants, "z", orientation="portrait", positions_per_row=5, marginal=True
+        variants,
+        "z",
+        gene="LMNA",
+        orientation="portrait",
+        positions_per_row=5,
+        marginal=True,
     ).plot()
     lefts = [ax.get_position().x0 for ax in axes.heatmaps]
     assert lefts == sorted(lefts) and len(set(lefts)) == 3  # columns, left to right

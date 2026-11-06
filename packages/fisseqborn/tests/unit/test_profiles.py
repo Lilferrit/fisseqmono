@@ -236,7 +236,7 @@ def test_pca_and_pca_reduce(raw):
     assert reduced.features == [f"X_{i}" for i in range(len(ratios))]
     assert ratios.sum() >= 0.5 and (len(ratios) == 1 or ratios[:-1].sum() < 0.5)
     assert set(reduced.meta) == set(med.meta)
-    assert med.pca_reduce(noise_floor=True).features[0] == "X_0"
+    assert med.pca_reduce(variance=0.5, whiten=True).features == reduced.features
 
 
 def test_embeddings_require_finite_values(raw):

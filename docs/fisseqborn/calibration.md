@@ -15,7 +15,7 @@ cal = (fb.OvwtScores.from_pipeline(run)
          .correct("auroc_pooled")
          .per_variant("auroc_pooled_corrected")
          .variant_type()
-         .gnomad(cache=True)                    # LMNA from the gnomAD API, cached
+         .gnomad(gene="LMNA", cache=True)       # from the gnomAD API, cached
          .clinvar("annotated.tsv", cache=True)  # variant-annotation output; or none to download
          .excalibr("auroc_pooled_corrected"))
 
@@ -35,7 +35,7 @@ once. Pool first with `.per_variant()` on `OvwtScores` or `.median_across_batche
 
 **gnomAD (required): `Dataset.gnomad()`.** The population sample the prior comes from.
 
-- **Source.** With no argument, the gene's variants (`gene="LMNA"`, `dataset="gnomad_r4"`)
+- **Source.** With no `source`, the variants of `gene` (a symbol such as `"LMNA"` or a `Gene`; required) in `dataset="gnomad_r4"`
   are downloaded from the [gnomAD](https://gnomad.broadinstitute.org/) GraphQL API, one
   request per gene. A CSV from the gene page's "Export variants to CSV" button (a path or a
   frame) also works, and is the only source of the browser's ClinVar column (see below).
@@ -64,13 +64,21 @@ once. Pool first with `.per_variant()` on `OvwtScores` or `.median_across_batche
   count as P/LP; Benign, Likely benign and Benign/Likely benign count as B/LB. Uncertain,
   conflicting and not-provided calls are not controls.
 - **Review stars.** Records with fewer than `.clinvar(min_stars=1)` review stars are
-  dropped, as in the paper. Stars come from the `stars` field, else from the review status.
+  dropped before anything else, as in the paper, so every `meta_clinvar_*` column comes from reviewed
+  records (`min_stars=None` keeps all). Stars come from the `stars` field, else from the review status.
 - **Conflicts.** A protein change whose records include both a pathogenic and a benign call
   is left out of the controls.
-- **Columns.** `meta_clinvar_class` (`"pathogenic"`, `"benign"` or null, after the star
-  filter: what `excalibr` reads), the most severe record's fields (`meta_clinvar_clinical_significance`,
+- **Columns.** `meta_clinvar_class` (`"pathogenic"`, `"benign"` or null: what
+  `excalibr` reads), the most severe record's fields (`meta_clinvar_clinical_significance`,
   `_review_status`, `_stars`, `_variation_id`, `_release`, ...), `meta_clinvar_conditions`
   (see below) and `meta_clinvar_annotation`.
+- **AlphaMissense.** If the variant-annotation table has `alphamissense.pathogenicity` and
+  `alphamissense.class`, every single substitution gets `meta_alphamissense_pathogenicity`
+  and `meta_alphamissense_class`, whether or not it has ClinVar records and regardless of
+  `min_stars`. If a variant's nucleotide variants have different scores, the highest score
+  is kept (a warning says how many variants this affected). Without a variant-annotation
+  table, `.alphamissense(path)` adds the same columns from the AlphaMissense web search's TSV
+  export.
 - **Conditions.** `meta_clinvar_conditions` lists the diseases of the record's germline
   classification, fetched from NCBI E-utilities by variation ID (`conditions=False` skips
   it). They come from NCBI's current ClinVar, which can be newer than the release of the

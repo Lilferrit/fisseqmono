@@ -200,8 +200,8 @@ def test_dataset_downloads(api, tmp_path):
     ds = (
         fb.Dataset(pl.DataFrame({"meta_aa_changes": ["A1V", "A2V", "A3A"]}))
         .variant_type()
-        .gnomad(cache=tmp_path)
-        .clinvar(min_stars=0, cache=tmp_path)
+        .gnomad(gene="LMNA", cache=tmp_path)
+        .clinvar(gene="LMNA", min_stars=0, cache=tmp_path)
     )
     df = ds.df
     assert df["meta_gnomad_in"].to_list() == [True, False, None]

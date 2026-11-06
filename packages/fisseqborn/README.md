@@ -33,7 +33,7 @@ from fisseqborn import fisseq
 | `CorrelationPlot(df, x, y, stat="pearson", fit=None/"linear"/"lowess", identity=False)` | replicate vs replicate, score vs cell count; `kind="kde"`, `count_sides=True` |
 | `RocPlot(df, label, positive, score, negative="Synonymous", group=None)` | one curve per score column or per group; `.aucs()` returns the AUC table |
 | `VolcanoPlot(df, x, y, alpha=0.05, bonferroni=True)` | long-form effect size vs −log10 p; `.layer(expr, label=...)` adds a group of points, drawn in call order; `VolcanoPlot.from_wide(df)` takes one row per variant with `_median` / `_KSnegLogP` column pairs |
-| `Heatmap(df, index, columns, values=None)` / `Heatmap.correlation(df, cols)` | pairwise matrices (long or wide form), correlation matrices |
+| `Heatmap(df, index, columns, values=None)` / `Heatmap.correlation(df, cols, y_columns=None)` | pairwise matrices (long or wide form), correlation matrices (different columns per axis with `y_columns`) |
 | `ExplainedVariancePlot(profiles.pca_reduce(...), kind="cumulative"/"scree"/"both", thresholds=[...])` | cumulative explained variance / scree plot, marking thresholds and the noise floor |
 | `PairPlot(df, vars, hue=None, diag_kind="kde")` | pairwise scatter grid (e.g. the first PCs) with the fisseq palettes / orders (figure-level) |
 | `VariantEffectMap(df, value, positions=None, orientation="landscape"/"portrait")` | position × amino-acid heatmap of single substitutions (figure-level); `.highlight(expr, ...)` marks chosen variants' cells |
@@ -128,7 +128,7 @@ Each layer call returns a **new** plot, so you can reuse a base plot in a loop w
 
 - `VARIANT_TYPE_PALETTE`, `CLINVAR_PALETTE` and `PATHOGENIC`
 - the canonical category orders
-- `LMNA_DOMAIN_REGIONS`, `LMNA_TILES` and `LMNA_LANDMARK_FEATURES`
+- `fb.Gene`, and `fb.genes.LMNA` with its domains, tiles, landmark features and sequence
 - `batch_palette(experiments)`, which gives replicates of the same tile the same hue
 
 When every level of a hue column is known to the theme, its palette and order are used automatically.

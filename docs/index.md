@@ -1,7 +1,7 @@
 # FISSEQ
 
 One repository, [`Lilferrit/fisseqmono`](https://github.com/Lilferrit/fisseqmono), a
-[uv workspace](https://docs.astral.sh/uv/concepts/projects/workspaces/) of four packages:
+[uv workspace](https://docs.astral.sh/uv/concepts/projects/workspaces/) of five packages:
 
 | Package | What it is |
 |---|---|
@@ -9,6 +9,7 @@ One repository, [`Lilferrit/fisseqmono`](https://github.com/Lilferrit/fisseqmono
 | [fisseq-data-pipeline](data-pipeline/index.md) | Nextflow pipeline scoring variants on CellProfiler features, per experiment. |
 | [fisseq-embeddings-pipeline](embeddings-pipeline/index.md) | Nextflow pipeline scoring variants on Cell-DINO embeddings (plus a CellProfiler track), per experiment. |
 | [fisseqborn](fisseqborn/index.md) | Plots, and aggregation across experiments (`fisseqborn-global`), of either pipeline's outputs. |
+| [fisseq-structview](structview/index.md) | A web app (`fisseq-structview`) showing a run's per-position distinguishability scores on a protein structure. |
 
 The two pipelines differ only in their cell tables (CellProfiler features vs. Cell-DINO
 embeddings). From QC on they run the same [shared stages](common/stages.md), with the same
@@ -26,5 +27,5 @@ uv run ruff check . && uv run ruff format --check .
 uv run --group docs mkdocs serve           # this site
 ```
 
-All four packages share one version. `scripts/release.py X.Y.Z` sets it everywhere (and the
-`fisseq-common` git URL each package depends on); tag the commit `vX.Y.Z`.
+All five packages share one version. `scripts/release.py X.Y.Z` sets it everywhere (and the
+workspace git URLs the packages depend on); tag the commit `vX.Y.Z`.

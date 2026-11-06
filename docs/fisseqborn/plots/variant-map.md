@@ -8,10 +8,11 @@ along x and the substituted amino acid down y, in `fisseq.AMINO_ACID_ORDER`
 - A black dot marks each position's wild-type residue, which is the synonymous variant's cell.
 - The color scale centers on 0 by default. Values beyond `vmin`/`vmax` get the end colors, and
   the colorbar shows an arrow.
-- The bar above the heatmap names the protein regions (`fisseq.LMNA_DOMAIN_REGIONS` by
-  default).
+- The bar above the heatmap names the protein regions (from `gene=`'s domains, or `regions=`;
+  hidden with neither). Positions in several regions, such as the overlap of two library
+  tiles, are striped in all of their colors.
 - The line below is each position's mean over its non-synonymous substitutions, with points
-  colored by region.
+  colored by region. Points in an overlap are split between their first two regions' colors.
 - `marginal=True` adds a strip on the right with each amino acid's values, with a black line
   at the median. It is off by default.
 
@@ -26,7 +27,7 @@ import polars as pl
 
 feature = "Mean_NucleiExpanded_Intensity_MeanIntensity_CH1"
 (fb.VariantEffectMap(profiles, feature, positions=(178, 273), vmin=-6, vmax=6,
-                     title=fb.fisseq.LMNA_LANDMARK_FEATURES[feature])
+                     title=fb.genes.LMNA.landmark_features[feature])
    .highlight(pl.col("meta_clinvar_annotation") == fb.fisseq.PATHOGENIC,
               label=fb.fisseq.PATHOGENIC, color="yellow", marker="^")
    .save("vis/variant_map_t3.png"))
@@ -64,9 +65,34 @@ every wrapped row. Each call is one layer, and later calls draw on top:
 substituted position in the data. To make one figure per library tile:
 
 ```python
-for tile, first, last in fb.fisseq.LMNA_TILES:
+for tile, first, last in fb.genes.LMNA.tiles:
     fb.VariantEffectMap(profiles, feature, positions=(first, last), vmin=-6, vmax=6,
                         title=tile).save(f"vis/variant_map_{tile}.png")
+```
+
+To color the region bar by tile instead of by domain, pass the tiles as `regions=`. Each
+overlap between neighboring tiles is striped in both tiles' colors:
+
+```python
+tiles = {tile: (first, last) for tile, first, last in fb.genes.LMNA.tiles}
+fb.VariantEffectMap(profiles, feature, regions=tiles, positions_per_row=170,
+                    vmin=-6, vmax=6).save("vis/variant_map_tiles.png")
+```
+
+## Several region bars
+
+To show domains and tiles together, pass a list of `RegionTrack`s. The bars stack in order,
+top to bottom (left to right in portrait), and each label is drawn at the start of its bar.
+Each track has its own `palette=`. The default is the fisseq palette, else seaborn's, so two
+default tracks can share colors. `mean_regions=` picks the bar that colors the position-mean
+points, by label or index. The default is the first bar.
+
+```python
+fb.VariantEffectMap(profiles, feature, regions=[
+    fb.RegionTrack(fb.genes.LMNA.domains, label="domain"),
+    fb.RegionTrack({t: (a, b) for t, a, b in fb.genes.LMNA.tiles}, label="tile",
+                   palette="Set2"),
+], mean_regions="tile", positions_per_row=170).save("vis/variant_map_domains_tiles.png")
 ```
 
 ## The whole protein, wrapped
@@ -97,7 +123,8 @@ fb.VariantEffectMap(profiles, feature, positions=(178, 273), positions_per_row=4
 ## Panels and colors
 
 - `regions=None` hides the region bar. A different mapping (name -> inclusive range) labels
-  another protein. `region_palette=` sets its colors.
+  another protein. `region_palette=` sets its colors. For several bars, use `RegionTrack`s
+  (see above).
 - `position_mean=False` hides the line below.
 - `marginal=True` adds the per-amino-acid strip.
 - `wild_type_marker=False` drops the dots.
@@ -112,5 +139,6 @@ drawn variant).
 
 The plot is figure-level. `.plot()` returns the figure and a `VariantEffectMapAxes`, which has
 one entry per row (per column in portrait) in `heatmaps`, `regions`, `means` and `marginals`.
+Each entry of `regions` is a list of that row's bars, in track order.
 Layers such as `.set(...)` apply to the first heatmap. `.highlight()` is the exception: it
 marks every heatmap.

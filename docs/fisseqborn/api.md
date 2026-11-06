@@ -56,6 +56,12 @@
       members_order: source
       merge_init_into_class: true
 
+::: fisseqborn.BatchCorrelationGrid
+    options:
+      show_source: false
+      members_order: source
+      merge_init_into_class: true
+
 ::: fisseqborn.PairPlot
     options:
       show_source: false
@@ -87,6 +93,12 @@
       merge_init_into_class: true
 
 ::: fisseqborn.VariantEffectMapAxes
+    options:
+      show_source: false
+      members_order: source
+      merge_init_into_class: true
+
+::: fisseqborn.RegionTrack
     options:
       show_source: false
       members_order: source

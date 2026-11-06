@@ -1,0 +1,286 @@
+/* fisseq-structview page styles. Colors are variables, swapped by [data-theme="dark"] on <html>
+   (set by the nav bar's toggle). The figures' own colors are effect_map.THEMES. */
+
+:root {
+  --sv-bg: #f3f4f6;
+  --sv-panel: #ffffff;
+  --sv-text: #222222;
+  --sv-muted: #666b75;
+  --sv-border: #d9dce1;
+  --sv-accent: #2b6cb0;
+  --sv-warn: #a15c00;
+  --sv-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme="dark"] {
+  --sv-bg: #121318;
+  --sv-panel: #1c1e24;
+  --sv-text: #dddddd;
+  --sv-muted: #9aa0aa;
+  --sv-border: #33363e;
+  --sv-accent: #7fb2ec;
+  --sv-warn: #f0b45a;
+  --sv-shadow: none;
+  color-scheme: dark;
+
+  /* Dash 4's dcc components */
+  --Dash-Fill-Inverse-Strong: #23262d;
+  --Dash-Fill-Interactive-Strong: #7fb2ec;
+  --Dash-Fill-Interactive-Weak: rgba(127, 178, 236, 0.08);
+  --Dash-Fill-Primary-Hover: rgba(255, 255, 255, 0.06);
+  --Dash-Fill-Primary-Active: rgba(255, 255, 255, 0.1);
+  --Dash-Fill-Disabled: rgba(255, 255, 255, 0.08);
+  --Dash-Stroke-Strong: rgba(255, 255, 255, 0.35);
+  --Dash-Stroke-Weak: rgba(255, 255, 255, 0.12);
+  --Dash-Text-Strong: rgba(255, 255, 255, 0.92);
+  --Dash-Text-Primary: rgba(255, 255, 255, 0.87);
+  --Dash-Text-Weak: rgba(255, 255, 255, 0.65);
+  --Dash-Text-Disabled: rgba(255, 255, 255, 0.4);
+  --Dash-Shading-Strong: rgba(0, 0, 0, 0.6);
+  --Dash-Shading-Weak: rgba(0, 0, 0, 0.4);
+  --Dash-Tooltip-Background-Color: #23262d;
+  --Dash-Tooltip-Border-Color: #33363e;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--sv-bg);
+  color: var(--sv-text);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+input {
+  background: var(--sv-panel);
+  color: var(--sv-text);
+  border: 1px solid var(--sv-border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font: inherit;
+  font-size: 0.9em;
+}
+
+/* Nav bar */
+.sv-nav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding: 8px 16px;
+  background: var(--sv-panel);
+  border-bottom: 1px solid var(--sv-border);
+  box-shadow: var(--sv-shadow);
+}
+.sv-brand {
+  display: flex;
+  flex-direction: column;
+  margin-right: 8px;
+}
+.sv-brand b {
+  font-size: 1.05em;
+}
+.sv-brand span {
+  font-size: 0.78em;
+  color: var(--sv-muted);
+}
+.sv-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85em;
+}
+.sv-nav-item label {
+  color: var(--sv-muted);
+}
+.sv-nav-spacer {
+  flex: 1;
+}
+.sv-icon-button {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid var(--sv-border);
+  background: var(--sv-panel);
+  color: var(--sv-text);
+  font-size: 1em;
+  cursor: pointer;
+}
+.sv-icon-button:hover {
+  border-color: var(--sv-accent);
+  color: var(--sv-accent);
+}
+
+/* Panels */
+.sv-panels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 16px;
+  align-items: flex-start;
+}
+.sv-card {
+  flex: 1 1 480px;
+  min-width: 0;
+  background: var(--sv-panel);
+  border: 1px solid var(--sv-border);
+  border-radius: 8px;
+  box-shadow: var(--sv-shadow);
+  overflow: hidden;
+}
+.sv-card-title {
+  padding: 8px 12px;
+  font-size: 0.85em;
+  font-weight: 600;
+  border-bottom: 1px solid var(--sv-border);
+  min-height: 1.2em;
+}
+.sv-map-row {
+  display: flex;
+  align-items: flex-start;
+  padding-top: 8px;
+}
+.sv-map-scroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: scroll;
+  overflow-y: hidden;
+}
+/* Firefox. (In Chromium, scrollbar-color would override the styles below.) */
+@supports not selector(::-webkit-scrollbar) {
+  .sv-map-scroll {
+    scrollbar-color: var(--sv-muted) var(--sv-bg);
+  }
+}
+/* An always-visible scrollbar (macOS otherwise hides it until you scroll). */
+.sv-map-scroll::-webkit-scrollbar {
+  height: 12px;
+}
+.sv-map-scroll::-webkit-scrollbar-track {
+  background: var(--sv-bg);
+  border-radius: 6px;
+}
+.sv-map-scroll::-webkit-scrollbar-thumb {
+  background: var(--sv-muted);
+  border-radius: 6px;
+  border: 2px solid var(--sv-bg);
+}
+.sv-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--sv-border);
+}
+.sv-control {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 140px;
+  font-size: 0.85em;
+}
+.sv-control > label {
+  font-weight: 600;
+  color: var(--sv-muted);
+  font-size: 0.92em;
+}
+.sv-control-wide {
+  flex: 1 1 220px;
+}
+.sv-pair {
+  display: flex;
+  gap: 6px;
+}
+.sv-pair input {
+  width: 70px;
+}
+.sv-hint {
+  font-size: 0.8em;
+  color: var(--sv-muted);
+}
+
+/* Modals */
+.sv-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+.sv-modal.open {
+  display: flex;
+}
+.sv-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+}
+.sv-modal-card {
+  position: relative;
+  max-width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  overflow: auto;
+  background: var(--sv-panel);
+  color: var(--sv-text);
+  border: 1px solid var(--sv-border);
+  border-radius: 10px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+.sv-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--sv-border);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  background: var(--sv-panel);
+}
+.sv-modal-close {
+  border: none;
+  background: none;
+  color: var(--sv-muted);
+  font-size: 1.3em;
+  cursor: pointer;
+  line-height: 1;
+}
+.sv-modal-body {
+  padding: 12px 16px 16px;
+  font-size: 0.88em;
+}
+.sv-warning {
+  color: var(--sv-warn);
+  margin: 0 0 8px;
+}
+.sv-info h4 {
+  margin: 14px 0 6px;
+  font-size: 0.95em;
+}
+.sv-info h4:first-child {
+  margin-top: 0;
+}
+.sv-info table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.sv-info td,
+.sv-info th {
+  text-align: left;
+  padding: 3px 10px 3px 0;
+  border-bottom: 1px solid var(--sv-border);
+  vertical-align: top;
+}
+.sv-info th {
+  color: var(--sv-muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.sv-info .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

@@ -3,6 +3,7 @@ import polars as pl
 import pytest
 from matplotlib.collections import PolyCollection
 from matplotlib.colors import to_rgba
+from scipy import stats
 
 import fisseqborn as fb
 from fisseqborn import fisseq
@@ -380,6 +381,237 @@ def test_batch_correlation_duplicates_and_min_shared(replicate_scores):
     assert mat.loc["T1_R1", "T1_R1"] == 1.0
 
 
+def test_batch_correlation_grid(replicate_scores):
+    import matplotlib as mpl
+
+    kw = {"batch": "experiment", "label": "variant", "score": "test_auroc"}
+    plot = fb.BatchCorrelationGrid(replicate_scores, **kw)
+    assert plot.pairs().equals(
+        fb.BatchCorrelationHeatmap(replicate_scores, **kw).pairs()
+    )
+    fig, axes = plot.plot()
+    assert axes.shape == (3, 3)
+    assert [ax.get_title() for ax in axes[0]] == ["T1_R1", "T1_R2", "T2_R1"]
+
+    # diagonal: histogram on a twin axes, no scatter
+    assert not axes[0, 0].collections
+    assert len(fig.axes) == 9 + 3 + 1  # panels, histogram twins, colorbar
+
+    # T1_R2 (row) vs T1_R1 (column): x is T1_R1's scores, y is T1_R2's
+    by = replicate_scores.pivot(on="experiment", index="variant", values="test_auroc")
+    offsets = axes[1, 0].collections[0].get_offsets()
+    assert np.allclose(offsets, by.select("T1_R1", "T1_R2").drop_nulls().to_numpy())
+    r = plot.pairs().filter(batch_a="T1_R1", batch_b="T1_R2")["r"][0]
+    assert axes[1, 0].get_facecolor() == pytest.approx(
+        mpl.colormaps["Blues"](r, alpha=0.6)
+    )
+    assert axes[1, 0].texts[0].get_text() == f"ρ = {r:.2f}\nn = 10"
+
+    # disjoint tiles: no points, black
+    assert not axes[0, 2].collections and not axes[0, 2].texts
+    assert axes[0, 2].get_facecolor()[:3] == (0.0, 0.0, 0.0)
+
+    _, axes = fb.BatchCorrelationGrid(
+        replicate_scores, tint=False, annot=False, **kw
+    ).plot()
+    assert axes[1, 0].get_facecolor()[:3] == (1.0, 1.0, 1.0)
+    assert not axes[1, 0].texts
+
+
+def test_batch_correlation_grid_y_score_and_order(replicate_scores):
+    import matplotlib.pyplot as plt
+
+    df = replicate_scores.with_columns(missense=pl.col("test_auroc") * 2)
+    kw = {"batch": "experiment", "label": "variant", "score": "test_auroc"}
+    plot = fb.BatchCorrelationGrid(
+        df, y_score="missense", order=["T2_R1", "T1_R2", "T1_R1"], **kw
+    )
+    fig, axes = plot.plot()
+    assert len(fig.axes) == 9 + 1  # no histograms
+    assert axes[0, 0].get_title() == "T2_R1"
+    # row T1_R2 (missense) vs column T1_R1 (test_auroc), diagonal is a scatter
+    by_x = df.pivot(on="experiment", index="variant", values="test_auroc")
+    by_y = df.pivot(on="experiment", index="variant", values="missense")
+    offsets = axes[1, 2].collections[0].get_offsets()
+    assert np.allclose(offsets[:, 0], by_x["T1_R1"].drop_nulls())
+    assert np.allclose(offsets[:, 1], by_y["T1_R2"].drop_nulls())
+    assert axes[2, 2].collections
+
+    with pytest.raises(ValueError, match="unknown batches"):
+        fb.BatchCorrelationGrid(df, order=["T9_R9"], **kw)
+    _, ax = plt.subplots()
+    with pytest.raises(TypeError, match="figure-level"):
+        fb.BatchCorrelationGrid(df, **kw).plot(ax=ax)
+
+
+def test_batch_correlation_grid_hue(replicate_scores):
+    import matplotlib.colors as mcolors
+
+    types = ["Synonymous", "Single Missense", "Frameshift"]
+    df = replicate_scores.with_columns(
+        meta_variant_type=pl.col("variant")
+        .str.extract(r"(\d+)$")
+        .cast(pl.Int64)
+        .map_elements(lambda i: types[i % 3], return_dtype=pl.String)
+    )
+    kw = {"batch": "experiment", "label": "variant", "score": "test_auroc"}
+    plot = fb.BatchCorrelationGrid(df, hue="meta_variant_type", **kw)
+    assert plot.hue_order == types
+    fig, axes = plot.plot()
+
+    # one scatter per level, colored by the fisseq palette; the first level drawn last
+    panel = axes[1, 0].collections
+    assert len(panel) == 3
+    for coll, level in zip(panel, types[::-1], strict=True):
+        assert mcolors.same_color(
+            coll.get_facecolor()[0][:3], fisseq.VARIANT_TYPE_PALETTE[level]
+        )
+    t1 = df.filter(experiment="T1_R1")
+    for coll, level in zip(panel, types[::-1], strict=True):
+        assert len(coll.get_offsets()) == t1.filter(meta_variant_type=level).height
+
+    # diagonal: one histogram per level, on shared bins
+    hist_ax = next(
+        a
+        for a in fig.axes
+        if a is not axes[0, 0] and a.bbox.bounds == axes[0, 0].bbox.bounds
+    )
+    assert len(hist_ax.patches) == 3
+    assert [t.get_text() for t in fig.legends[0].get_texts()] == types
+
+    # correlations ignore hue
+    assert plot.pairs().equals(fb.BatchCorrelationGrid(df, **kw).pairs())
+
+    clash = df.with_columns(
+        meta_variant_type=pl.when(pl.col("experiment") == "T1_R2")
+        .then(pl.lit("Frameshift"))
+        .otherwise(pl.col("meta_variant_type"))
+    )
+    with pytest.raises(ValueError, match="one value per"):
+        fb.BatchCorrelationGrid(clash, hue="meta_variant_type", **kw)
+
+
+def test_batch_correlation_grid_tick_labels(replicate_scores):
+    kw = {"batch": "experiment", "label": "variant", "score": "test_auroc"}
+    fig, axes = fb.BatchCorrelationGrid(replicate_scores, **kw).plot()
+    fig.canvas.draw()
+    for (_, j), ax in np.ndenumerate(axes):
+        assert all(t.get_visible() for t in ax.get_xticklabels())
+        assert any(t.get_visible() for t in ax.get_yticklabels()) == (j == 0)
+
+
+def test_batch_correlation_grid_marginals(replicate_scores):
+    types = ["Synonymous", "Single Missense", "Frameshift"]
+    df = replicate_scores.with_columns(
+        meta_variant_type=pl.col("variant")
+        .str.extract(r"(\d+)$")
+        .cast(pl.Int64)
+        .map_elements(lambda i: types[i % 3], return_dtype=pl.String)
+    )
+    kw = {"batch": "experiment", "label": "variant", "score": "test_auroc"}
+
+    _, axes = fb.BatchCorrelationGrid(df, marginals="hist", **kw).plot()
+    top, right = axes[1, 0].child_axes
+    assert sum(p.get_height() for p in top.patches) == 10  # the shared labels
+    assert sum(p.get_width() for p in right.patches) == 10
+    assert top.get_xlim() == axes[1, 0].get_xlim()
+    assert right.get_ylim() == axes[1, 0].get_ylim()
+    assert not axes[0, 2].child_axes and not axes[0, 0].child_axes  # disjoint, diagonal
+
+    _, axes = fb.BatchCorrelationGrid(
+        df, marginals="hist", hue="meta_variant_type", **kw
+    ).plot()
+    top, _ = axes[1, 0].child_axes
+    assert len({p.get_facecolor() for p in top.patches}) == 3
+
+    _, plain = fb.BatchCorrelationGrid(df, **kw).plot()
+    _, axes = fb.BatchCorrelationGrid(df, marginals="kde", **kw).plot()
+    top, right = axes[1, 0].child_axes
+    assert top.lines and right.lines
+    assert axes[1, 0].get_xlim() == plain[1, 0].get_xlim()  # strips don't rescale
+
+    with pytest.raises(ValueError, match="marginals"):
+        fb.BatchCorrelationGrid(df, marginals="violin", **kw)
+
+
+def test_batch_correlation_grid_lims_and_label_rotation(replicate_scores):
+    kw = {"batch": "experiment", "label": "variant", "score": "test_auroc"}
+    _, axes = fb.BatchCorrelationGrid(
+        replicate_scores, lims=(0, 1), label_rotation=45, **kw
+    ).plot()
+    for ax in axes.flat:
+        assert ax.get_xlim() == (0, 1) and ax.get_ylim() == (0, 1)
+    assert axes[0, 1].title.get_rotation() == 45
+    assert axes[1, 0].yaxis.label.get_rotation() == 45
+
+    _, axes = fb.BatchCorrelationGrid(replicate_scores, **kw).plot()
+    assert axes[0, 1].title.get_rotation() == 0
+    assert axes[1, 0].yaxis.label.get_rotation() == 90
+
+
+def test_cross_correlation_matches_pairwise(block_sparse, profiles):
+    from fisseqborn.heatmap import cross_correlation, pairwise_correlation
+
+    for df in (block_sparse, profiles.select(f"feature_{i}" for i in range(4))):
+        m = df.cast(pl.Float64).fill_null(np.nan).to_numpy()
+        for method in ("pearson", "spearman", "cosine"):
+            corr, n = pairwise_correlation(m, method, min_shared=2)
+            cross, cross_n = cross_correlation(m, m, method, min_shared=2)
+            assert np.allclose(cross, corr, equal_nan=True)
+            assert (cross_n == n).all()
+
+
+def test_batch_correlation_cross_scores(replicate_scores):
+    from scipy.stats import spearmanr
+
+    rng = np.random.default_rng(2)
+    df = replicate_scores.with_columns(
+        missense=pl.col("test_auroc") + rng.normal(0, 0.2, replicate_scores.height)
+    )
+    kw = {"batch": "experiment", "label": "variant", "score": "test_auroc"}
+    plot = fb.BatchCorrelationHeatmap(df, y_score="missense", **kw)
+    mat = plot.matrix()
+
+    r1 = df.filter(pl.col("experiment") == "T1_R1").sort("variant")
+    r2 = df.filter(pl.col("experiment") == "T1_R2").sort("variant")
+    assert mat.loc["T1_R1", "T1_R2"] == pytest.approx(
+        spearmanr(r1["missense"], r2["test_auroc"]).statistic
+    )
+    assert mat.loc["T1_R2", "T1_R1"] == pytest.approx(
+        spearmanr(r2["missense"], r1["test_auroc"]).statistic
+    )
+    assert mat.loc["T1_R1", "T1_R2"] != mat.loc["T1_R2", "T1_R1"]
+    assert mat.loc["T1_R1", "T1_R1"] == pytest.approx(
+        spearmanr(r1["missense"], r1["test_auroc"]).statistic
+    )
+    assert not np.allclose(np.diag(mat), 1.0)
+    assert np.isnan(mat.loc["T1_R1", "T2_R1"]) and np.isnan(mat.loc["T2_R1", "T1_R1"])
+
+    pairs = plot.pairs()
+    assert pairs.height == 9
+    row = pairs.filter(pl.col("batch_a") == "T1_R2", pl.col("batch_b") == "T1_R1")
+    assert row["r"][0] == pytest.approx(mat.loc["T1_R2", "T1_R1"])
+
+    _, ax = plot.plot()
+    assert (ax.get_xlabel(), ax.get_ylabel()) == ("test_auroc", "missense")
+
+    same = fb.BatchCorrelationHeatmap(df, y_score="test_auroc", **kw)
+    plain = fb.BatchCorrelationHeatmap(df, **kw)
+    assert np.allclose(same.matrix(), plain.matrix(), equal_nan=True)
+    assert same.pairs().equals(plain.pairs())
+
+
+def test_heatmap_correlation_y_columns(profiles):
+    cols, other = ["feature_0", "feature_1", "feature_2"], ["feature_3", "feature_4"]
+    plot = fb.Heatmap.correlation(profiles, cols, y_columns=other)
+    mat = plot.matrix()
+    assert list(mat.index) == other and list(mat.columns) == cols
+    full = np.corrcoef(profiles.select(*other, *cols).to_numpy(), rowvar=False)
+    assert np.allclose(mat.to_numpy(), full[:2, 2:])
+    assert list(plot.n_shared.index) == other and list(plot.n_shared.columns) == cols
+    plot.plot()
+
+
 def test_embedding_draws_largest_group_first(profiles):
     _, ax = fb.EmbeddingPlot(profiles, **UMAP, hue="meta_variant_type").plot()
     colors = ax.collections[0].get_facecolors()
@@ -451,7 +683,12 @@ def test_volcano_defaults_and_options(volcano_rows):
         volcano_rows, x="median", y="negLogP", bonferroni=False
     ).significance_threshold() == pytest.approx(-np.log10(0.05))
     lo, hi = fb.VolcanoPlot(volcano_rows, x="median", y="negLogP").plot()[1].get_xlim()
-    assert lo > volcano_rows["median"].min() and hi < volcano_rows["median"].max()
+    q_lo, q_hi = (
+        volcano_rows["median"].quantile(0.001),
+        volcano_rows["median"].quantile(0.999),
+    )
+    pad = 0.05 * (q_hi - q_lo)
+    assert (lo, hi) == pytest.approx((q_lo - pad, q_hi + pad))
 
 
 def test_volcano_from_wide_matches_long_form(profiles):
@@ -483,6 +720,180 @@ def test_volcano_from_wide_matches_long_form(profiles):
     assert row["KSnegLogP"][0] == pytest.approx(abs(expected) * 3)
     with pytest.raises(ValueError, match="No feature"):
         fb.VolcanoPlot.from_wide(wide, y_suffix="_AUROCnegLogP")
+
+
+def test_volcano_point_style_scales_with_point_count(volcano_rows):
+    few = fb.VolcanoPlot._point_style(100)
+    many = fb.VolcanoPlot._point_style(10_000_000)
+    assert few == {"s": 20, "alpha": 0.8} and many == {"s": 1, "alpha": 0.1}
+    _, ax = fb.VolcanoPlot(volcano_rows, x="median", y="negLogP").plot()
+    style = fb.VolcanoPlot._point_style(volcano_rows.height)
+    assert ax.collections[0].get_sizes()[0] == pytest.approx(style["s"])
+    # a scatter kwarg still overrides the scaled default
+    _, ax = fb.VolcanoPlot(volcano_rows, x="median", y="negLogP", s=3).plot()
+    assert ax.collections[0].get_sizes()[0] == 3
+
+
+def test_volcano_effect_cutoff_and_top_labels(volcano_rows):
+    plot = fb.VolcanoPlot(
+        volcano_rows,
+        x="median",
+        y="negLogP",
+        effect_cutoff=-0.2,
+        label_top=3,
+        label_rank="x",
+        label_by="meta_aa_changes",
+    )
+    _, ax = plot.plot()
+    assert sorted(line.get_xdata()[0] for line in ax.lines[1:]) == [-0.2, 0.2]
+    assert ax.get_legend().get_texts()[-1].get_text() == "|median| = 0.2"
+    threshold = plot.significance_threshold()
+    expected = (
+        volcano_rows.filter(
+            pl.col("negLogP") >= threshold, pl.col("median").abs() >= 0.2
+        )
+        .sort(pl.col("median").abs(), descending=True)
+        .head(3)
+    )
+    assert expected.height == 3
+    assert [t.get_text() for t in ax.texts] == expected["meta_aa_changes"].to_list()
+    lo, hi = ax.get_xlim()
+    assert all(lo <= x <= hi for x in expected["median"])
+
+
+def test_volcano_top_labels_rank_by_y_inside_axes():
+    # the most significant points are not the largest effects
+    rows = pl.DataFrame(
+        {
+            "feature": [f"f{i}" for i in range(8)],
+            "x": [3.0, -3.0, 2.5, 0.5, -0.4, 0.3, 0.1, -0.2],
+            "y": [5.0, 5.1, 4.9, 20.0, 19.0, 18.5, 18.0, 0.1],
+        }
+    )
+    plot = fb.VolcanoPlot(rows, x="x", y="y", alpha=None, x_quantiles=None, label_top=4)
+    fig, ax = plot.plot()
+    assert sorted(t.get_text() for t in ax.texts) == ["f3", "f4", "f5", "f6"]
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    axes_box = ax.get_window_extent(renderer)
+    boxes = [t.get_window_extent(renderer) for t in ax.texts]
+    assert all(
+        axes_box.contains(b.x0, b.y0) and axes_box.contains(b.x1, b.y1) for b in boxes
+    )
+    assert not any(a.overlaps(b) for i, a in enumerate(boxes) for b in boxes[i + 1 :])
+    with pytest.raises(ValueError, match="label_rank"):
+        fb.VolcanoPlot(rows, x="x", y="y", label_rank="z")
+
+
+@pytest.fixture
+def labelled_rows() -> pl.DataFrame:
+    """Rows with a bool and a 0/1 label; ``shifted`` moves with ``meta_is_case``."""
+    rng = np.random.default_rng(0)
+    n = 200
+    case = rng.random(n) < 0.4
+    noisy = rng.normal(0, 1, n)
+    noisy[::7] = np.nan
+    return pl.DataFrame(
+        {
+            "meta_id": np.arange(n),
+            "meta_is_case": case,
+            "meta_other": pl.Series(rng.integers(0, 2, n)).scatter([0, 1], None),
+            "shifted": rng.normal(0, 1, n) + 1.5 * case,
+            "flat": rng.normal(0, 1, n),
+            "noisy": noisy,
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "test,column,pvalue",
+    [
+        ("ks", "KSnegLogP", lambda a, b: stats.ks_2samp(a, b).pvalue),
+        (
+            "welch",
+            "WelchNegLogP",
+            lambda a, b: stats.ttest_ind(a, b, equal_var=False).pvalue,
+        ),
+        ("mannwhitney", "MWUnegLogP", lambda a, b: stats.mannwhitneyu(a, b).pvalue),
+    ],
+)
+def test_volcano_from_labels_tests(labelled_rows, test, column, pvalue):
+    plot = fb.VolcanoPlot.from_labels(labelled_rows, "meta_is_case", test=test)
+    assert (plot.x, plot.y) == ("median_diff", column)
+    assert plot.data["feature"].to_list() == ["shifted", "flat", "noisy"]
+    for feat in ["shifted", "flat", "noisy"]:
+        rows = labelled_rows.filter(pl.col(feat).is_not_nan())
+        a = rows.filter(pl.col("meta_is_case"))[feat].to_numpy()
+        b = rows.filter(~pl.col("meta_is_case"))[feat].to_numpy()
+        got = plot.data.filter(pl.col("feature") == feat)[column][0]
+        assert got == pytest.approx(-np.log10(pvalue(a, b)))
+    assert plot.data.sort(column)["feature"][-1] == "shifted"
+
+
+@pytest.mark.parametrize(
+    "effect,column,expected",
+    [
+        ("median", "median_diff", lambda a, b: np.median(a) - np.median(b)),
+        ("mean", "mean_diff", lambda a, b: a.mean() - b.mean()),
+        (
+            "cohens_d",
+            "cohens_d",
+            lambda a, b: (
+                (a.mean() - b.mean())
+                / np.sqrt(
+                    ((len(a) - 1) * a.var(ddof=1) + (len(b) - 1) * b.var(ddof=1))
+                    / (len(a) + len(b) - 2)
+                )
+            ),
+        ),
+    ],
+)
+def test_volcano_from_labels_effects(labelled_rows, effect, column, expected):
+    plot = fb.VolcanoPlot.from_labels(
+        labelled_rows, "meta_is_case", features=["noisy"], effect=effect
+    )
+    assert (plot.x, plot.y) == (column, "KSnegLogP")
+    rows = labelled_rows.filter(pl.col("noisy").is_not_nan())
+    a = rows.filter(pl.col("meta_is_case"))["noisy"].to_numpy()
+    b = rows.filter(~pl.col("meta_is_case"))["noisy"].to_numpy()
+    assert plot.data[column][0] == pytest.approx(expected(a, b))
+    assert plot.data.row(0, named=True)["n_positive"] == len(a)
+    assert plot.data.row(0, named=True)["n_negative"] == len(b)
+
+
+def test_volcano_from_labels_several_labels(labelled_rows):
+    plot = fb.VolcanoPlot.from_labels(
+        labelled_rows, ["meta_is_case", "meta_other"], alpha=0.05
+    )
+    assert plot.data.height == 6
+    assert plot.data["label"].unique(maintain_order=True).to_list() == [
+        "meta_is_case",
+        "meta_other",
+    ]
+    # the two null labels are left out of meta_other's comparison
+    flat = plot.data.filter(
+        pl.col("label") == "meta_other", pl.col("feature") == "flat"
+    )
+    assert flat["n_positive"][0] + flat["n_negative"][0] == labelled_rows.height - 2
+    assert plot.significance_threshold() == pytest.approx(-np.log10(0.05 / 6))
+    _, ax = plot.layer(pl.col("label") == "meta_is_case", label="case").plot()
+    assert len(ax.collections[0].get_offsets()) == 3
+
+
+def test_volcano_from_labels_errors(labelled_rows):
+    from_labels = fb.VolcanoPlot.from_labels
+    with pytest.raises(ValueError, match="boolean or 0/1"):
+        from_labels(labelled_rows, "meta_id")
+    with pytest.raises(ValueError, match="both true and false"):
+        from_labels(
+            labelled_rows.with_columns(meta_is_case=pl.lit(True)), "meta_is_case"
+        )
+    with pytest.raises(ValueError, match="Unknown test"):
+        from_labels(labelled_rows, "meta_is_case", test="anova")
+    with pytest.raises(ValueError, match="Unknown effect"):
+        from_labels(labelled_rows, "meta_is_case", effect="log2fc")
+    with pytest.raises(ValueError, match="No feature"):
+        from_labels(labelled_rows.select("meta_is_case"), "meta_is_case")
 
 
 def test_heatmap_correlation_squared(profiles):

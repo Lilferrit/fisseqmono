@@ -96,9 +96,6 @@ class Profiles(Dataset):
         #: ``cumulative_explained_variance`` and ``retained`` (kept as a feature). Pass it to
         #: `ExplainedVariancePlot`.
         self.pca_explained_variance: pl.DataFrame | None = None
-        #: With ``pca_reduce(noise_floor=True)``: the variance ratio of the first component
-        #: of the column-shuffled data.
-        self.pca_noise_floor: float | None = None
         #: From the last `feature_select` call: one row per input feature, with
         #: ``feature`` and ``kept``.
         self.feature_selection: pl.DataFrame | None = None
@@ -230,7 +227,6 @@ class Profiles(Dataset):
         new = super()._replace(data)
         new.pca_loadings = None
         new.pca_explained_variance = None
-        new.pca_noise_floor = None
         new.feature_selection = None
         return new
 
@@ -493,32 +489,24 @@ class Profiles(Dataset):
         self,
         variance: float = 0.9,
         *,
-        noise_floor: bool = False,
-        seed: int = 0,
+        whiten: bool = False,
         prefix: str = "X_",
     ) -> Self:
         """Replace the features with their principal components ``X_0 .. X_<k-1>``.
 
         ``k`` is the fewest components that together explain ``variance`` of the total
-        variance, or with ``noise_floor=True``, the number of components explaining more
-        variance than the first component of the data with each column shuffled
-        independently (seeded by ``seed``). Loadings of the kept components are stored on
-        `pca_loadings`, the explained variance of every component on
-        `pca_explained_variance` and, with ``noise_floor=True``, the floor ratio on
-        `pca_noise_floor`:
+        variance. With ``whiten=True`` each component's scores are scaled to unit variance
+        (see `sklearn.decomposition.PCA`); the loadings and explained variance are the same
+        either way. Loadings of the kept components are stored on `pca_loadings` and the
+        explained variance of every component on `pca_explained_variance`:
 
         >>> reduced = profiles.pca_reduce(variance=0.9)
         >>> fb.ExplainedVariancePlot(reduced.pca_explained_variance, thresholds=[0.9])
         """
         df, x = self._matrix()
-        model, scores = _fit_pca(x)
+        model, scores = _fit_pca(x, whiten=whiten)
         ratios = model.explained_variance_ratio_
-        floor = None
-        if noise_floor:
-            k, floor = _transforms.pca_noise_floor(x, ratios, seed)
-            k = max(1, min(k, len(ratios)))
-        else:
-            k = _n_components(ratios, variance)
+        k = _n_components(ratios, variance)
         names = [f"{prefix}{i}" for i in range(k)]
         new = self._replace(
             df.drop(self.features).with_columns(
@@ -528,7 +516,6 @@ class Profiles(Dataset):
         new.passthrough = ()
         new.pca_loadings = _loadings(model, names, self.values, k)
         new.pca_explained_variance = _explained_variance(ratios, k, prefix)
-        new.pca_noise_floor = floor
         return new
 
     def impact_scores(
@@ -828,11 +815,11 @@ def _output_metadata(
     )
 
 
-def _fit_pca(x: np.ndarray) -> tuple[Any, np.ndarray]:
+def _fit_pca(x: np.ndarray, *, whiten: bool = False) -> tuple[Any, np.ndarray]:
     """Every principal component of ``x``: the fitted model and the scores."""
     from sklearn.decomposition import PCA
 
-    model = PCA(n_components=None)
+    model = PCA(n_components=None, whiten=whiten)
     return model, model.fit_transform(x)
 
 

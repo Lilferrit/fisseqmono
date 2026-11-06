@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, Self
 
 import polars as pl
 
-from . import _cache, _data, _remote, _variants, fisseq
+from . import _cache, _data, _remote, _variants, fisseq, genes
 
 if TYPE_CHECKING:
     from .calibration import Calibration
@@ -34,6 +34,16 @@ _KEY = "__variant_key"
 _GNOMAD = "meta_gnomad_"
 
 logger = logging.getLogger(__name__)
+
+
+def _gene_name(gene: "genes.Gene | str | None") -> str | None:
+    return gene.name if isinstance(gene, genes.Gene) else gene
+
+
+def _need_gene(gene: "genes.Gene | str | None", what: str) -> "genes.Gene":
+    if gene is None:
+        raise ValueError(f"pass a gene (or {what}=...)")
+    return genes.resolve(gene)
 
 
 class Dataset:
@@ -55,7 +65,7 @@ class Dataset:
 
     #: The `Calibration` set by `excalibr` or `apply_calibration` (else ``None``).
     calibration: "Calibration | None" = None
-    #: The settings of `gnomad` and `clinvar` (source, release, filters), by method, as
+    #: The settings of `gnomad`, `clinvar` and `alphamissense` (source, release, filters), by method, as
     #: recorded in a `Calibration`'s ``settings``.
     annotations: Mapping[str, Mapping[str, Any]] = MappingProxyType({})
 
@@ -162,6 +172,47 @@ class Dataset:
             kw["on"] = self.variant_col
         return self._replace(self._lf.join(other.lazy(), **kw))
 
+    def concat(
+        self,
+        *others: "Dataset | pl.DataFrame | pl.LazyFrame",
+        how: str = "diagonal_relaxed",
+    ) -> Self:
+        """Stack the rows of ``others`` below this dataset (see `polars.concat`).
+
+        The result is the same class as this dataset, with its settings (``variant_col``,
+        ``batch_col``, ...). With the default ``how``, a column missing from an input is
+        null in its rows and dtypes are widened to a common one. ``calibration`` is kept
+        only when every dataset carries the same one, and ``annotations`` only the entries
+        every dataset recorded with the same settings (plain frames don't count).
+        """
+        datasets = [self]
+        for other in others:
+            if isinstance(other, Dataset):
+                if other.variant_col != self.variant_col:
+                    raise ValueError(
+                        f"variant_col differs: {self.variant_col!r} and "
+                        f"{other.variant_col!r}; rename one first"
+                    )
+                datasets.append(other)
+            elif not isinstance(other, (pl.DataFrame, pl.LazyFrame)):
+                raise TypeError(
+                    "concat takes datasets or polars DataFrames/LazyFrames, got "
+                    f"{type(other).__name__}"
+                )
+        if not others:
+            return self._replace(self.lazy())
+        new = self._replace(
+            pl.concat([self.lazy(), *(o.lazy() for o in others)], how=how)
+        )
+        if any(d.calibration is not self.calibration for d in datasets):
+            new.calibration = None
+        new.annotations = {
+            name: settings
+            for name, settings in self.annotations.items()
+            if all(d.annotations.get(name) == settings for d in datasets)
+        }
+        return new
+
     # ----- variant annotations --------------------------------------------------------
 
     def variant_type(
@@ -204,41 +255,47 @@ class Dataset:
 
     def domain(
         self,
-        regions: Mapping[str, tuple[int, int]] | None = None,
+        gene: "genes.Gene | str | None" = None,
         *,
+        regions: Mapping[str, tuple[int, int]] | None = None,
         output_col: str = "meta_domain",
     ) -> Self:
         """Name the protein region each single substitution falls in.
 
-        ``regions`` maps a name to an inclusive ``(first, last)`` position range and
-        defaults to `fisseq.LMNA_DOMAIN_REGIONS`. When ranges overlap, the first one
+        ``regions`` maps a name to an inclusive ``(first, last)`` position range; by
+        default it is the ``domains`` of ``gene`` (a `genes.Gene` or the name of a
+        built-in one). One of the two is required. When ranges overlap, the first one
         listed wins. Labels other than single substitutions, and positions outside every
         range, get null.
         """
         self._require(self.variant_col)
         position = _variants.position_expr(self.variant_col, strict=True)
-        regions = fisseq.LMNA_DOMAIN_REGIONS if regions is None else regions
+        if regions is None:
+            regions = _need_gene(gene, "regions").require("domains")
         return self.with_columns(
             _variants.region_expr(position, regions).alias(output_col)
         )
 
     def tile(
         self,
-        tiles: Sequence[tuple[str, int, int]] | None = None,
+        gene: "genes.Gene | str | None" = None,
         *,
+        tiles: Sequence[tuple[str, int, int]] | None = None,
         allow_multiple: bool = False,
         output_col: str = "meta_tile",
     ) -> Self:
         """Name the tile each variant's position falls in.
 
-        ``tiles`` is a list of ``(name, first, last)`` inclusive ranges and defaults to
-        `fisseq.LMNA_TILES`. A position in the overlap between two tiles gets the first
+        ``tiles`` is a list of ``(name, first, last)`` inclusive ranges; by default it is
+        the ``tiles`` of ``gene`` (a `genes.Gene` or the name of a built-in one). One of
+        the two is required. A position in the overlap between two tiles gets the first
         one, or both joined by ``","`` with ``allow_multiple=True``. Split the result by
         tile with ``ds.df.partition_by("meta_tile", as_dict=True)``.
         """
         self._require(self.variant_col)
         position = _variants.position_expr(self.variant_col)
-        tiles = fisseq.LMNA_TILES if tiles is None else tiles
+        if tiles is None:
+            tiles = _need_gene(gene, "tiles").require("tiles")
         return self.with_columns(
             _variants.tile_expr(position, tiles, allow_multiple=allow_multiple).alias(
                 output_col
@@ -274,7 +331,7 @@ class Dataset:
         self,
         source: "str | PathLike | pl.DataFrame | None" = None,
         *,
-        gene: str = "LMNA",
+        gene: "genes.Gene | str | None" = None,
         dataset: str = "gnomad_r4",
         splice_max: float | None = None,
         cache: _cache.Cache = False,
@@ -284,8 +341,9 @@ class Dataset:
         `excalibr` needs.
 
         ``source`` is the gnomAD browser's "Export variants to CSV" for the gene (a path or
-        a frame), or ``None`` to download ``gene``'s variants in ``dataset`` from the gnomAD
-        API (one request). Downloads are cached under ``cache`` (``True`` for the user
+        a frame), or ``None`` to download the variants of ``gene`` (a `genes.Gene` or an
+        HGNC symbol; required for a download) in ``dataset`` from the gnomAD API (one
+        request). Downloads are cached under ``cache`` (``True`` for the user
         cache directory; ``False`` downloads every time) and fetched again with
         ``refresh``.
 
@@ -309,7 +367,7 @@ class Dataset:
         self._require(self.variant_col)
         rows, origin = _inputs.gnomad_rows(
             source,
-            gene=gene,
+            gene=_gene_name(gene),
             dataset=dataset,
             splice_max=splice_max,
             cache=cache,
@@ -329,7 +387,7 @@ class Dataset:
         self,
         source: "str | PathLike | pl.DataFrame | pl.LazyFrame | None" = None,
         *,
-        gene: str = "LMNA",
+        gene: "genes.Gene | str | None" = None,
         protein_col: str = "mapped_hgvs_p",
         release: str | None = None,
         min_stars: int | None = 1,
@@ -346,12 +404,15 @@ class Dataset:
         (or CSV / parquet) path or a frame with ``clinvar.<YYYYMM>.<field>`` columns and
         the HGVS protein change in ``protein_col`` (``NP_000268.1:p.Arg406Gln``). The
         latest release in the table is used unless ``release`` (``"YYYYMM"``) picks one.
-        ``None`` downloads ``gene``'s ClinVar variants from the gnomAD API instead (the
-        ClinVar release gnomAD currently mirrors). Downloads are cached under ``cache``
+        ``None`` downloads the ClinVar variants of ``gene`` (a `genes.Gene` or an HGNC
+        symbol; required then) from the gnomAD API instead (the ClinVar release gnomAD
+        currently mirrors). Downloads are cached under ``cache``
         (``True`` for the user cache directory) and fetched again with ``refresh``.
 
-        Records are matched to single substitutions by protein change. Every call is
-        kept, one record per variant: the most severe one (pathogenic or likely
+        Records with fewer than ``min_stars`` review stars (``clinvar_stars``, else mapped
+        from ``review_status``) are ignored entirely; ``None`` keeps every record. The
+        rest are matched to single substitutions by protein change, one record per
+        variant: the most severe one (pathogenic or likely
         pathogenic, then uncertain significance, then any other call), the first in the
         table among equals. Its fields are joined in as ``meta_clinvar_*``
         (``clinical_significance``, ``review_status``, ``stars``, ``variation_id``,
@@ -360,29 +421,44 @@ class Dataset:
         variation ID (NCBI's current ClinVar, cached under ``cache`` too).
 
         ``meta_clinvar_class`` is the ExCALIBR control class `excalibr` reads:
-        ``"pathogenic"`` or ``"benign"`` over every record of the variant with at least
-        ``min_stars`` review stars, null for anything else, including variants with both
-        pathogenic and benign calls.
+        ``"pathogenic"`` or ``"benign"`` over every kept record of the variant, null for
+        anything else, including variants with both pathogenic and benign calls.
 
         ``output_col`` is `fisseq.PATHOGENIC` for pathogenic and likely pathogenic calls,
         `fisseq.UNCERTAIN` for uncertain significance, and the variant type otherwise
         (including conflicting, benign and missing calls). Run `variant_type` first.
+
+        When the variant-annotation table has AlphaMissense columns, they are joined to
+        every single substitution as ``meta_alphamissense_pathogenicity`` and
+        ``meta_alphamissense_class``, whatever its ClinVar records and ``min_stars``. A
+        variant whose nucleotide variants have different scores keeps the highest score
+        and its class.
         """
         from . import _clinvar_api
         from .calibration import _inputs
 
         self._require(self.variant_col, variant_type_col)
+        notes: list[str] = []
+        table = None if source is None else _inputs._read_table(source)
+        alphamissense = None
+        if table is not None:
+            alphamissense = _inputs.variant_annotation_alphamissense(
+                table, protein_col=protein_col, notes=notes
+            )
         records, origin = _inputs.clinvar_records(
-            source,
-            gene=gene,
+            table,
+            gene=_gene_name(gene),
             protein_col=protein_col,
             release=release,
             cache=cache,
             refresh=refresh,
         )
+        if source is not None:
+            origin = _inputs.source_name(source)
         records = records.filter(pl.col("key").is_not_null())
-        notes: list[str] = []
-        classes = _inputs.clinvar_classes(records, min_stars=min_stars, notes=notes)
+        release_name = next(iter(records["clinvar_release"].drop_nulls()), None)
+        records = _inputs.filter_min_stars(records, min_stars, notes)
+        classes = _inputs.clinvar_classes(records, min_stars=None, notes=notes)
         for note in notes:
             logger.warning(note)
         significance = pl.col("clinvar_clinical_significance")
@@ -418,7 +494,7 @@ class Dataset:
         columns = [c for c in table.columns if c != "key"]
         settings = {
             "source": origin,
-            "release": next(iter(records["clinvar_release"].drop_nulls()), None),
+            "release": release_name,
             "min_stars": min_stars,
         }
         data = (
@@ -428,7 +504,46 @@ class Dataset:
             )
             .drop(_CALL)
         )
+        if alphamissense is not None:
+            scores = alphamissense.rename(lambda c: c if c == "key" else f"{_META}{c}")
+            data = self._replace(data)._join_on_key(
+                scores.lazy(), [c for c in scores.columns if c != "key"]
+            )
         return self._annotated(data, "clinvar", settings)
+
+    def alphamissense(
+        self, source: "str | PathLike | pl.DataFrame | pl.LazyFrame"
+    ) -> Self:
+        """Add AlphaMissense (and REVEL) scores for each single substitution.
+
+        ``source`` is the TSV the AlphaMissense web search exports for a protein
+        (``AlphaMissense-Search-<UniProt>.tsv``), as a path or a frame of its columns.
+        Variants are matched by ``protein variant`` (``p.Glu2Ala`` → ``E2A``); a variant
+        listed more than once keeps its highest score. Columns, null for labels the export
+        has no row for and for multi-codon or ``:<tag>`` labels:
+
+        - ``meta_alphamissense_pathogenicity`` / ``_class``: the score (0 to 1) and
+          ``"likely_benign"``, ``"ambiguous"`` or ``"likely_pathogenic"``, the same columns
+          `clinvar` takes from a variant-annotation table (this replaces them).
+        - ``meta_alphamissense_is_snv``: reachable by a single nucleotide substitution.
+        - ``meta_revel_score`` / ``meta_revel_class``: REVEL, where the export has it.
+
+        The UniProt accession, gene and transcript of the export are recorded in
+        ``annotations["alphamissense"]``.
+        """
+        from .calibration import _inputs
+
+        self._require(self.variant_col)
+        notes: list[str] = []
+        table, provenance = _inputs.alphamissense_table(source, notes=notes)
+        for note in notes:
+            logger.warning(note)
+        table = table.rename(lambda c: c if c == "key" else f"{_META}{c}")
+        columns = [c for c in table.columns if c != "key"]
+        settings = {"source": _inputs.source_name(source), **provenance}
+        return self._annotated(
+            self._join_on_key(table.lazy(), columns), "alphamissense", settings
+        )
 
     # ----- calibration ----------------------------------------------------------------
 

@@ -3,13 +3,13 @@ import polars as pl
 import pytest
 
 import fisseqborn as fb
-from fisseqborn import fisseq
+from fisseqborn import fisseq, genes
 
 
 @pytest.fixture
 def variants(profiles) -> fb.Dataset:
     rng = np.random.default_rng(5)
-    domains = rng.choice([*fisseq.LMNA_DOMAIN_REGIONS, None], size=profiles.height)
+    domains = rng.choice([*genes.LMNA.domains, None], size=profiles.height)
     return fb.Dataset(
         profiles.with_columns(
             pl.Series("meta_domain", domains, dtype=pl.String),
@@ -56,9 +56,7 @@ def test_cluster_summary_matches_group_by(variants):
     assert df["label"][0] == f"0 (n={expected['n'][0]})"
 
     present = set(src["meta_domain"].drop_nulls())
-    assert summary.shares("domain") == [
-        d for d in fisseq.LMNA_DOMAIN_REGIONS if d in present
-    ]
+    assert summary.shares("domain") == [d for d in genes.LMNA.domains if d in present]
     for col in summary.shares("class") + summary.shares("domain"):
         assert df[col].sum() == pytest.approx(1.0)
     assert summary.totals["class"]["Synonymous"] == int(
@@ -90,7 +88,7 @@ def test_cluster_summary_group_feeds_clustermap(variants):
 
 
 def test_cluster_summary_explicit_levels_and_errors(variants):
-    domains = list(fisseq.LMNA_DOMAIN_REGIONS)
+    domains = list(genes.LMNA.domains)
     summary = variants.filter(pl.col("meta_domain") != "Head").cluster_summary(
         shares={"domain": "meta_domain"}, levels={"domain": domains}
     )

@@ -19,13 +19,13 @@ joined in from before the blocklist filter.
 ```python
 import polars as pl
 import fisseqborn as fb
-from fisseqborn import FeatureGroup, fisseq
+from fisseqborn import FeatureGroup, fisseq, genes
 
 spatial = fb.Profiles.read("filtered_pca_profiles.parquet")
 
-landmark_cols = [f"{k}_median" for k in fisseq.LMNA_LANDMARK_FEATURES]
+landmark_cols = [f"{k}_median" for k in genes.LMNA.landmark_features]
 landmark_cols.remove("AreaShape_Area_median")
-landmarks = {f"{k}_median": v for k, v in fisseq.LMNA_LANDMARK_FEATURES.items()}
+landmarks = {f"{k}_median": v for k, v in genes.LMNA.landmark_features.items()}
 
 is_pathogenic = pl.col("meta_clinvar_annotation") == fisseq.PATHOGENIC
 is_synonymous = pl.col("meta_variant_type") == "Synonymous"
@@ -108,7 +108,7 @@ summary = spatial.cluster_summary(
             "Frameshift": is_frameshift,
         },
     },
-    levels={"domain": list(fisseq.LMNA_DOMAIN_REGIONS)},  # fix the levels and their order
+    levels={"domain": list(genes.LMNA.domains)},  # fix the levels and their order
 )
 ```
 
@@ -435,7 +435,7 @@ left out of the mapping get a blank strip.
 channel = {c: "Granularity" if "Granularity" in c else
               "Shape" if "AreaShape" in c else "Intensity" for c in landmark_cols}
 region = {"Head": "Head", "Tail": "Tail", "NLS": "Tail", "Ig-fold": "Tail", "Unfolded": "Tail"}
-channel |= {d: f"{region.get(d, 'Rod')} domain" for d in fisseq.LMNA_DOMAIN_REGIONS}
+channel |= {d: f"{region.get(d, 'Rod')} domain" for d in genes.LMNA.domains}
 
 fb.ClusterMap(
     summary, groups=[landmark_group, domain_group], row_labels="label", standardize=True,

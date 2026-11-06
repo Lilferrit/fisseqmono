@@ -18,7 +18,7 @@ variants. `where` is any polars expression.
 ```python
 import polars as pl
 import fisseqborn as fb
-from fisseqborn import fisseq
+from fisseqborn import fisseq, genes
 
 UMAP = dict(x="meta_notebook_umap_1", y="meta_notebook_umap_2")
 
@@ -104,7 +104,7 @@ landmark feature:
 
 ```python
 syn = df.filter(pl.col("meta_variant_type") == "Synonymous")
-for feature, name in fisseq.LMNA_LANDMARK_FEATURES.items():
+for feature, name in genes.LMNA.landmark_features.items():
     col = f"{feature}_median"
     zdf = df.with_columns((pl.col(col) - syn[col].mean()) / syn[col].std())
     (fb.EmbeddingPlot(zdf, **UMAP, hue=col, kind="hexbin", cmap="RdBu_r", center=0,

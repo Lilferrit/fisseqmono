@@ -1,0 +1,45 @@
+[project]
+name = "fisseq-structview"
+version = "2.0.0"
+description = "Dash app: a pipeline run's per-position distinguishability scores on a protein structure"
+readme = "README.md"
+authors = [
+    { name = "Gwen Straub", email = "gwenneth.straub@gmail.com" }
+]
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "fisseqborn @ git+https://github.com/Lilferrit/fisseqmono@v2.0.0#subdirectory=packages/fisseqborn",
+    "dash>=4",
+    "dash-molstar>=1.4.1",
+    "gemmi>=0.7",
+    "matplotlib",
+    "numpy",
+    "plotly>=6",
+    "polars>=1.39",
+    "pyyaml>=6",
+]
+
+[project.scripts]
+fisseq-structview = "fisseq_structview.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit"]
+# importlib mode: test modules with the same basename in different packages don't collide.
+addopts = ["--import-mode=importlib"]
+# For structview_testdata, the helper module shared by conftest.py and the tests.
+pythonpath = ["tests/unit"]
+
+[tool.uv.sources]
+fisseqborn = { workspace = true }
+
+[tool.hatch.metadata]
+allow-direct-references = true
