@@ -34,6 +34,10 @@ EXPECTED = {
     "BLOCKLIST_BATCHWISE": [EMB.method_blocklist(B, METHOD)],
     "COMBINE_BLOCKLISTS_BATCHWISE": [EMB.blocklist(B)],
     "FINALIZE_FEATURE_SELECT_BATCHWISE": [EMB.selected(B)],
+    "COMBAT_FEATURES": [EMB.combat_features()],
+    "COMBAT_OVWT": [EMB.combat_ovwt()],
+    "COMBAT_FEATURES_CP_FEATURES": [CP.combat_features()],
+    "COMBAT_OVWT_CP_FEATURES": [CP.combat_ovwt()],
 }
 
 

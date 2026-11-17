@@ -9,9 +9,10 @@ plus chainable datasets that load and prepare the fisseq pipeline's outputs.
 ...    .save("vis/impact.png"))
 """
 
-from . import fisseq, genes
+from . import fisseq, genes, metrics
 from ._base import Config, FigurePlot, Plot, config
 from .batch_correlation import BatchCorrelationGrid, BatchCorrelationHeatmap
+from .batch_tests import BatchAnovaHeatmap, BatchPermanovaHeatmap, BatchTestMatrix
 from .blocklist import Blocklists
 from .box import BoxPlot
 from .calibration import Calibration, CalibrationPlot
@@ -23,6 +24,7 @@ from .explained_variance import ExplainedVariancePlot
 from .genes import Gene
 from .global_aggregate import write_global
 from .heatmap import Heatmap
+from .metrics import Metric, MetricMatrix
 from .ovwt import OvwtScores
 from .pairplot import PairPlot
 from .profiles import Profiles
@@ -32,8 +34,11 @@ from .variant_map import RegionTrack, VariantEffectMap, VariantEffectMapAxes
 from .volcano import VolcanoPlot
 
 __all__ = [
+    "BatchAnovaHeatmap",
     "BatchCorrelationGrid",
     "BatchCorrelationHeatmap",
+    "BatchPermanovaHeatmap",
+    "BatchTestMatrix",
     "Blocklists",
     "BoxPlot",
     "Calibration",
@@ -50,6 +55,8 @@ __all__ = [
     "FigurePlot",
     "Gene",
     "Heatmap",
+    "Metric",
+    "MetricMatrix",
     "OvwtScores",
     "PairPlot",
     "Plot",
@@ -62,5 +69,6 @@ __all__ = [
     "config",
     "fisseq",
     "genes",
+    "metrics",
     "write_global",
 ]

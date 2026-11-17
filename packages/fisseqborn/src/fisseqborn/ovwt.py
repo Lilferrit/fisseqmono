@@ -117,6 +117,27 @@ class OvwtScores(Dataset):
         )
 
     @classmethod
+    def from_combat(
+        cls,
+        pipeline_dir: "str | PathLike | _pipeline.Source",
+        *,
+        cache: "_cache.Cache" = False,
+        refresh: bool = False,
+        layout: "_pipeline.LayoutSpec" = None,
+        track: "_pipeline.Track" = "embeddings",
+        variant_col: str = "meta_aa_changes",
+        batch_col: str = "meta_experiment",
+    ) -> Self:
+        """Read the pipeline's ComBat-corrected scores (``combat/ovwt_scores.parquet``; the
+        embeddings pipeline's CellProfiler track: ``combat_cp_features/``): one row per
+        (variant, batch), the scores corrected in place (same names) by COMBAT_OVWT, without
+        ``auroc_folds``. Arguments as in `from_pipeline`. Collapse with `per_variant`.
+        """
+        src = _pipeline.source(pipeline_dir, cache, refresh, layout, track)
+        (path,) = src.files([src.layout.combat_ovwt()])
+        return cls(_pipeline.scan(path), variant_col=variant_col, batch_col=batch_col)
+
+    @classmethod
     def from_global(cls, pipeline_dir: str | PathLike, channel: str, **kw: Any) -> Self:
         """Read ``global/<channel>/ovwt_distinguishability/global_scores.parquet`` from
         an older pipeline run.
@@ -173,6 +194,40 @@ class OvwtScores(Dataset):
                 f"AUROC lists, use auroc_median_fold); choose from {list(SCORES)}"
             )
         return scores
+
+    def combat(
+        self,
+        score: str | Sequence[str] | None = None,
+        *,
+        mean_only: bool = False,
+    ) -> Self:
+        """ComBat-correct ``score`` (a column or a list, corrected jointly; default every
+        column of `SCORES` present) across batches (`fisseq_common.combat`, neuroCombat),
+        with the variant as a covariate, into ``<score>_corrected``, as `correct` names
+        them.
+
+        Variants scored in only one batch are dropped, then rows with no score at all, then
+        score columns still holding a null (each logged as a warning). Unlike `correct`,
+        scores aren't kept on a reference scale: an AUROC can leave [0, 1]. The pipeline's
+        COMBAT_OVWT runs the same correction (`from_combat`).
+        """
+        from fisseq_common.combat import combat_frame
+
+        scores = self._score_columns(score)
+        self._require(self.variant_col, self.batch_col)
+        outputs = [f"{s}_corrected" for s in scores]
+        df = self.df.drop(outputs, strict=False).with_columns(
+            pl.col(s).cast(pl.Float64).alias(out) for s, out in zip(scores, outputs)
+        )
+        return self._replace(
+            combat_frame(
+                df,
+                outputs,
+                label_column=self.variant_col,
+                batch_column=self.batch_col,
+                mean_only=mean_only,
+            )
+        )
 
     def correct(
         self,

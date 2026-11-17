@@ -13,9 +13,11 @@ morphological features. The high-level shape:
 raw CellProfiler features -> INPUT -> QC filtering -> WT normalization
     -> one-vs-WT cross-validated scoring
     -> bootstrap feature selection (per-method aggregates, blocklist, output.parquet)
+    -> ComBat across experiments (combat/features.parquet, combat/ovwt_scores.parquet)
 ```
 
-Every output is per experiment; cross-experiment aggregation is `fisseqborn-global`'s. Every
+Every output but ComBat's is per experiment; other cross-experiment aggregation is
+`fisseqborn-global`'s. Every
 stage after INPUT is a shared fisseq-common stage (`python -m fisseq_common.stages.<stage>`,
 Nextflow modules in `packages/fisseq-common/nextflow/`), the same ones the embeddings pipeline
 runs.

@@ -264,9 +264,11 @@ intensity and broad domain coverage.
 
 ## Linkage `method` and `metric`
 
-`method` goes to `scipy.cluster.hierarchy.linkage` and `metric` to `scipy.spatial.distance.pdist`.
-They are used for the rows and for `cluster_features`. The default is `method="average",
-metric="euclidean"`. Here are four combinations on the landmark block alone (with
+`method` goes to `scipy.cluster.hierarchy.linkage`. `metric` is any
+[metric](../concepts.md#metrics): a distance (`"euclidean"`, `"cityblock"`, `"cosine_distance"`) or
+a similarity, clustered on `1 - s` (`"pearson"` gives scipy's `"correlation"` distance). It is
+used for the rows and, unless `feature_metric=` says otherwise, for `cluster_features`. The default
+is `method="average", metric="euclidean"`. Here are four combinations on the landmark block alone (with
 `standardize=True`):
 
 ```python
@@ -288,9 +290,12 @@ fb.ClusterMap(summary, groups=[landmark_group], row_labels="label", standardize=
 
 - `ward` (Euclidean only) makes compact, balanced merges. Here it gives the same top split as the
   default (7, 10, 11, 9 against the rest) but regroups the lower branch.
-- `metric="correlation"` compares the **shape** of each row's profile and ignores its magnitude.
+- `metric="pearson"` compares the **shape** of each row's profile and ignores its magnitude.
   Clusters 10, 7, 3 and 4 (granularity up, everything else down) sit together at the bottom,
   even though 7 and 10 are far more extreme than 3 and 4.
+- `metric=` also takes a `MetricMatrix`, e.g. `profiles.distances("pearson")`, computed once and
+  lined up with the rows by its key (the variant column); the `cluster=True` features are then not
+  compared. `standardize=True` needs features, so it doesn't combine with a matrix.
 - `single` linkage chains rows together one at a time. That gives you a staircase dendrogram and is
   rarely what you want for summaries.
 

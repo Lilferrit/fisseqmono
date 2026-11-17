@@ -21,9 +21,10 @@ Documentation for all five is one MkDocs site: `mkdocs.yml` and `docs/` at the r
 - The root is a virtual workspace (not a package). `uv sync` installs its dev group: all five
   packages plus pytest, ruff and pre-commit; `--group docs` adds MkDocs.
 - `fisseq-common`'s base install is polars, pyarrow, numpy. The heavy dependencies
-  (scikit-learn, xgboost, hydra, scipy) are its `stages` extra. The pipelines
-  depend on `fisseq-common[stages]`, fisseqborn on plain `fisseq-common`; keep it that way —
-  nothing in the base modules may import a `stages` dependency.
+  (scikit-learn, xgboost, hydra, scipy) are its `stages` extra; neuroCombat and pandas are its
+  `combat` extra, which `stages` includes. The pipelines depend on `fisseq-common[stages]`,
+  fisseqborn on `fisseq-common[combat]`; keep it that way — nothing in the base modules may
+  import a `stages` dependency (`combat` imports neuroCombat inside its function).
 - Every package lists `fisseq-common` by git URL pinned to the release tag, with
   `[tool.uv.sources] fisseq-common = { workspace = true }` so the workspace uses its own copy.
 - A package imports no other workspace package except `fisseq-common`. One exception:
@@ -34,11 +35,13 @@ Documentation for all five is one MkDocs site: `mkdocs.yml` and `docs/` at the r
 ## Shared code (fisseq-common)
 
 - `schema`, `variant`, `normalizer`, `layout` (where each pipeline publishes its
-  per-experiment outputs), `global_aggregation` (cross-experiment methods), `utils/`.
+  outputs), `global_aggregation` (cross-experiment methods), `combat` (ComBat across
+  experiments, on neuroCombat), `utils/`.
 - `stages/`: every stage both pipelines run, whole: the algorithm, the Hydra config and the
   entry point `python -m fisseq_common.stages.<stage>` (`stage_main` in `stages/config.py`):
   `qcfilter`, `filter`, `ovwt`, `aggregate`, `generatesplit`, `correlatefeatures`,
-  `blocklist`, `combineblocklists`, `finalize`. The pipelines have no wrapper modules.
+  `blocklist`, `combineblocklists`, `finalize`, `combatfeatures`, `combatovwt`. The
+  pipelines have no wrapper modules.
   Differences between the pipelines are config fields (`join_keys`, `feature_selector`, QC
   column names, ...) set in each pipeline's `conf/modules.config` — see
   `docs/common/index.md` for the table and `docs/common/stages.md` for each stage.
@@ -57,7 +60,10 @@ Documentation for all five is one MkDocs site: `mkdocs.yml` and `docs/` at the r
   (CellProfiler features vs. Cell-DINO embeddings, plus the embeddings pipeline's CellProfiler
   track).
 - Cross-experiment aggregation is fisseqborn's job (`fisseqborn-global`, on
-  `fisseq_common.global_aggregation`); the pipelines write per-experiment outputs only.
+  `fisseq_common.global_aggregation`); the pipelines write per-experiment outputs, with one
+  exception: ComBat (`run_combat`). COMBAT_FEATURES and COMBAT_OVWT each gather every
+  experiment's table into one corrected table per run (`combat/`, plus `combat_cp_features/`
+  for the embeddings pipeline's CellProfiler track).
 
 ## Tests
 

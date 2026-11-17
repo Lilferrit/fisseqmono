@@ -4,11 +4,14 @@ import importlib
 import logging
 from collections.abc import Mapping, Sequence
 from types import ModuleType
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import polars as pl
 import polars.selectors as cs
+
+if TYPE_CHECKING:
+    from .metrics import Metric, MetricMatrix
 
 logger = logging.getLogger(__name__)
 
@@ -175,19 +178,81 @@ def impact_score_expr(features: Sequence[str], *, control_col: str) -> pl.Expr:
     return (1 - dot / (norm_a * norm_b)) / 2
 
 
+def is_cosine(metric: "Metric") -> bool:
+    """Whether ``metric``'s impact score is the cosine one (`impact_score_expr`)."""
+    from .metrics import Cosine, CosineDistance
+
+    return isinstance(metric, CosineDistance) or (
+        isinstance(metric, Cosine) and not metric.squared
+    )
+
+
+def impact_score_series(
+    df: pl.DataFrame,
+    features: Sequence[str],
+    *,
+    control_col: str,
+    metric: "Metric",
+    name: str,
+) -> pl.Series:
+    """`metric`'s distance from each row to the control rows' median profile, over the
+    features both have, divided by the metric's `distance_bound` (so it lies in [0, 1])
+    when it has one.
+
+    Cosine (similarity or distance) is `impact_score_expr`, which scores a row with no
+    usable feature 0.5; other metrics give such a row (or one where the metric is
+    undefined, e.g. zero variance under Pearson) null.
+    """
+    if is_cosine(metric):
+        expr = impact_score_expr(features, control_col=control_col)
+        return df.select(expr.alias(name)).to_series()
+    x = (
+        df.select(finite(pl.col(f)).alias(f) for f in features)
+        .fill_null(np.nan)
+        .to_numpy()
+    )
+    ref = (
+        df.select(
+            finite(pl.col(f)).filter(pl.col(control_col)).median().alias(f)
+            for f in features
+        )
+        .fill_null(np.nan)
+        .to_numpy()[0]
+    )
+    out = np.full(len(x), np.nan)
+    for i, row in enumerate(x):
+        ok = np.isfinite(row) & np.isfinite(ref)
+        if ok.any():
+            out[i] = metric.to_distance(np.array(metric.value(row[ok], ref[ok])))
+    if metric.distance_bound:
+        out = out / metric.distance_bound
+    return pl.Series(name, out).fill_nan(None)
+
+
 def cluster_labels(
-    x: np.ndarray,
+    x: np.ndarray | None,
     *,
     method: Literal["leiden", "kmeans"],
     n_neighbors: int,
     resolution: float,
     n_clusters: int | None,
     seed: int,
+    metric: "Metric | MetricMatrix",
+    data: pl.DataFrame,
 ) -> np.ndarray:
-    """Leiden communities of the k-nearest-neighbor graph, or k-means labels."""
+    """Leiden communities of the k-nearest-neighbor graph under ``metric``, or k-means
+    labels (Euclidean only). ``x`` may be ``None`` when ``metric`` is a `MetricMatrix`
+    lined up with ``data``."""
+    from .metrics import Euclidean, nearest_neighbor_graph
+
     if method == "kmeans":
         if n_clusters is None:
             raise ValueError("method='kmeans' requires n_clusters")
+        if not isinstance(metric, Euclidean) or x is None:
+            raise ValueError(
+                "method='kmeans' clusters on Euclidean distance only; use "
+                "method='leiden' for another metric"
+            )
         from sklearn.cluster import KMeans
 
         return KMeans(
@@ -202,12 +267,10 @@ def cluster_labels(
         )
     ig = require_extra("igraph", "cluster")
     leidenalg = require_extra("leidenalg", "cluster")
-    from sklearn.neighbors import kneighbors_graph
-
-    knn = kneighbors_graph(x, n_neighbors=n_neighbors, mode="connectivity")
+    knn = nearest_neighbor_graph(metric, data, x, n_neighbors)
     sources, targets = knn.nonzero()
     graph = ig.Graph(directed=False)
-    graph.add_vertices(x.shape[0])
+    graph.add_vertices(knn.shape[0])
     graph.add_edges(list(zip(sources.tolist(), targets.tolist())))
     partition = leidenalg.find_partition(
         graph,

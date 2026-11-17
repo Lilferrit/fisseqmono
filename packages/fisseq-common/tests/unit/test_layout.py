@@ -100,6 +100,14 @@ def test_stage_dirs_by_track():
     assert CP.stage_dir("feature_select") == "feature_select_batchwise_cp_features"
 
 
+def test_combat_outputs_are_per_run():
+    assert DATA.combat_features() == "combat/features.parquet"
+    assert DATA.combat_ovwt() == "combat/ovwt_scores.parquet"
+    assert EMB.combat_features() == "combat/features.parquet"
+    assert CP.combat_features() == "combat_cp_features/features.parquet"
+    assert CP.combat_ovwt() == "combat_cp_features/ovwt_scores.parquet"
+
+
 def test_data_input():
     assert DATA.input("b1") == "input/b1.parquet"
 

@@ -244,6 +244,24 @@ filter_label_column: "meta_aa_changes"
 # ── Run gates (after EMBED_CELLS) ───────────────────────────────────────────
 run_ovwt: true               # OVWT_BATCHWISE (both tracks)
 run_feature_selection: true  # the batchwise feature-selection chain (cellDINO track)
+run_combat: true             # COMBAT_FEATURES, COMBAT_OVWT (both tracks)
+
+# ── ComBat across experiments (COMBAT_FEATURES, COMBAT_OVWT) ────────────────
+# The one step that runs across experiments (skipped, with a warning, with fewer than two),
+# per track. ComBat (neuroCombat, parametric empirical Bayes) with the variant as a
+# covariate: each experiment's location and scale are removed and each variant's effect
+# kept. Variants measured in only one experiment are dropped, then rows with no value and
+# columns holding a null (each logged as a warning in the task log). Writes one table
+# each, stacked across experiments (one row per variant x experiment, meta_experiment
+# naming the experiment): combat/{features,ovwt_scores}.parquet, and
+# combat_cp_features/ for the CellProfiler track.
+#
+# COMBAT_FEATURES corrects each track's per-method aggregates (every
+# feature, before any blocklist): the cellDINO track's are the feature-selection chain's,
+# so they need run_feature_selection; the CP track's are
+# AGGREGATE_FEATURE_TYPE_CP_FEATURES' (feature_select_types_cp_features).
+# true = correct only each experiment's location, not its scale.
+combat_mean_only: false
 
 # ── Feature selection (bootstrap + aggregation + correlation) ───────────────
 # All aggregators that make sense as a reproducibility statistic. Their

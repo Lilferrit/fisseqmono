@@ -18,6 +18,10 @@ read over scp. Join them onto the run directory to open a file::
 A layout method returns ``None`` for a file its pipeline (or track) never writes, e.g. the
 embeddings pipeline's CellProfiler track has no blocklist.
 
+Two outputs are per run rather than per experiment: the ComBat-corrected features and OvWT
+scores (``combat/features.parquet``, ``combat/ovwt_scores.parquet``; the CellProfiler track:
+``combat_cp_features/``), each one table stacked across experiments.
+
 Aggregates are one file per method, ``aggregates/<method>.parquet``, columns
 ``<feature>_<method>``, z-scored against the experiment's synonymous variants. Passthrough
 aggregates (methods aggregated but never blocklisted) are one raw file per method.
@@ -164,6 +168,18 @@ class PipelineLayout(abc.ABC):
             return None
         return f"{self.batch_dir('feature_select', batch)}/output.parquet"
 
+    # --- COMBAT_FEATURES / COMBAT_OVWT (per run) --------------------------------------------
+
+    def combat_features(self) -> str:
+        """Every experiment's per-variant aggregates (every feature), stacked and
+        ComBat-corrected: one row per (variant, experiment), with ``meta_experiment``."""
+        return f"{self.stage_dirs['combat']}/features.parquet"
+
+    def combat_ovwt(self) -> str:
+        """Every experiment's OvWT scores, stacked and ComBat-corrected: one row per
+        (variant, experiment), with ``meta_experiment``."""
+        return f"{self.stage_dirs['combat']}/ovwt_scores.parquet"
+
 
 class DataPipelineLayout(PipelineLayout):
     """fisseq-data-pipeline's per-experiment outputs."""
@@ -175,6 +191,7 @@ class DataPipelineLayout(PipelineLayout):
         "filter": "normalization",
         "ovwt": "ovwt_batchwise",
         "feature_select": "feature_select_batchwise",
+        "combat": "combat",
     }
 
     def __repr__(self) -> str:
@@ -217,6 +234,7 @@ class EmbeddingsPipelineLayout(PipelineLayout):
             "filter": f"normalization{suffix}",
             "ovwt": f"ovwt_batchwise{suffix}",
             "feature_select": f"feature_select_batchwise{suffix}",
+            "combat": f"combat{suffix}",
         }
 
     def __repr__(self) -> str:

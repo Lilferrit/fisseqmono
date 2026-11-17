@@ -16,9 +16,12 @@
 //        │
 //        ├──► OVWT_BATCHWISE  (per experiment; optional: params.run_ovwt)
 //        │
-//        └──► Feature selection, batchwise (optional: params.run_feature_selection)
+//        ├──► Feature selection, batchwise (optional: params.run_feature_selection)
+//        │
+//        └──► ComBat across experiments (optional: params.run_combat):
+//               aggregates -> COMBAT_FEATURES, OVWT_BATCHWISE -> COMBAT_OVWT
 //
-// Every output is per experiment. Cross-experiment aggregation is done
+// Every output but ComBat's is per experiment. Other cross-experiment aggregation is done
 // downstream by the fisseqborn package, which reads the layout below.
 //
 // Output layout:
@@ -29,6 +32,7 @@
 //     ovwt_batchwise/{batch_stem}/                   results, cell_scores, models.pkl
 //     feature_select_batchwise/{batch_stem}/         aggregates, passthrough_aggregates, splits,
 //                                                    correlations, blocklists, blocklist, output
+//     combat/                                        features, ovwt_scores (every experiment, stacked)
 nextflow.enable.dsl = 2
 
 include { FisseqPipeline } from './workflows/fisseq'

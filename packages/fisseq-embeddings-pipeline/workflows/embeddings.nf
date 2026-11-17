@@ -13,13 +13,16 @@
 //              {OVWT_BATCHWISE, feature selection}
 //   CP track:  BUILD_CP_FEATURES -> NORMALIZE_CP_FEATURES ->
 //              {AGGREGATE_FEATURE_TYPE_CP_FEATURES, OVWT_BATCHWISE_CP_FEATURES}
+//   then, per track, across experiments (params.run_combat): COMBAT_FEATURES on the
+//   aggregates (feature selection's stage 1; AGGREGATE_FEATURE_TYPE_CP_FEATURES) and
+//   COMBAT_OVWT on the OvWT scores (each *_CP_FEATURES for the CP track).
 //
 // Everything downstream of EMBED_CELLS is fisseq-data-pipeline's: the same shared modules
 // (QC_FILTER, NORMALIZE on the wildtype cells, OVWT_BATCHWISE, the bootstrap feature
 // selection ending in FINALIZE_FEATURE_SELECT), the same parameters and the same publish
 // layout. Only the cell table differs: embedding dimensions instead of CellProfiler features.
 //
-// Every output is per experiment: aggregating across experiments is the
+// Every output but ComBat's is per experiment: other aggregation across experiments is the
 // fisseqborn package's job (`fisseqborn-global`). Every task carries
 // errorStrategy 'ignore', so independent branches keep running when one
 // fails -- check the run report for failures.
@@ -45,6 +48,11 @@ include { CORRELATE_FEATURES as CORRELATE_FEATURES_BATCHWISE } from '../../fisse
 include { BLOCKLIST as BLOCKLIST_BATCHWISE } from '../../fisseq-common/nextflow/modules/local/blocklist/main.nf'
 include { COMBINE_BLOCKLISTS as COMBINE_BLOCKLISTS_BATCHWISE } from '../../fisseq-common/nextflow/modules/local/combine_blocklists/main.nf'
 include { FINALIZE_FEATURE_SELECT as FINALIZE_FEATURE_SELECT_BATCHWISE } from '../../fisseq-common/nextflow/modules/local/finalize_feature_select/main.nf'
+include { COMBAT_FEATURES } from '../../fisseq-common/nextflow/modules/local/combat_features/main.nf'
+include { COMBAT_FEATURES as COMBAT_FEATURES_CP_FEATURES } from '../../fisseq-common/nextflow/modules/local/combat_features/main.nf'
+include { COMBAT_OVWT } from '../../fisseq-common/nextflow/modules/local/combat_ovwt/main.nf'
+include { COMBAT_OVWT as COMBAT_OVWT_CP_FEATURES } from '../../fisseq-common/nextflow/modules/local/combat_ovwt/main.nf'
+include { gatherBatches } from '../../fisseq-common/nextflow/modules/local/functions.nf'
 
 // Nextflow CLI overrides (--run_ovwt false) arrive as the Groovy-truthy String "false", so
 // every gate is coerced before use.
@@ -263,6 +271,38 @@ workflow EmbeddingsPipeline {
         )
         if (asBool(params.run_ovwt)) {
             OVWT_BATCHWISE_CP_FEATURES(cp_norm_ch)
+        }
+
+        // ComBat across experiments (params.run_combat), per track: COMBAT_FEATURES on the
+        // aggregates (every method, every feature, before any blocklist) -- the cellDINO
+        // track's come from feature selection's stage 1, so they need
+        // params.run_feature_selection -- and COMBAT_OVWT on the OvWT scores. One table each,
+        // stacked across experiments, in combat/ (combat_cp_features/ for the CP track).
+        if (asBool(params.run_combat)) {
+            if (asBool(params.run_feature_selection)) {
+                COMBAT_FEATURES(gatherBatches(
+                    agg_ch.map { batch_stem, _feature_type, agg_file -> tuple(batch_stem, agg_file) },
+                    'COMBAT_FEATURES'
+                ))
+            }
+            else {
+                log.warn "COMBAT_FEATURES is skipped: it corrects the feature-selection chain's " +
+                         "aggregates, and params.run_feature_selection is false."
+            }
+            COMBAT_FEATURES_CP_FEATURES(gatherBatches(
+                AGGREGATE_FEATURE_TYPE_CP_FEATURES.out.aggregate.map { batch_stem, _rep, _method, _half, agg_file -> tuple(batch_stem, agg_file) },
+                'COMBAT_FEATURES_CP_FEATURES'
+            ))
+            if (asBool(params.run_ovwt)) {
+                COMBAT_OVWT(gatherBatches(
+                    OVWT_BATCHWISE.out.ovwt.map { batch_stem, results, _cell_scores, _models -> tuple(batch_stem, results) },
+                    'COMBAT_OVWT'
+                ))
+                COMBAT_OVWT_CP_FEATURES(gatherBatches(
+                    OVWT_BATCHWISE_CP_FEATURES.out.ovwt.map { batch_stem, results, _cell_scores, _models -> tuple(batch_stem, results) },
+                    'COMBAT_OVWT_CP_FEATURES'
+                ))
+            }
         }
     }
 }

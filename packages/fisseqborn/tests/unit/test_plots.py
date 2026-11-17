@@ -245,7 +245,7 @@ def test_heatmap_long_form_symmetric():
 
 def test_heatmap_correlation(profiles):
     plot = fb.Heatmap.correlation(
-        profiles, ["feature_0", "feature_1", "feature_2"], method="spearman"
+        profiles, ["feature_0", "feature_1", "feature_2"], metric="spearman"
     )
     mat = plot.matrix()
     assert mat.shape == (3, 3)
@@ -265,7 +265,7 @@ def test_heatmap_correlation_dense_matches_complete_rows(profiles, method):
         expected = unit.T @ unit
     else:
         expected = np.corrcoef(mat, rowvar=False)
-    plot = fb.Heatmap.correlation(profiles, cols, method=method)
+    plot = fb.Heatmap.correlation(profiles, cols, metric=method)
     assert np.allclose(plot.matrix().to_numpy(), expected)
     assert (plot.n_shared.to_numpy() == profiles.height).all()
 
@@ -293,7 +293,7 @@ def test_heatmap_correlation_block_sparse(block_sparse):
     with warnings.catch_warnings():
         warnings.simplefilter("error", RuntimeWarning)
         plot = fb.Heatmap.correlation(
-            block_sparse, method="spearman", nan_color="black"
+            block_sparse, metric="spearman", nan_color="black"
         )
         mat = plot.matrix()
     for i, j in [("a1", "a2"), ("b1", "b2"), ("a1", "a1")]:
@@ -316,7 +316,7 @@ def test_heatmap_correlation_spearman_matches_scipy_on_shared_rows(block_sparse)
     )  # a2 spans both blocks
     shared = df.select("a2", "b2").drop_nulls()
     expected = spearmanr(shared["a2"], shared["b2"]).statistic
-    mat = fb.Heatmap.correlation(df, ["a2", "b2"], method="spearman").matrix()
+    mat = fb.Heatmap.correlation(df, ["a2", "b2"], metric="spearman").matrix()
     assert mat.loc["a2", "b2"] == pytest.approx(expected)
 
 
@@ -345,7 +345,7 @@ def test_batch_correlation_matrix(replicate_scores):
     t1 = pairs.filter((pl.col("batch_a") == "T1_R1") & (pl.col("batch_b") == "T1_R2"))
     r1 = replicate_scores.filter(pl.col("experiment") == "T1_R1").sort("variant")
     r2 = replicate_scores.filter(pl.col("experiment") == "T1_R2").sort("variant")
-    assert t1["r"][0] == pytest.approx(
+    assert t1["value"][0] == pytest.approx(
         spearmanr(r1["test_auroc"], r2["test_auroc"]).statistic
     )
     assert t1["n_shared"][0] == 10
@@ -401,7 +401,7 @@ def test_batch_correlation_grid(replicate_scores):
     by = replicate_scores.pivot(on="experiment", index="variant", values="test_auroc")
     offsets = axes[1, 0].collections[0].get_offsets()
     assert np.allclose(offsets, by.select("T1_R1", "T1_R2").drop_nulls().to_numpy())
-    r = plot.pairs().filter(batch_a="T1_R1", batch_b="T1_R2")["r"][0]
+    r = plot.pairs().filter(batch_a="T1_R1", batch_b="T1_R2")["value"][0]
     assert axes[1, 0].get_facecolor() == pytest.approx(
         mpl.colormaps["Blues"](r, alpha=0.6)
     )
@@ -549,18 +549,6 @@ def test_batch_correlation_grid_lims_and_label_rotation(replicate_scores):
     assert axes[1, 0].yaxis.label.get_rotation() == 90
 
 
-def test_cross_correlation_matches_pairwise(block_sparse, profiles):
-    from fisseqborn.heatmap import cross_correlation, pairwise_correlation
-
-    for df in (block_sparse, profiles.select(f"feature_{i}" for i in range(4))):
-        m = df.cast(pl.Float64).fill_null(np.nan).to_numpy()
-        for method in ("pearson", "spearman", "cosine"):
-            corr, n = pairwise_correlation(m, method, min_shared=2)
-            cross, cross_n = cross_correlation(m, m, method, min_shared=2)
-            assert np.allclose(cross, corr, equal_nan=True)
-            assert (cross_n == n).all()
-
-
 def test_batch_correlation_cross_scores(replicate_scores):
     from scipy.stats import spearmanr
 
@@ -590,7 +578,7 @@ def test_batch_correlation_cross_scores(replicate_scores):
     pairs = plot.pairs()
     assert pairs.height == 9
     row = pairs.filter(pl.col("batch_a") == "T1_R2", pl.col("batch_b") == "T1_R1")
-    assert row["r"][0] == pytest.approx(mat.loc["T1_R2", "T1_R1"])
+    assert row["value"][0] == pytest.approx(mat.loc["T1_R2", "T1_R1"])
 
     _, ax = plot.plot()
     assert (ax.get_xlabel(), ax.get_ylabel()) == ("test_auroc", "missense")
@@ -899,43 +887,82 @@ def test_volcano_from_labels_errors(labelled_rows):
 def test_heatmap_correlation_squared(profiles):
     cols = ["feature_0", "feature_1", "feature_2"]
     r = fb.Heatmap.correlation(profiles, cols).matrix()
-    plot = fb.Heatmap.correlation(profiles, cols, squared=True)
+    plot = fb.Heatmap.correlation(profiles, cols, metric="pearson_squared")
     assert np.allclose(plot.matrix().to_numpy(), r.to_numpy() ** 2)
     assert plot.heatmap_kw["vmin"] == 0 and plot.heatmap_kw["cmap"] == "Blues"
 
 
+def test_heatmap_correlation_distance(profiles):
+    from scipy.spatial.distance import cdist
+
+    cols = ["feature_0", "feature_1", "feature_2"]
+    plot = fb.Heatmap.correlation(profiles, cols, metric="euclidean")
+    x = profiles.select(cols).cast(pl.Float64).to_numpy()
+    assert np.allclose(plot.matrix().to_numpy(), cdist(x.T, x.T))
+    assert plot.heatmap_kw["cmap"] == "Blues_r" and plot.heatmap_kw["vmin"] == 0
+    plot.plot()
+
+
+def test_heatmap_from_matrix(profiles):
+    values = np.array([[0.0, 1.0, 2.0], [1.0, 0.0, 3.0], [2.0, 3.0, 0.0]])
+    matrix = fb.MetricMatrix.from_array(values, ["x", "y", "z"], label="My distance")
+    plot = fb.Heatmap.from_matrix(matrix)
+    mat = plot.matrix()
+    assert list(mat.index) == ["x", "y", "z"] == list(mat.columns)
+    assert mat.loc["y", "z"] == 3.0
+    _, ax = plot.plot()
+    assert _cbar_label(ax) == "My distance"
+
+    d = fb.Profiles(profiles).drop_nonfinite().distances("pearson")
+    assert fb.Heatmap.from_matrix(d).matrix().shape == d.shape
+
+
 @pytest.mark.parametrize("method", ["pearson", "spearman", "cosine"])
 def test_batch_correlation_methods_and_squared(replicate_scores, method):
-    kw = {
-        "batch": "experiment",
-        "label": "variant",
-        "score": "test_auroc",
-        "method": method,
-    }
-    plain = fb.BatchCorrelationHeatmap(replicate_scores, **kw)
-    squared = fb.BatchCorrelationHeatmap(replicate_scores, squared=True, **kw)
+    kw = {"batch": "experiment", "label": "variant", "score": "test_auroc"}
+    plain = fb.BatchCorrelationHeatmap(replicate_scores, metric=method, **kw)
+    squared = fb.BatchCorrelationHeatmap(
+        replicate_scores, metric=f"{method}_squared", **kw
+    )
     expected = fb.Heatmap.correlation(
         replicate_scores.pivot(on="experiment", index="variant", values="test_auroc"),
         ["T1_R1", "T1_R2", "T2_R1"],
-        method=method,
+        metric=method,
     ).matrix()
     assert np.allclose(plain.matrix().to_numpy(), expected.to_numpy(), equal_nan=True)
     assert np.allclose(
         squared.matrix().to_numpy(), expected.to_numpy() ** 2, equal_nan=True
     )
-    pairs = squared.pairs().drop_nans("r")
-    assert np.allclose(pairs["r_squared"], pairs["r"] ** 2)
+    assert np.allclose(
+        squared.pairs()["value"], plain.pairs()["value"] ** 2, equal_nan=True
+    )
     squared.plot()
 
 
-def test_batch_correlation_rejects_unknown_method(replicate_scores):
-    with pytest.raises(ValueError, match="cosine"):
+def test_batch_correlation_euclidean(replicate_scores):
+    kw = {"batch": "experiment", "label": "variant", "score": "test_auroc"}
+    plot = fb.BatchCorrelationHeatmap(replicate_scores, metric="euclidean", **kw)
+    r1 = replicate_scores.filter(pl.col("experiment") == "T1_R1").sort("variant")
+    r2 = replicate_scores.filter(pl.col("experiment") == "T1_R2").sort("variant")
+    expected = np.linalg.norm(r1["test_auroc"].to_numpy() - r2["test_auroc"].to_numpy())
+    assert plot.matrix().loc["T1_R1", "T1_R2"] == pytest.approx(expected)
+    assert plot.matrix().loc["T1_R1", "T1_R1"] == 0.0
+    assert plot.heatmap_kw["cmap"] == "Blues_r"
+    assert plot.heatmap_kw["vmax"] == pytest.approx(expected)
+    _, ax = plot.plot()
+    assert _cbar_label(ax) == "Euclidean distance"
+    _, axes = fb.BatchCorrelationGrid(replicate_scores, metric="euclidean", **kw).plot()
+    assert axes[1, 0].texts[0].get_text() == f"d = {expected:.2f}\nn = 10"
+
+
+def test_batch_correlation_rejects_unknown_metric(replicate_scores):
+    with pytest.raises(ValueError, match="Unknown metric 'kendall'"):
         fb.BatchCorrelationHeatmap(
             replicate_scores,
             batch="experiment",
             label="variant",
             score="test_auroc",
-            method="kendall",
+            metric="kendall",
         )
 
 
@@ -944,18 +971,17 @@ def _cbar_label(ax):
 
 
 @pytest.mark.parametrize(
-    ("method", "squared", "label"),
+    ("metric", "label"),
     [
-        ("pearson", False, "Pearson r"),
-        ("spearman", True, "Spearman ρ²"),
-        ("cosine", False, "Cosine similarity"),
+        ("pearson", "Pearson r"),
+        ("spearman_squared", "Spearman ρ²"),
+        ("cosine", "Cosine similarity"),
+        ("cosine_distance", "Cosine distance"),
     ],
 )
-def test_correlation_heatmaps_label_colorbar(
-    profiles, replicate_scores, method, squared, label
-):
+def test_correlation_heatmaps_label_colorbar(profiles, replicate_scores, metric, label):
     _, ax = fb.Heatmap.correlation(
-        profiles, ["feature_0", "feature_1"], method=method, squared=squared
+        profiles, ["feature_0", "feature_1"], metric=metric
     ).plot()
     assert _cbar_label(ax) == label
     _, ax = fb.BatchCorrelationHeatmap(
@@ -963,8 +989,7 @@ def test_correlation_heatmaps_label_colorbar(
         batch="experiment",
         label="variant",
         score="test_auroc",
-        method=method,
-        squared=squared,
+        metric=metric,
     ).plot()
     assert _cbar_label(ax) == label
 
@@ -1086,3 +1111,24 @@ def test_pairplot_is_figure_level(profiles):
     _, ax = plt.subplots()
     with pytest.raises(TypeError, match="figure-level"):
         fb.PairPlot(profiles, vars=["feature_0"]).plot(ax=ax)
+
+
+def test_correlation_plot_any_metric(profiles):
+    from scipy.stats import pearsonr
+
+    kw = {"x": "meta_num_cells", "y": "meta_distinguishability_score"}
+    xs = profiles["meta_num_cells"].cast(pl.Float64).to_numpy()
+    ys = profiles["meta_distinguishability_score"].to_numpy()
+    r, p, _ = fb.CorrelationPlot(profiles, stat="pearson_squared", **kw).correlation()
+    assert r == pytest.approx(pearsonr(xs, ys).statistic ** 2)
+    assert p == pytest.approx(pearsonr(xs, ys).pvalue)
+
+    plot = fb.CorrelationPlot(profiles, stat="cosine", **kw)
+    value, p, n = plot.correlation()
+    assert value == pytest.approx(xs @ ys / np.linalg.norm(xs) / np.linalg.norm(ys))
+    assert np.isnan(p) and n == profiles.height
+    _, ax = plot.plot()
+    text = next(t.get_text() for t in ax.texts if "Cosine" in t.get_text())
+    assert text.startswith("Cosine similarity = ") and "p =" not in text
+    with pytest.raises(ValueError, match="Unknown metric"):
+        fb.CorrelationPlot(profiles, stat="kendall", **kw)

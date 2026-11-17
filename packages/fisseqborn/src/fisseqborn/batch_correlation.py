@@ -1,7 +1,6 @@
 """Batch-vs-batch correlation matrices computed from long-form scores."""
 
 from collections.abc import Mapping, Sequence
-from itertools import combinations_with_replacement, product
 from typing import Any, Literal
 
 import matplotlib as mpl
@@ -16,20 +15,45 @@ from scipy.stats import gaussian_kde
 
 from . import _data
 from ._base import FigurePlot, config
-from .heatmap import (
-    Heatmap,
-    correlation_label,
-    cross_correlation,
-    pairwise_correlation,
-    with_cbar_label,
-)
+from .heatmap import Heatmap, with_cbar_label
+from .metrics import Metric, MetricMatrix
 
-_STAT_SYMBOLS = {"pearson": "r", "spearman": "ρ", "cosine": "cos"}
+
+def _scale(
+    metric: Metric, matrix: MetricMatrix, vmin: float | None, vmax: float | None
+) -> tuple[float, float]:
+    """Color limits: 0 to 1 for a similarity, 0 to the largest value for a distance,
+    unless given."""
+    if metric.kind == "similarity":
+        return (0.0 if vmin is None else vmin, 1.0 if vmax is None else vmax)
+    finite = matrix.values[np.isfinite(matrix.values)]
+    top = float(finite.max()) if finite.size else 1.0
+    return (0.0 if vmin is None else vmin, top if vmax is None else vmax)
+
+
+def check_unique(
+    data: pl.DataFrame, batch: str, label: str, aggregate: str | None
+) -> None:
+    """Raise if ``(batch, label)`` repeats and no ``aggregate`` is given."""
+    if aggregate is None and data.select(batch, label).is_duplicated().any():
+        raise ValueError(
+            f"Duplicate ({batch!r}, {label!r}) rows; pass aggregate='mean' (or similar)"
+        )
+
+
+def pivot_by_batch(
+    data: pl.DataFrame, batch: str, label: str, col: str, aggregate: str | None
+) -> pl.DataFrame:
+    """``col`` with one column per batch (as strings) and one row per ``label``; null
+    where a batch lacks the label."""
+    return data.select(
+        pl.col(batch).cast(pl.String), label, pl.col(col).cast(pl.Float64)
+    ).pivot(on=batch, index=label, values=col, aggregate_function=aggregate)  # type: ignore[arg-type]
 
 
 class _BatchScores:
-    """The long-form scores pivoted to one column per batch, and their pairwise
-    correlations; shared by `BatchCorrelationHeatmap` and `BatchCorrelationGrid`."""
+    """The long-form scores pivoted to one column per batch, and the metric between
+    every pair of batches; shared by `BatchCorrelationHeatmap` and `BatchCorrelationGrid`."""
 
     def __init__(
         self,
@@ -39,28 +63,17 @@ class _BatchScores:
         label: str,
         score: str,
         y_score: str | None,
-        method: str,
+        metric: Metric,
         min_shared: int,
         aggregate: str | None,
     ) -> None:
         _data.require_columns(data, batch, label, score, y_score)
-        if method not in ("spearman", "pearson", "cosine"):
-            raise ValueError(
-                f"method must be 'spearman', 'pearson' or 'cosine', got {method!r}"
-            )
-        if aggregate is None and data.select(batch, label).is_duplicated().any():
-            raise ValueError(
-                f"Duplicate ({batch!r}, {label!r}) rows; pass aggregate='mean' (or similar)"
-            )
+        check_unique(data, batch, label, aggregate)
         self.y_score = None if y_score == score else y_score
-        self.method, self.min_shared = method, min_shared
+        self.metric, self.min_shared = metric, min_shared
 
         def by_batch(col: str) -> pl.DataFrame:
-            return (
-                data.select(
-                    pl.col(batch).cast(pl.String), label, pl.col(col).cast(pl.Float64)
-                ).pivot(on=batch, index=label, values=col, aggregate_function=aggregate)  # type: ignore[arg-type]
-            )
+            return pivot_by_batch(data, batch, label, col, aggregate)
 
         #: one column per batch, one row per label; null where a batch lacks the label
         scores = by_batch(score)
@@ -71,54 +84,22 @@ class _BatchScores:
             by_batch(self.y_score).drop(label) if self.y_score else self.scores
         )
         self.batches: list[str] = self.scores.columns
-        self.pairs = self._compute_pairs()
-
-    def _compute_pairs(self) -> pl.DataFrame:
-        batches = self.batches
-        x = self.scores.fill_null(np.nan).to_numpy()
-        if self.y_score is None:
-            corr, n_shared = pairwise_correlation(x, self.method, self.min_shared)  # type: ignore[arg-type]
-            cells = combinations_with_replacement(range(len(batches)), 2)
-        else:
-            y = self.y_scores.fill_null(np.nan).to_numpy()
-            corr, n_shared = cross_correlation(y, x, self.method, self.min_shared)  # type: ignore[arg-type]
-            cells = product(range(len(batches)), repeat=2)
-        rows = [
-            (batches[i], batches[j], float(corr[i, j]), int(n_shared[i, j]))
-            for i, j in cells
-        ]
-        return (
-            pl.DataFrame(
-                rows,
-                schema={
-                    "batch_a": pl.String,
-                    "batch_b": pl.String,
-                    "r": pl.Float64,
-                    "n_shared": pl.Int64,
-                },
-                orient="row",
-            )
-            .with_columns(r_squared=pl.col("r") ** 2)
-            .select("batch_a", "batch_b", "r", "r_squared", "n_shared")
+        #: ``(n_batches, n_batches)`` in `batches` order: cell ``(a, b)`` compares batch
+        #: a's ``y_score`` with batch b's ``score``
+        self.matrix = (
+            metric.pairwise(self.scores, min_shared=min_shared)
+            if self.y_score is None
+            else metric.cross(self.y_scores, self.scores, min_shared=min_shared)
         )
 
-    def matrix(self, squared: bool) -> np.ndarray:
-        """``(n_batches, n_batches)`` in `batches` order: cell ``(a, b)`` correlates batch
-        a's ``y_score`` with batch b's ``score``."""
-        n = len(self.batches)
-        mat = np.full((n, n), np.nan)
-        pos = {b: i for i, b in enumerate(self.batches)}
-        value = "r_squared" if squared else "r"
-        for a, b, r in self.pairs.select("batch_a", "batch_b", value).iter_rows():
-            mat[pos[a], pos[b]] = r
-            if self.y_score is None:
-                mat[pos[b], pos[a]] = r
-        return mat
+    @property
+    def pairs(self) -> pl.DataFrame:
+        return self.matrix.pairs("batch_a", "batch_b")
 
 
 class BatchCorrelationHeatmap(Heatmap):
-    """Heatmap of the correlation of ``score`` between every pair of batches, with one point
-    per ``label`` the two batches share (e.g. replicate-vs-replicate OVWT AUROCs, one point
+    """Heatmap of a metric (by default the Spearman correlation) of ``score`` between every
+    pair of batches, with one point per ``label`` the two batches share (e.g. replicate-vs-replicate OVWT AUROCs, one point
     per variant).
 
     Pairs of batches with fewer than ``min_shared`` shared labels, such as replicates from
@@ -145,21 +126,21 @@ class BatchCorrelationHeatmap(Heatmap):
     y_score : str | None
         Numeric column for the rows (y axis). ``None`` (or ``score``) correlates ``score``
         with itself.
-    method : {"spearman", "pearson", "cosine"}
-        Cosine is the cosine similarity of the (uncentered) scores.
-    squared : bool
-        Show the squared correlation (e.g. Spearman ρ²) instead of the correlation.
+    metric : str | Metric
+        Any `fisseqborn.metrics` metric, e.g. ``"spearman"``, ``"pearson_squared"``,
+        ``"cosine"`` (of the uncentred scores) or ``"euclidean"``.
     min_shared : int
         Minimum number of shared labels (with finite scores in both batches) for a pair to
-        get a correlation.
+        get a value.
     aggregate : {"mean", "median", "first", ...} | None
         polars aggregation for duplicate ``(batch, label)`` rows, which are otherwise an error.
     order : Sequence | None
         Batch order for both rows and columns. Default: natural sort.
     **kw
-        Passed to `Heatmap`. Defaults: ``cmap="Blues", vmin=0, vmax=1, annot=True,
-        nan_color="black", linewidths=0.5, linecolor="black"``, and a colorbar labeled with
-        the quantity, e.g. ``"Spearman ρ"``. With ``y_score`` the axes are labeled
+        Passed to `Heatmap`. Defaults: ``annot=True, nan_color="black", linewidths=0.5,
+        linecolor="black"``; ``cmap="Blues", vmin=0, vmax=1`` for a similarity, or
+        ``cmap="Blues_r"`` from 0 to the largest value for a distance; and a colorbar
+        labeled with the metric, e.g. ``"Spearman ρ"``. With ``y_score`` the axes are labeled
         ``score`` and ``y_score``; override with ``.set(xlabel=..., ylabel=...)``.
     """
 
@@ -171,8 +152,7 @@ class BatchCorrelationHeatmap(Heatmap):
         label: str,
         score: str,
         y_score: str | None = None,
-        method: Literal["spearman", "pearson", "cosine"] = "spearman",
-        squared: bool = False,
+        metric: str | Metric = "spearman",
         min_shared: int = 10,
         aggregate: str | None = None,
         order: Sequence[Any] | None = None,
@@ -180,25 +160,28 @@ class BatchCorrelationHeatmap(Heatmap):
         **kw: Any,
     ) -> None:
         data = _data.as_frame(data)
+        self.metric = Metric.get(metric)
         self._batch_scores = _BatchScores(
             data,
             batch=batch,
             label=label,
             score=score,
             y_score=y_score,
-            method=method,
+            metric=self.metric,
             min_shared=min_shared,
             aggregate=aggregate,
         )
         self.batch, self.label, self.score = batch, label, score
         self.y_score = self._batch_scores.y_score
-        self.method, self.squared, self.min_shared = method, squared, min_shared
+        self.min_shared = min_shared
         self.batch_aggregate = aggregate
 
         batches = self._batch_scores.batches
-        mat = self._batch_scores.matrix(squared)
-        matrix = pl.DataFrame({"batch": batches}).with_columns(
-            pl.Series(b, mat[:, i]) for i, b in enumerate(batches)
+        #: The batch-by-batch `MetricMatrix` drawn.
+        self.metric_matrix = self._batch_scores.matrix
+        matrix = self.metric_matrix.to_frame("batch")
+        vmin, vmax = _scale(
+            self.metric, self.metric_matrix, kw.pop("vmin", None), kw.pop("vmax", None)
         )
 
         if figsize is None:
@@ -206,9 +189,9 @@ class BatchCorrelationHeatmap(Heatmap):
             figsize = (max(6.0, 0.65 * n + 1.0), max(5.0, 0.6 * n + 0.6))
         kw = with_cbar_label(
             {
-                "cmap": "Blues",
-                "vmin": 0,
-                "vmax": 1,
+                "cmap": "Blues" if self.metric.kind == "similarity" else "Blues_r",
+                "vmin": vmin,
+                "vmax": vmax,
                 "annot": True,
                 "nan_color": "black",
                 "linewidths": 0.5,
@@ -217,7 +200,7 @@ class BatchCorrelationHeatmap(Heatmap):
                 "col_order": order,
                 **kw,
             },
-            correlation_label(method, squared),
+            self.metric.label,
         )
         super().__init__(
             matrix, index="batch", columns=list(batches), figsize=figsize, **kw
@@ -225,7 +208,7 @@ class BatchCorrelationHeatmap(Heatmap):
 
     def pairs(self) -> pl.DataFrame:
         """One row per unordered batch pair (including each batch with itself):
-        ``batch_a, batch_b, r, r_squared, n_shared``. With ``y_score``, one row per ordered
+        ``batch_a, batch_b, value, n_shared``. With ``y_score``, one row per ordered
         pair: ``batch_a`` is the row batch (``y_score``), ``batch_b`` the column batch
         (``score``)."""
         return self._batch_scores.pairs
@@ -242,7 +225,7 @@ class BatchCorrelationHeatmap(Heatmap):
 
 class BatchCorrelationGrid(FigurePlot):
     """`BatchCorrelationHeatmap` with each cell replaced by the scatter plot behind its
-    correlation: panel ``(a, b)`` has batch b's ``score`` on x and batch a's ``score`` (or
+    value: panel ``(a, b)`` has batch b's ``score`` on x and batch a's ``score`` (or
     ``y_score``) on y, one point per shared ``label``.
 
     Without ``y_score`` the diagonal panels are histograms of each batch's scores (one per
@@ -256,7 +239,7 @@ class BatchCorrelationGrid(FigurePlot):
 
     Parameters
     ----------
-    data, batch, label, score, y_score, method, squared, min_shared, aggregate, order
+    data, batch, label, score, y_score, metric, min_shared, aggregate, order
         As for `BatchCorrelationHeatmap`.
     hue : str | None
         Column to color points (and split the diagonal histograms) by. It describes the label,
@@ -268,12 +251,13 @@ class BatchCorrelationGrid(FigurePlot):
         (e.g. variant types), otherwise natural order. The first level is drawn on top. A
         legend goes below the grid.
     tint : bool
-        Color each panel's background by its correlation on ``cmap``/``vmin``/``vmax``, with
+        Color each panel's background by its value on ``cmap``/``vmin``/``vmax``, with
         a shared colorbar.
     annot : bool
-        Write the correlation and the number of shared labels in each panel's corner.
+        Write the value and the number of shared labels in each panel's corner.
     cmap, vmin, vmax
-        Background color scale for ``tint``. Default ``"Blues"`` from 0 to 1, as the heatmap.
+        Background color scale for ``tint``. Default as the heatmap: ``"Blues"`` from 0
+        to 1 for a similarity, ``"Blues_r"`` from 0 to the largest value for a distance.
     tint_alpha : float
         Opacity of the tint (and the colorbar), so points stay visible on dark panels.
     nan_color : color
@@ -310,8 +294,7 @@ class BatchCorrelationGrid(FigurePlot):
         label: str,
         score: str,
         y_score: str | None = None,
-        method: Literal["spearman", "pearson", "cosine"] = "spearman",
-        squared: bool = False,
+        metric: str | Metric = "spearman",
         min_shared: int = 10,
         aggregate: str | None = None,
         order: Sequence[Any] | None = None,
@@ -320,9 +303,9 @@ class BatchCorrelationGrid(FigurePlot):
         palette: Mapping[Any, Any] | str | Sequence[Any] | None = None,
         tint: bool = True,
         annot: bool = True,
-        cmap: str | mpl.colors.Colormap = "Blues",
-        vmin: float = 0.0,
-        vmax: float = 1.0,
+        cmap: str | mpl.colors.Colormap | None = None,
+        vmin: float | None = None,
+        vmax: float | None = None,
         tint_alpha: float = 0.6,
         nan_color: Any = "black",
         identity: bool = False,
@@ -338,19 +321,22 @@ class BatchCorrelationGrid(FigurePlot):
     ) -> None:
         data = _data.as_frame(data)
         super().__init__(data, title=title, dpi=dpi)
+        self.metric = Metric.get(metric)
         self._batch_scores = _BatchScores(
             data,
             batch=batch,
             label=label,
             score=score,
             y_score=y_score,
-            method=method,
+            metric=self.metric,
             min_shared=min_shared,
             aggregate=aggregate,
         )
         self.batch, self.label, self.score = batch, label, score
         self.y_score = self._batch_scores.y_score
-        self.method, self.squared, self.min_shared = method, squared, min_shared
+        self.min_shared = min_shared
+        #: The batch-by-batch `MetricMatrix` behind the panels.
+        self.metric_matrix = self._batch_scores.matrix
         batches = self._batch_scores.batches
         if order is None:
             self.order = sorted(batches, key=_data._natural_key)
@@ -378,8 +364,10 @@ class BatchCorrelationGrid(FigurePlot):
                 [mapping.get(v) for v in self._batch_scores.labels], dtype=object
             )
         self.tint, self.annot, self.identity = tint, annot, identity
+        if cmap is None:
+            cmap = "Blues" if self.metric.kind == "similarity" else "Blues_r"
         self.cmap = mpl.colormaps[cmap] if isinstance(cmap, str) else cmap
-        self.norm = Normalize(vmin=vmin, vmax=vmax)
+        self.norm = Normalize(*_scale(self.metric, self.metric_matrix, vmin, vmax))
         self.tint_alpha = tint_alpha
         self.nan_color, self.height = nan_color, height
         self.lims, self.label_rotation = lims, label_rotation
@@ -405,15 +393,12 @@ class BatchCorrelationGrid(FigurePlot):
         bs = self._batch_scores
         n = len(self.order)
         pos = {b: i for i, b in enumerate(bs.batches)}
-        mat = bs.matrix(self.squared)
-        n_shared = np.zeros((len(bs.batches),) * 2, dtype=int)
-        for a, b, k in bs.pairs.select("batch_a", "batch_b", "n_shared").iter_rows():
-            n_shared[pos[a], pos[b]] = k
-            if self.y_score is None:
-                n_shared[pos[b], pos[a]] = k
+        mat = bs.matrix.values
+        n_shared = bs.matrix.n_shared
+        assert n_shared is not None
         x_all = bs.scores.fill_null(np.nan).to_numpy()
         y_all = bs.y_scores.fill_null(np.nan).to_numpy()
-        symbol = _STAT_SYMBOLS[self.method] + ("²" if self.squared else "")
+        symbol = self.metric.symbol
         #: (panel, x column, y row, shared-point mask) of every scatter panel
         scattered: list[tuple[Axes, int, int, np.ndarray]] = []
 
@@ -524,7 +509,7 @@ class BatchCorrelationGrid(FigurePlot):
                 fraction=0.04,
                 # clear the last column's right-hand marginal strips
                 pad=0.02 + (self.marginal_size / n if self.marginals else 0),
-                label=correlation_label(self.method, self.squared),
+                label=self.metric.label,
             )
             cbar.solids.set_alpha(self.tint_alpha)
         if self.hue_order:

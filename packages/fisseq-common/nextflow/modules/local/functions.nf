@@ -18,3 +18,21 @@ def hydraList(key, values) {
     def items = values instanceof Collection ? values : [values]
     return "'${key}=[${items.join(',')}]'"
 }
+
+// A channel of (batch_stem, file) -- one per experiment, or several (one per aggregation
+// method) -- gathered into a single (batch_stems, files) tuple, sorted by batch_stem then file
+// name, for a stage that runs across experiments (COMBAT_FEATURES, COMBAT_OVWT). Emits
+// nothing, with a warning, when fewer than two experiments arrive (one experiment has no batch
+// effect to remove; an experiment whose task failed and was ignored just isn't in the list).
+def gatherBatches(ch, what) {
+    return ch
+        .toSortedList { a, b -> a[0] <=> b[0] ?: a[1].name <=> b[1].name }
+        .filter { items ->
+            def n = items.collect { item -> item[0] }.unique().size()
+            if (n < 2) {
+                log.warn "${what}: skipped, it needs at least 2 experiments and got ${n}"
+            }
+            n >= 2
+        }
+        .map { items -> tuple(items.collect { item -> item[0] }, items.collect { item -> item[1] }) }
+}

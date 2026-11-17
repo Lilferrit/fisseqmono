@@ -13,8 +13,9 @@ One repository, [`Lilferrit/fisseqmono`](https://github.com/Lilferrit/fisseqmono
 
 The two pipelines differ only in their cell tables (CellProfiler features vs. Cell-DINO
 embeddings). From QC on they run the same [shared stages](common/stages.md), with the same
-parameters and publish layout. Both produce per-experiment outputs only; `fisseqborn-global`
-pools experiments. The [diff reports](diff-reports/README.md) record every deliberate change to
+parameters and publish layout. Both produce per-experiment outputs, plus one ComBat-corrected
+table each of features and OvWT scores stacked across experiments; `fisseqborn-global` pools
+experiments. The [diff reports](diff-reports/README.md) record every deliberate change to
 a pipeline's outputs.
 
 ## Working in the repository

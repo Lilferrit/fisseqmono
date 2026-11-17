@@ -27,10 +27,10 @@ from matplotlib.figure import Figure
 from matplotlib.patches import Patch
 from matplotlib.ticker import MaxNLocator
 from scipy.cluster.hierarchy import dendrogram, leaves_list, linkage
-from scipy.spatial.distance import pdist
 
 from . import _data
 from ._base import FigurePlot, config
+from .metrics import Metric, MetricMatrix, row_distances
 
 logger = logging.getLogger(__name__)
 
@@ -317,14 +317,22 @@ class ClusterMap(FigurePlot):
         Maps feature name -> category, drawn as a strip along the features (above them,
         or left of them when vertical).
     col_palette : mapping | str | list | None
-    method, metric : str
-        `scipy.cluster.hierarchy.linkage` method and `scipy.spatial.distance.pdist`
-        metric, used for rows and for ``cluster_features``.
+    method : str
+        `scipy.cluster.hierarchy.linkage` method.
+    metric : str | Metric | MetricMatrix
+        How rows are compared (see `fisseqborn.metrics`), e.g. ``"euclidean"`` (the
+        default), ``"cosine_distance"`` or ``"pearson"`` (a similarity is clustered on
+        ``1 - s``). A `MetricMatrix` (e.g. from `Profiles.distances`) is used as given,
+        lined up with the rows by its key, instead of comparing the ``cluster=True``
+        features.
+    feature_metric : str | Metric | None
+        How features are compared for ``cluster_features``. Default: ``metric``, or
+        ``"euclidean"`` when ``metric`` is a `MetricMatrix`.
     standardize : bool, default False
         z-score each clustering feature across rows before computing distances, so
         groups on different scales (z-scores vs. proportions) weigh in comparably.
         Zero-variance features are then dropped from the clustering input. Only the
-        clustering is affected, not the colors.
+        clustering is affected, not the colors. Not available with a `MetricMatrix`.
     drop_nonfinite : bool, default True
         Drop clustering features (``cluster=True`` or ``cluster_features=True``) that
         contain null / NaN / inf, which clustering can't handle. Display-only features
@@ -344,7 +352,8 @@ class ClusterMap(FigurePlot):
         col_colors: Mapping[str, Any] | None = None,
         col_palette: Mapping[Any, Any] | str | Sequence[Any] | None = None,
         method: str = "average",
-        metric: str = "euclidean",
+        metric: str | Metric | MetricMatrix = "euclidean",
+        feature_metric: str | Metric | None = None,
         standardize: bool = False,
         drop_nonfinite: bool = True,
         cmap: str | Colormap = "RdBu_r",
@@ -430,7 +439,13 @@ class ClusterMap(FigurePlot):
             if self.col_colors
             else None
         )
-        self.method, self.metric = method, metric
+        self.method = method
+        self.metric = metric if isinstance(metric, MetricMatrix) else Metric.get(metric)
+        if feature_metric is None:
+            feature_metric = "euclidean" if isinstance(metric, MetricMatrix) else metric
+        self.feature_metric = Metric.get(feature_metric)  # type: ignore[arg-type]
+        if standardize and isinstance(metric, MetricMatrix):
+            raise ValueError("standardize=True needs features, not a MetricMatrix")
         self.standardize = standardize
 
     # ----- clustering -----------------------------------------------------------------
@@ -439,10 +454,16 @@ class ClusterMap(FigurePlot):
         return self.data.select(pl.col(columns).cast(pl.Float64)).to_numpy()
 
     def row_linkage(self) -> np.ndarray | None:
-        """Linkage over the ``cluster=True`` groups' features, or ``None`` if there are
-        none (the rows then keep their input order)."""
+        """Linkage over the ``cluster=True`` groups' features (or the `MetricMatrix`
+        given as ``metric``), or ``None`` if there are none (the rows then keep their
+        input order)."""
+        if self.data.height < 2:
+            return None
+        if isinstance(self.metric, MetricMatrix):
+            d = row_distances(self.metric, self.data, None)
+            return linkage(d.condensed(), method=self.method)
         cols = [c for group, gcols in self.groups if group.cluster for c in gcols]
-        if not cols or self.data.height < 2:
+        if not cols:
             return None
         x = self._matrix(cols)
         if not np.isfinite(x).all():
@@ -461,7 +482,8 @@ class ClusterMap(FigurePlot):
             if not keep.any():
                 return None
             x = (x[:, keep] - x[:, keep].mean(axis=0)) / std[keep]
-        return linkage(pdist(x, metric=self.metric), method=self.method)
+        d = self.metric.between_rows(x).to_distance()
+        return linkage(d.condensed(), method=self.method)
 
     def row_order(self) -> list[int]:
         """Positions of the input rows in plotting order, top to bottom."""
@@ -471,7 +493,8 @@ class ClusterMap(FigurePlot):
     def _feature_order(self, group: FeatureGroup, cols: list[str]) -> list[str]:
         if not group.cluster_features or len(cols) < 2:
             return cols
-        z = linkage(pdist(self._matrix(cols).T, metric=self.metric), method=self.method)
+        d = self.feature_metric.between_rows(self._matrix(cols).T).to_distance()
+        z = linkage(d.condensed(), method=self.method)
         return [cols[i] for i in leaves_list(z)]
 
     # ----- drawing --------------------------------------------------------------------

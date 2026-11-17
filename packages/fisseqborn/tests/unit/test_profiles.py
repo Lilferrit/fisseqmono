@@ -150,6 +150,24 @@ def test_drop_nonfinite():
     assert fb.Profiles(df).drop_nonfinite().features == ["ok"]
 
 
+def test_drop_nonfinite_rows():
+    nan, inf = float("nan"), float("inf")
+    df = pl.DataFrame(
+        {
+            "meta_aa_changes": ["nan", "inf", "null", "mixed", "pval_only"],
+            "a": [nan, inf, None, nan, nan],
+            "b": [nan, -inf, None, 2.0, None],
+            "a_pval": [nan, nan, None, nan, 0.01],
+        }
+    )
+    kept = fb.Profiles(df, passthrough=["pval"]).drop_nonfinite_rows()
+    assert kept.df["meta_aa_changes"].to_list() == ["mixed"]
+    assert kept.columns == df.columns
+
+    meta_only = fb.Profiles(df.select("meta_aa_changes")).drop_nonfinite_rows()
+    assert meta_only.df.height == 5
+
+
 def _selectable() -> fb.Profiles:
     rng = np.random.default_rng(0)
     a, b = rng.normal(size=(2, 40))
@@ -460,3 +478,70 @@ def test_save_pca_loadings(raw, tmp_path):
     path = tmp_path / "out" / "loadings.parquet"
     assert fitted.save_pca_loadings(path) is fitted
     assert pl.read_parquet(path).equals(fitted.pca_loadings)
+
+
+def _finite_profiles(profiles):
+    return fb.Profiles(
+        profiles.drop("meta_notebook_umap_1", "meta_notebook_umap_2", strict=False)
+    ).drop_nonfinite()
+
+
+@pytest.mark.parametrize("metric", ["pearson", fb.metrics.Pearson(squared=True)])
+def test_umap_metrics(profiles, metric):
+    pytest.importorskip("umap")
+    embedded = _finite_profiles(profiles).umap(n_neighbors=10, metric=metric)
+    assert embedded.df["meta_notebook_umap_1"].is_finite().all()
+
+
+def test_umap_and_cluster_reuse_matrix(profiles):
+    pytest.importorskip("umap")
+    pytest.importorskip("leidenalg")
+    p = _finite_profiles(profiles)
+    d = p.distances("pearson")
+    shuffled = d.align(d.row_labels[::-1])  # aligned back by the variant key
+    by_name = p.cluster(n_neighbors=10, metric="pearson").df["meta_cluster_idx"]
+    by_matrix = p.cluster(n_neighbors=10, metric=shuffled).df["meta_cluster_idx"]
+    assert by_name.to_list() == by_matrix.to_list()
+    assert (
+        p.umap(n_neighbors=10, metric=shuffled)
+        .df["meta_notebook_umap_1"]
+        .is_finite()
+        .all()
+    )
+
+
+def test_cluster_metrics(profiles):
+    pytest.importorskip("leidenalg")
+    p = _finite_profiles(profiles)
+    assert (
+        p.cluster(n_neighbors=10, metric="spearman_squared")
+        .df["meta_cluster_idx"]
+        .n_unique()
+        > 1
+    )
+    with pytest.raises(ValueError, match="Euclidean"):
+        p.cluster("kmeans", n_clusters=3, metric="cosine")
+    with pytest.raises(ValueError, match="Euclidean"):
+        p.cluster("kmeans", n_clusters=3, metric=p.distances("euclidean"))
+
+
+def test_impact_score_metrics():
+    rng = np.random.default_rng(1)
+    x = rng.normal(size=(6, 4))
+    df = pl.DataFrame(
+        {"meta_aa_changes": ["A1A", "C2C", "G3G", "D4V", "E5K", "F6L"]}
+        | {f"f{i}": x[:, i] for i in range(4)}
+    )
+    ref = np.median(x[:3], axis=0)
+    p = fb.Profiles(df).variant_type()
+
+    def score(metric):
+        return p.impact_score(metric=metric).df["meta_impact_score"].to_numpy()
+
+    np.testing.assert_allclose(score("euclidean"), np.linalg.norm(x - ref, axis=1))
+    r = np.array([np.corrcoef(row, ref)[0, 1] for row in x])
+    np.testing.assert_allclose(score("pearson"), (1 - r) / 2)
+    np.testing.assert_allclose(score("pearson_squared"), 1 - r**2)
+    np.testing.assert_allclose(score("cosine"), score("cosine_distance"))
+    multi = p.impact_scores([1.0], metric="euclidean").df["meta_impact_score_1.0"]
+    assert multi.is_finite().all()

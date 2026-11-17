@@ -3,6 +3,7 @@
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
+import numpy as np
 import polars as pl
 import seaborn as sns
 from matplotlib.axes import Axes
@@ -10,6 +11,7 @@ from scipy import stats
 
 from . import _data
 from ._base import Plot
+from .metrics import Metric, Pearson, Spearman
 
 _CORNERS: dict[str, tuple[float, float, str, str]] = {
     "upper left": (0.05, 0.95, "left", "top"),
@@ -17,7 +19,6 @@ _CORNERS: dict[str, tuple[float, float, str, str]] = {
     "lower left": (0.05, 0.05, "left", "bottom"),
     "lower right": (0.95, 0.05, "right", "bottom"),
 }
-_STAT_NAMES = {"pearson": "Pearson r", "spearman": "Spearman ρ"}
 
 
 class CorrelationPlot(Plot):
@@ -33,8 +34,11 @@ class CorrelationPlot(Plot):
         Optional categorical coloring (scatter) or per-level densities (kde).
     kind : {"scatter", "kde"}
         Points, or a filled 2-D KDE (with a density colorbar when there's no hue).
-    stat : {"pearson", "spearman", None}
-        Correlation shown in a text box, computed over rows where both values are finite.
+    stat : str | Metric | None
+        Metric of ``x`` against ``y`` shown in a text box (any `fisseqborn.metrics`
+        metric, e.g. ``"pearson"``, ``"spearman_squared"``, ``"euclidean"``), computed over
+        rows where both values are finite. Pearson and Spearman (and their squares) also
+        show the p-value of the correlation test.
     stat_loc : {"lower right", "lower left", "upper right", "upper left"}
     fit : {None, "linear", "lowess"}
         Draw a dashed black fit line through all points.
@@ -60,7 +64,7 @@ class CorrelationPlot(Plot):
         hue_order: Sequence[Any] | None = None,
         palette: Mapping[Any, Any] | str | Sequence[Any] | None = None,
         kind: Literal["scatter", "kde"] = "scatter",
-        stat: Literal["pearson", "spearman"] | None = "pearson",
+        stat: str | Metric | None = "pearson",
         stat_loc: str = "lower right",
         fit: Literal["linear", "lowess"] | None = None,
         identity: bool = False,
@@ -77,10 +81,6 @@ class CorrelationPlot(Plot):
         _data.require_columns(data, x, y, hue)
         if kind not in ("scatter", "kde"):
             raise ValueError(f"kind must be 'scatter' or 'kde', got {kind!r}")
-        if stat not in (None, *_STAT_NAMES):
-            raise ValueError(
-                f"stat must be None, 'pearson' or 'spearman', got {stat!r}"
-            )
         if fit not in (None, "linear", "lowess"):
             raise ValueError(f"fit must be None, 'linear' or 'lowess', got {fit!r}")
         if stat_loc not in _CORNERS:
@@ -90,7 +90,9 @@ class CorrelationPlot(Plot):
         self.x, self.y, self.hue = x, y, hue
         self.hue_order = _data.resolve_order(data, hue, hue_order) if hue else None
         self.palette = _data.resolve_palette(self.hue_order, palette) if hue else None
-        self.kind, self.stat, self.stat_loc, self.fit = kind, stat, stat_loc, fit
+        #: The metric shown, or ``None``.
+        self.stat = None if stat is None else Metric.get(stat)
+        self.kind, self.stat_loc, self.fit = kind, stat_loc, fit
         self.identity, self.lims, self.count_sides = identity, lims, count_sides
         self.fit_kw = dict(fit_kw or {})
         self.kw = kw
@@ -103,15 +105,21 @@ class CorrelationPlot(Plot):
         )
 
     def correlation(self) -> tuple[float, float, int]:
-        """``(statistic, p_value, n)`` for this plot's ``stat`` (Pearson if ``stat=None``)."""
+        """``(value, p_value, n)`` for this plot's ``stat`` (Pearson if ``stat=None``).
+        The p-value is that of the Pearson / Spearman test (for their squares too), and
+        NaN for other metrics."""
         df = self._finite()
-        xs = df.get_column(self.x).to_numpy()
-        ys = df.get_column(self.y).to_numpy()
+        xs = df.get_column(self.x).cast(pl.Float64).to_numpy()
+        ys = df.get_column(self.y).cast(pl.Float64).to_numpy()
+        metric = self.stat or Pearson()
         if len(xs) < 3:
             return float("nan"), float("nan"), len(xs)
-        fn = stats.spearmanr if self.stat == "spearman" else stats.pearsonr
-        result = fn(xs, ys)
-        return float(result.statistic), float(result.pvalue), len(xs)
+        if isinstance(metric, Pearson | Spearman):
+            fn = stats.spearmanr if isinstance(metric, Spearman) else stats.pearsonr
+            result = fn(xs, ys)
+            value = float(result.statistic)
+            return value**2 if metric.squared else value, float(result.pvalue), len(xs)
+        return metric.value(xs, ys), float("nan"), len(xs)
 
     def _draw(self, ax: Axes) -> None:
         df = self._finite()
@@ -176,13 +184,10 @@ class CorrelationPlot(Plot):
 
         if self.stat is not None:
             r, p, n = self.correlation()
-            p_text = "p < 1e-300" if p == 0 else f"p = {p:.2e}"
-            self._corner_text(
-                ax,
-                self.stat_loc,
-                f"{_STAT_NAMES[self.stat]} = {r:.2f}, {p_text}\nn = {n}",
-                boxed=True,
-            )
+            text = f"{self.stat.label} = {r:.2f}"
+            if not np.isnan(p):
+                text += ", p < 1e-300" if p == 0 else f", p = {p:.2e}"
+            self._corner_text(ax, self.stat_loc, f"{text}\nn = {n}", boxed=True)
         if self.count_sides:
             n_above = df.filter(pl.col(self.y) > pl.col(self.x)).height
             n_below = df.filter(pl.col(self.y) < pl.col(self.x)).height

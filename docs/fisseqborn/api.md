@@ -62,6 +62,23 @@
       members_order: source
       merge_init_into_class: true
 
+::: fisseqborn.BatchPermanovaHeatmap
+    options:
+      show_source: false
+      members_order: source
+      merge_init_into_class: true
+
+::: fisseqborn.BatchAnovaHeatmap
+    options:
+      show_source: false
+      members_order: source
+      merge_init_into_class: true
+
+::: fisseqborn.BatchTestMatrix
+    options:
+      show_source: false
+      members_order: source
+
 ::: fisseqborn.PairPlot
     options:
       show_source: false
@@ -99,6 +116,14 @@
       merge_init_into_class: true
 
 ::: fisseqborn.RegionTrack
+    options:
+      show_source: false
+      members_order: source
+      merge_init_into_class: true
+
+## Metrics
+
+::: fisseqborn.metrics
     options:
       show_source: false
       members_order: source
