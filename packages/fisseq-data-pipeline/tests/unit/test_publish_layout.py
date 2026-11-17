@@ -30,6 +30,8 @@ EXPECTED = {
     "BLOCKLIST_BATCHWISE": [LAYOUT.method_blocklist(B, METHOD)],
     "COMBINE_BLOCKLISTS_BATCHWISE": [LAYOUT.blocklist(B)],
     "FINALIZE_FEATURE_SELECT_BATCHWISE": [LAYOUT.selected(B)],
+    "COMBAT_FEATURES": [LAYOUT.combat_features()],
+    "COMBAT_OVWT": [LAYOUT.combat_ovwt()],
 }
 
 

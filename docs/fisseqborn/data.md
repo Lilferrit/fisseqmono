@@ -202,6 +202,26 @@ and settings.
     - `features="intersection"` first drops the features that have no value in some batch, with
       the same warnings as in `from_pipeline`.
 
+### ComBat
+
+`combat()` removes each batch's location and scale with ComBat (`fisseq_common.combat`, on
+neuroCombat), keeping each variant's effect (the variant is a covariate). It needs one row per
+(variant, batch), so chain it before `median_across_batches`:
+
+```python
+profiles = fb.Profiles.from_pipeline(run, types=["median"]).combat().median_across_batches()
+```
+
+- Variants measured in only one batch are dropped, then rows with no value at all, then value
+  columns still holding a null, NaN or inf (neuroCombat can't take any). Each step logs a
+  warning.
+- Values are replaced in place; passthrough and `meta_` columns are untouched.
+- `mean_only=True` corrects only the location.
+
+Both pipelines also run it themselves (`run_combat`), on every method's aggregates of every
+feature, into `combat/features.parquet`: read it with `fb.Profiles.from_combat(run)` (`track="cp_features"`
+for the embeddings pipeline's CellProfiler track).
+
 ### Feature selection
 
 ```python
@@ -209,6 +229,7 @@ ok = fb.Blocklists.from_pipeline(run).rethreshold(0.7).consensus()   # passes in
 profiles = profiles.keep_features(ok)          # p-value columns follow their feature
 profiles = profiles.drop_features("*CH2*")     # names or fnmatch globs
 profiles = profiles.drop_nonfinite()           # drop columns with any null / NaN / inf
+profiles = profiles.drop_nonfinite_rows()      # drop rows whose values are all null / NaN / inf
 ```
 
 - `rethreshold(min_r)` recomputes `feature_ok` as `median_r >= min_r`, the pipeline's
@@ -251,12 +272,13 @@ lamin = info.filter(pl.col("channels") == "CH1", pl.col("statistic") == "median"
 
 | Method | Adds |
 |---|---|
-| `impact_score()` | `meta_impact_score`: the cosine distance to the median control profile, halved to run from 0 to 1 |
+| `impact_score()` / `impact_score(metric="pearson")` | `meta_impact_score`: the cosine distance to the median control profile, halved to run from 0 to 1; another [metric](concepts.md#metrics)'s distance, scaled to [0, 1] where it is bounded |
 | `impact_scores([0.7, 0.9])` | `meta_impact_score_0.7`, `meta_impact_score_0.9`: the impact score on the fewest PCs explaining each share of the variance (PCA is fitted once; the features are kept) |
 | `pca(n_components=5)` | `meta_pc_1 … meta_pc_5`, with the loadings on `.pca_loadings` (write them with `.save_pca_loadings(path)`) |
 | `pca_reduce(variance=0.9)` / `pca_reduce(variance=0.9, whiten=True)` | replaces the features with `X_0 … X_k` |
-| `umap(n_neighbors=30)` / `umap(n_components=3)` | `meta_notebook_umap_1 … _<n>` (or `output_cols=`); needs `fisseqborn[umap]` |
-| `cluster("leiden", n_neighbors=15)` / `cluster("kmeans", n_clusters=8)` | `meta_cluster_idx`; Leiden needs `fisseqborn[cluster]` |
+| `distances("pearson")` | nothing: returns a `MetricMatrix` between every pair of profiles, to pass as `metric=` below (see [Metrics](concepts.md#metrics)) |
+| `umap(n_neighbors=30)` / `umap(n_components=3, metric="pearson")` | `meta_notebook_umap_1 … _<n>` (or `output_cols=`); default metric cosine distance; needs `fisseqborn[umap]` |
+| `cluster("leiden", n_neighbors=15, metric="pearson")` / `cluster("kmeans", n_clusters=8)` | `meta_cluster_idx`; Leiden (default metric Euclidean) needs `fisseqborn[cluster]`; k-means is Euclidean only |
 | `distinguishability(ovwt)` | `meta_distinguishability_score` |
 
 For example, this pipeline from `notebooks/2026-10-01/dist-vs-impact` computes the two scores
@@ -323,6 +345,14 @@ lists, so it is never treated as a score, and passing it raises an error.
 - An experiment with fewer than two synonymous controls also gets all-null scores, and `correct`
   logs a warning about it.
 
+`combat()` is the ComBat alternative to `correct`: the scores (every one in `SCORES` by
+default) are corrected jointly, with the variant as a covariate, into the same
+`<score>_corrected` columns, so the chain above works unchanged. Variants scored in a single
+batch, rows with no score and score columns still holding a null are dropped first, each with a
+warning. Scores aren't pinned to a reference scale. The pipelines' own ComBat output,
+`combat/ovwt_scores.parquet` (corrected in place, same column names), reads with
+`fb.OvwtScores.from_combat(run)`.
+
 `per_variant` also takes a list of scores. `meta_n_experiments` then counts the batches where any of
 them is present.
 
@@ -340,7 +370,7 @@ They now raise a `DeprecationWarning`, because current runs don't have that dire
 
 ## Aggregate across experiments
 
-Neither pipeline aggregates across experiments. The `fisseqborn-global` command does it from the
+Apart from ComBat (above), neither pipeline aggregates across experiments. The `fisseqborn-global` command does it from the
 per-experiment outputs of either pipeline, with the methods of the embeddings pipeline's former
 global stages (GLOBAL_BLOCKLIST, GLOBAL_VARIANT_EMBEDDINGS, GLOBAL_VARIANT_DISTINGUISHABILITY and
 their CellProfiler-track twins; `fisseq_common.global_aggregation`).
@@ -381,7 +411,8 @@ Per track:
 
 Off by default, applied to `median_aggregate` before the PCA: `--operations ...` (pycytominer
 feature selection, e.g. `variance_threshold blocklist correlation_threshold`) with `--corr-threshold`, `--impact-score` (a pre-PCA `meta_impact_score`),
-`--umap N`, `--metadata` (integer `meta_` counts summed across experiments) and
+`--umap N`, `--impact-metric` / `--umap-metric` (any [metric](concepts.md#metrics) name; default
+`cosine_distance`), `--metadata` (integer `meta_` counts summed across experiments) and
 `--paired median:KSnegLogP` (each companion from the experiment holding its value's median).
 `--no-blocklist` pools every feature; `--no-cp-features` skips the CellProfiler track.
 

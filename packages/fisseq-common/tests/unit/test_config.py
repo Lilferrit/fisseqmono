@@ -86,6 +86,8 @@ STAGES = [
     "blocklist",
     "combineblocklists",
     "finalize",
+    "combatfeatures",
+    "combatovwt",
 ]
 
 # Field names that would reintroduce a second, independent seed.

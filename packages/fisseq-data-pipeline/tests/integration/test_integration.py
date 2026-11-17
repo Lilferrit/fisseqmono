@@ -401,6 +401,35 @@ def test_removed_stages_produce_no_output(pipeline_outputs):
 
 
 # ---------------------------------------------------------------------------
+# ComBat across experiments
+# ---------------------------------------------------------------------------
+
+
+def test_combat_outputs_stack_both_experiments(pipeline_outputs):
+    """COMBAT_FEATURES and COMBAT_OVWT each publish one table, one row per (variant,
+    experiment), with every row's variant in both experiments."""
+    exp_dir, _ = pipeline_outputs
+    for name in ("features.parquet", "ovwt_scores.parquet"):
+        df = pl.read_parquet(exp_dir / "combat" / name)
+        assert df.height > 0
+        assert sorted(df["meta_experiment"].unique()) == ["batch1", "batch2"]
+        per_variant = df.group_by("meta_aa_changes").agg(
+            pl.col("meta_experiment").n_unique()
+        )
+        assert (per_variant["meta_experiment"] == 2).all()
+        values = [c for c in df.columns if not c.startswith("meta_")]
+        assert values
+        assert all(df[c].is_finite().all() for c in values)
+
+
+def test_combat_ovwt_drops_the_fold_list(pipeline_outputs):
+    exp_dir, _ = pipeline_outputs
+    df = pl.read_parquet(exp_dir / "combat" / "ovwt_scores.parquet")
+    assert "auroc_folds" not in df.columns
+    assert "auroc_pooled" in df.columns
+
+
+# ---------------------------------------------------------------------------
 # Feature selection
 # ---------------------------------------------------------------------------
 

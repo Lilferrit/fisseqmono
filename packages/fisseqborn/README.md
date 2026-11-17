@@ -34,6 +34,7 @@ from fisseqborn import fisseq
 | `RocPlot(df, label, positive, score, negative="Synonymous", group=None)` | one curve per score column or per group; `.aucs()` returns the AUC table |
 | `VolcanoPlot(df, x, y, alpha=0.05, bonferroni=True)` | long-form effect size vs −log10 p; `.layer(expr, label=...)` adds a group of points, drawn in call order; `VolcanoPlot.from_wide(df)` takes one row per variant with `_median` / `_KSnegLogP` column pairs |
 | `Heatmap(df, index, columns, values=None)` / `Heatmap.correlation(df, cols, y_columns=None)` | pairwise matrices (long or wide form), correlation matrices (different columns per axis with `y_columns`) |
+| `BatchPermanovaHeatmap(profiles)` / `BatchAnovaHeatmap(df, batch, label, score)` | per batch pair, paired PERMANOVA of profiles / ANOVA of one score over shared variants; `value="f"/"p"/"-log10p"`; save and reload the result with `BatchTestMatrix` |
 | `ExplainedVariancePlot(profiles.pca_reduce(...), kind="cumulative"/"scree"/"both", thresholds=[...])` | cumulative explained variance / scree plot, marking thresholds and the noise floor |
 | `PairPlot(df, vars, hue=None, diag_kind="kde")` | pairwise scatter grid (e.g. the first PCs) with the fisseq palettes / orders (figure-level) |
 | `VariantEffectMap(df, value, positions=None, orientation="landscape"/"portrait")` | position × amino-acid heatmap of single substitutions (figure-level); `.highlight(expr, ...)` marks chosen variants' cells |
@@ -68,13 +69,20 @@ PCA (`pca_*.parquet`) and the distinguishability `global_scores.parquet` (see
 
 | Class | For |
 |---|---|
-| `Profiles` | per-variant feature profiles: `normalize`, `median_across_batches`, `keep_features`, `impact_score`, `impact_scores` (one column per PCA variance threshold, one fit), `pca`, `pca_reduce` (full `pca_explained_variance` table kept), `umap`, `cluster`, `distinguishability` |
+| `Profiles` | per-variant feature profiles: `normalize`, `median_across_batches`, `keep_features`, `impact_score`, `impact_scores` (one column per PCA variance threshold, one fit), `pca`, `pca_reduce` (full `pca_explained_variance` table kept), `distances`, `umap`, `cluster`, `distinguishability` |
 | `OvwtScores` | OvWT AUROCs: `correct` (per-batch rescale, or with `rescale=False` a z-score, against synonymous variants) and `per_variant`; `from_pipeline` also reads the older `variant` / `test_auroc` results schema (pass `score="test_auroc"`) |
 | `Blocklists` | per-batch feature reproducibility: `rethreshold`, `consensus`, `table` |
 | `Dataset` | the base class: `filter`/`with_columns`/`join`/`pipe`, `variant_type`, `position`, `domain`, `tile`, `gnomad`, `clinvar`, `excalibr`, `save`, `cluster_summary` |
 | `ClusterSummary` | one row per cluster from `cluster_summary`: medians (optionally z-scored vs controls), per-level shares, `n` and a `"<id> (n=…)"` label; `.group(key)` gives a ready `FeatureGroup` |
 
 `umap()` needs `fisseqborn[umap]` and Leiden clustering needs `fisseqborn[cluster]`.
+
+Distances and correlations everywhere (heatmaps, batch correlations, `ClusterMap`, `umap`,
+`cluster`, `impact_score`, `CorrelationPlot`) take one `metric=` from `fisseqborn.metrics`:
+`"euclidean"`, `"cityblock"`, `"cosine_distance"`, `"cosine"`, `"pearson"`, `"spearman"`, and
+`"<similarity>_squared"`. `profiles.distances("pearson")` computes a `MetricMatrix` once to pass to
+the others; `MetricMatrix.from_array` / `load` bring in precomputed ones. See
+[Metrics](../../docs/fisseqborn/concepts.md#metrics).
 
 ## Clustermaps with feature groups
 

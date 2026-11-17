@@ -42,6 +42,12 @@ params.yaml (experiments: [...])
                                                      the one sync point)
                                  └─► COMBINE_BLOCKLISTS_BATCHWISE (all types)
                                        └─► FINALIZE_FEATURE_SELECT_BATCHWISE
+
+   ComBat, across experiments (params.run_combat; skipped with < 2 experiments):
+      AGGREGATE_FEATURE_TYPE_BATCHWISE (every type; needs params.run_feature_selection)
+        └─► COMBAT_FEATURES (all experiments) ──► combat/features.parquet
+      OVWT_BATCHWISE results
+        └─► COMBAT_OVWT     (all experiments) ──► combat/ovwt_scores.parquet
 ```
 
 Only INPUT is this package's own. Every other stage is fisseq-common's, whole: the algorithm,
@@ -50,7 +56,7 @@ shared Nextflow modules in `packages/fisseq-common/nextflow/modules/local/<stage
 The embeddings pipeline runs the same stages, process names, params and publish layout.
 
 There is a single pipeline mode — `main.nf` includes one workflow and runs it.
-Every output is per experiment. Cross-experiment aggregation (combining
+Every output but ComBat's is per experiment. Other cross-experiment aggregation (combining
 blocklists, per-variant medians across experiments, re-centering OvWT AUROCs
 against synonymous variants) is done downstream by
 fisseqborn (`fisseqborn-global`), which reads

@@ -33,8 +33,8 @@ import fisseqborn as fb
 ## Batch correlation matrices
 
 `BatchCorrelationHeatmap` computes that replicate matrix from the raw scores. You pass long-form
-data with a `batch` column, a `label` column and a `score` column. Each cell is the correlation
-(Spearman by default) of `score` between two batches, using one point per label the two batches
+data with a `batch` column, a `label` column and a `score` column. Each cell is a
+[metric](../concepts.md#metrics) (the Spearman correlation by default) of `score` between two batches, using one point per label the two batches
 share. Pairs of batches that share no labels, or fewer than `min_shared` (default 10), are drawn
 black:
 
@@ -47,13 +47,15 @@ black:
 
 ![Batch Pearson correlation](../images/heatmap-batch-pearson.png){ width="520" }
 
-*`method="pearson"` on the 2026-09-29 OvWT scores (`batch="meta_experiment",
+*`metric="pearson"` on the 2026-09-29 OvWT scores (`batch="meta_experiment",
 label="meta_aa_changes", score="auroc_median_fold"`). Batches on different tiles share no
 variants, so only the block diagonal is filled.*
 
-`method=` can be `"spearman"`, `"pearson"` or `"cosine"`, and `squared=True` shows the
-squared correlation (for example ρ²). `.pairs()` returns the numbers behind the plot:
-`batch_a, batch_b, r, r_squared, n_shared`. Duplicate
+`metric=` takes any [metric](../concepts.md#metrics): `"spearman"`, `"pearson"`, `"cosine"`, their
+squares (`"spearman_squared"` for ρ², ...) or a distance such as `"euclidean"`. Similarities use a
+`Blues` scale from 0 to 1; distances use `Blues_r` from 0 to the largest value, so similar batches
+are dark either way. `.pairs()` returns the numbers behind the plot:
+`batch_a, batch_b, value, n_shared`, and `.metric_matrix` the `MetricMatrix`. Duplicate
 `(batch, label)` rows are an error unless you pass `aggregate="mean"` (or similar).
 
 ### Two different scores
@@ -93,9 +95,9 @@ one scale throughout. Every panel has x tick labels; y tick labels are on the le
 
 *Synthetic data: three tiles with two replicates each, noisier on later tiles.*
 
-By default each panel's background is tinted by its correlation on the heatmap's `Blues` 0–1 scale,
+By default each panel's background is tinted by its value on the heatmap's scale,
 with a shared colorbar (`cmap=`, `vmin=`, `vmax=`, and `tint_alpha=` to keep points visible on dark
-panels), and the correlation and shared-label count are written in the corner. Turn either off with
+panels), and the value and shared-label count are written in the corner. Turn either off with
 `tint=False` / `annot=False`. Pairs with fewer than `min_shared` shared labels are drawn in
 `nan_color` with no points. `identity=True` adds the dashed `y = x` line to the scatter panels, and
 `lims=(0, 1)` fixes both axes of every panel (and the histograms' range), for example for AUROCs.
@@ -131,14 +133,80 @@ fb.BatchCorrelationGrid(ovwt, batch="experiment", label="variant", score="test_a
 matrices. Duplicate `(index, columns)` pairs are an error unless you pass `aggregate="mean"` (or
 `"median"`, `"first"`, …).
 
+## Batch PERMANOVA and ANOVA
+
+`BatchPermanovaHeatmap` and `BatchAnovaHeatmap` use the batch × batch layout too. Each cell tests
+whether two batches *differ* on the variants they share, where the correlation heatmaps above show
+how well they agree. Each variant is measured once in each batch, so the design is paired: the
+experiment is the factor and the variant is a block. For batches A and B sharing n variants
+(2n observations),
+
+    F = SS_experiment / (SS_residual / (n − 1)),   SS_residual = SS_total − SS_variant − SS_experiment
+
+A large F means the batches differ by more than their replicate noise. The diagonal and pairs with
+fewer than `min_shared` shared variants (default 10) are drawn black.
+
+- **PERMANOVA** (`BatchPermanovaHeatmap`) compares whole profiles. It takes the sums of squares
+  from the distances between the 2n profiles under any [metric](../concepts.md#metrics)
+  (`metric="euclidean"` by default). The p-value comes from `permutations` random swaps of A and
+  B within variants (default 999, so the smallest p is 0.001). For cosine, Pearson and Spearman it
+  uses `√(1 − s)`, which is a Euclidean distance; plain `1 − s` isn't, and can make the sums of
+  squares negative. `sqrt=False` turns that off.
+- **ANOVA** (`BatchAnovaHeatmap`) compares one score, on the same long-form data as
+  `BatchCorrelationHeatmap`. F is the paired t², and the p-value comes from the F distribution on
+  1 and n − 1 degrees of freedom. PERMANOVA with Euclidean distances on that one column gives
+  the same F.
+
+`value=` picks what the cells show: `"f"` (the default, `Blues_r` from 0, so batches that
+agree are dark), `"p"` (`Blues`, 0 to 1) or `"-log10p"`.
+
+```python
+# one row per (experiment, variant), profile features as columns
+plot = fb.BatchPermanovaHeatmap(profiles.drop_nonfinite(), metric="cosine",
+                                permutations=999, n_jobs=8)
+plot.save("vis/permanova_f.png")
+
+# one row per (experiment, variant): auroc_median_fold
+fb.BatchAnovaHeatmap(ovwt, batch="meta_experiment", label="meta_aa_changes",
+                     score="auroc_median_fold", value="-log10p")
+```
+
+A `Profiles` supplies its own batch, variant and feature columns. For a plain DataFrame these
+default to `meta_experiment`, `meta_aa_changes` and every numeric non-`meta_` column. A row with a
+non-finite feature is left out, so drop such features first (`.drop_nonfinite()`, or read with
+`features="intersection"`).
+
+### Reusing the result
+
+Each pair needs a 2n × 2n distance matrix and `permutations` evaluations of the statistic, so
+PERMANOVA over many batches takes a while. Both tests give a `BatchTestMatrix` with the F, p and
+shared-variant matrices. Save it, then pass it to either heatmap in place of the data, and nothing
+is recomputed:
+
+```python
+res = fb.BatchTestMatrix.permanova(profiles, metric="cosine", n_jobs=8)
+res.save("vis/permanova.parquet")       # or plot.result.save(...)
+
+res = fb.BatchTestMatrix.load("vis/permanova.parquet")
+fb.BatchPermanovaHeatmap(res, value="f").save("vis/permanova_f.png")
+fb.BatchPermanovaHeatmap(res, value="p").save("vis/permanova_p.png")
+```
+
+`res.pairs()` (and the plots' `.pairs()`) is the long form: `batch_a, batch_b, f, p, n_shared`.
+`res.matrix("f")` returns the matrix as a `MetricMatrix` for `Heatmap.from_matrix`, and
+`res.params` records how the result was computed. Each pair draws its permutations from its own
+stream of `seed`, so the p-values don't depend on `n_jobs`.
+
 ## Correlation matrices
 
-`Heatmap.correlation` computes the matrix for you: Pearson, Spearman, or cosine similarity between
-columns. It defaults to a diverging `vlag` scale from -1 to 1 with annotations:
+`Heatmap.correlation` computes the matrix for you, with any [metric](../concepts.md#metrics)
+between columns (Pearson by default). The scale follows the metric: a diverging `vlag` scale from
+-1 to 1 for a correlation or cosine similarity, `Blues` from 0 to 1 for a squared one, `Blues_r`
+from 0 for a distance. Cells are annotated:
 
 ```python
 pcs = [f"meta_pc_{i}" for i in range(1, 6)]
-fb.Heatmap.correlation(df, pcs, method="cosine").save("vis/pc_similarity.png")
+fb.Heatmap.correlation(df, pcs, metric="cosine").save("vis/pc_similarity.png")
 ```
 
 Each cell is computed over the rows where both of its columns are finite, so sparse inputs work.
@@ -147,7 +215,7 @@ ranks within each pair's shared rows. Cells with fewer than `min_shared` shared 
 are NaN, so pass `nan_color="black"` to show them. The shared-row counts are on the plot's
 `n_shared` attribute. `y_columns=` puts different columns on the rows than on the x axis
 (`fb.Heatmap.correlation(df, cols, y_columns=other)`), which gives a `len(other) × len(cols)` matrix.
-Pass `squared=True` to show r² (or ρ²) on a 0–1 `Blues` scale instead:
+Pass `metric="pearson_squared"` (or `"spearman_squared"`) to show r² (or ρ²) instead:
 
 ```python
 by_batch = scores.df.pivot(on="meta_experiment", index="meta_aa_changes",
@@ -166,10 +234,24 @@ plot.n_shared  # pandas DataFrame of shared variants per batch pair
 </div>
 
 *From `notebooks/2026-09-29/ovwtcv`, with `nan_color="black", min_shared=10,
-annot_kws={"fontsize": 6}`: `method="spearman"` (left) and `squared=True` (right).*
+annot_kws={"fontsize": 6}`: `metric="spearman"` (left) and `metric="pearson_squared"` (right).*
 
 !!! tip
     Cosine similarity doesn't center the data. On AUROC-like scores, which all sit near 0.5, every
     pair comes out at about 0.99. Use Pearson or Spearman for those.
 
 Use `Heatmap(...).matrix()` to get the drawn matrix as a pandas DataFrame.
+
+## Any metric matrix
+
+`Heatmap.from_matrix` draws a `MetricMatrix`, whether fisseqborn computed it or you load one:
+the distances between variant profiles, a matrix from another tool, or one saved earlier. Rows and
+columns keep the matrix's order, and the scale and colorbar label come from its metric:
+
+```python
+d = profiles.drop_nonfinite().distances("pearson")
+fb.Heatmap.from_matrix(d).save("vis/variant_pearson.png")
+
+theirs = fb.MetricMatrix.from_array(values, labels, kind="distance", label="Edit distance")
+fb.Heatmap.from_matrix(theirs)
+```

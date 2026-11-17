@@ -127,7 +127,6 @@ LMNA = Gene(
         "Mean_NuclearBoundary_Intensity_MeanIntensity_CH1": "Lamin A intensity at the nuclear boundary",
         "Mean_NucleiExpanded_Granularity_1_CH1": "Lamin A nuclear granularity",
         "Mean_Nuclei_AreaShape_FormFactor": "Nuclear circularity",
-        "AreaShape_Area": "Cell Size",
     },
     reference_sequence=(
         "ATGGAGACCCCGTCCCAGCGGCGCGCCACCCGCAGCGGGGCGCAGGCCAGCTCCACTCCGCTGTCGCCCACCCGCATCAC"

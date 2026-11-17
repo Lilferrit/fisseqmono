@@ -37,7 +37,9 @@ Per experiment (runs independently)
                                                   -> FINALIZE_FEATURE_SELECT)
 ```
 
-Every output is per experiment. The cross-experiment steps (the blocklist vote, variant-wise
+Every output is per experiment except ComBat's (`run_combat`: COMBAT_FEATURES and COMBAT_OVWT
+per track, one table each stacked across experiments in `combat/` and `combat_cp_features/`).
+The other cross-experiment steps (the blocklist vote, variant-wise
 median pooling, PCA, and pooled distinguish-ability scores) are done by `fisseqborn-global`
 in the fisseqborn package, from these published outputs; see decision 8.
 
@@ -129,7 +131,7 @@ The CellProfiler track runs the same shared modules on the CellProfiler columns
 6. **No PCA or UMAP in the pipeline.** Cross-experiment PCA is `fisseqborn-global`'s.
 7. **The normalizer is fit once per experiment** (`NORMALIZE`) and applied by each
    consumer when it rebuilds the normalized cells, rather than refit inside each stage.
-8. **No cross-experiment stages.** The pipeline's former global stages
+8. **No cross-experiment stages but ComBat.** The pipeline's former global stages
    (GLOBAL_BLOCKLIST, GLOBAL_VARIANT_EMBEDDINGS, GLOBAL_VARIANT_DISTINGUISHABILITY and the
    two CellProfiler-track ones) moved to fisseqborn (`fisseqborn-global`,
    `fisseq_common.global_aggregation`), which pools either pipeline's runs with the same

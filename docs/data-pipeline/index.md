@@ -41,10 +41,14 @@ NORMALIZE   (per experiment)          z-score fit on WT control cells
      │
      ├──► OVWT_BATCHWISE               (per experiment — params.run_ovwt)
      │
-     └──► Feature selection            (per experiment — params.run_feature_selection)
+     ├──► Feature selection            (per experiment — params.run_feature_selection)
+     │
+     └──► ComBat                       (across experiments — params.run_combat)
 ```
 
-Every output is per experiment; cross-experiment aggregation is done downstream
-by [fisseqborn](../fisseqborn/index.md).
+Every output is per experiment except ComBat's: COMBAT_FEATURES and COMBAT_OVWT each write one
+table stacked across experiments (`combat/`; see
+[Shared stages](../common/stages.md#combatfeatures-and-combatovwt)). Other cross-experiment
+aggregation is done downstream by [fisseqborn](../fisseqborn/index.md).
 
 See [Architecture](architecture.md) for the full diagram and stage-by-stage detail.

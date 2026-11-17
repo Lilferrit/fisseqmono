@@ -101,6 +101,11 @@ All pipeline-wide.
 | --------- | ------- | ------------------- |
 | `run_ovwt` | `true` | Skips `OVWT_BATCHWISE`. |
 | `run_feature_selection` | `true` | Skips the whole batchwise feature-selection chain. |
+| `run_combat` | `true` | Skips ComBat (`COMBAT_FEATURES`, `COMBAT_OVWT`). Also skipped with fewer than two experiments. `COMBAT_FEATURES` corrects the feature-selection chain's aggregates, so it also needs `run_feature_selection`. |
+
+ComBat's own parameter: `combat_mean_only` (`false`; `true` corrects only each experiment's
+location). See
+[Shared stages](../common/stages.md#combatfeatures-and-combatovwt).
 
 ## Parameter reference
 

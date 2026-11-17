@@ -144,6 +144,8 @@ over the global default. All four route to `BUILD_CELL_IMAGES` only.
 | `filter_label_column` | `"meta_aa_changes"` | `QC_FILTER`, `NORMALIZE`, `OVWT_BATCHWISE`, the feature-selection chain, and their CellProfiler-track counterparts |
 | `run_ovwt` | `true` | `OVWT_BATCHWISE`, `OVWT_BATCHWISE_CP_FEATURES` |
 | `run_feature_selection` | `true` | the cellDINO track's feature-selection chain |
+| `run_combat` | `true` | ComBat across experiments on both tracks: `COMBAT_FEATURES*`, `COMBAT_OVWT*` (skipped with fewer than two experiments). The cellDINO track's `COMBAT_FEATURES` corrects the feature-selection chain's aggregates, so it also needs `run_feature_selection`; the CP track's reads `AGGREGATE_FEATURE_TYPE_CP_FEATURES` |
+| `combat_mean_only` | `false` | `COMBAT_FEATURES*`, `COMBAT_OVWT*`: correct only each experiment's location |
 | `feature_select_types` | `["mean", "median", "MAD", "std", "KS", "QQ", "AUROC"]` | `AGGREGATE_FEATURE_TYPE_BATCHWISE`, `AGGREGATE_HALF_BATCHWISE` |
 | `feature_select_passthrough_types` | `[]` | `AGGREGATE_FEATURE_TYPE_PASSTHROUGH`, `FINALIZE_FEATURE_SELECT_BATCHWISE` |
 | `feature_select_bootstrap_reps` | `10` | `GENERATE_SPLIT_BATCHWISE`, and the fan-out of every stage downstream of it |
@@ -175,7 +177,7 @@ name instead.
 The cross-experiment (global) stages and their params
 (`reproducibility_global_min_batches_ok`,
 `global_variant_{embeddings,cp_features}_cumulative_variance_explained`) were removed: every
-output is per experiment, and `fisseqborn-global <pipeline_dir> --out <dir>` (the fisseqborn
+output but ComBat's is per experiment, and `fisseqborn-global <pipeline_dir> --out <dir>` (the fisseqborn
 package) aggregates across experiments, with `--min-batches` and
 `--cumulative-variance-explained`. An old `params.yaml` that still sets them runs, with a
 warning that they are ignored.

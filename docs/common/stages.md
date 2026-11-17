@@ -17,6 +17,8 @@ by each pipeline's `conf/modules.config`.
 | [`blocklist`](#blocklist) | `BLOCKLIST_BATCHWISE` | `BlocklistParams` |
 | [`combineblocklists`](#combineblocklists) | `COMBINE_BLOCKLISTS_BATCHWISE` | `CombineBlocklistsParams` |
 | [`finalize`](#finalize) | `FINALIZE_FEATURE_SELECT_BATCHWISE` | `FinalizeConfig` |
+| [`combatfeatures`](#combatfeatures-and-combatovwt) | `COMBAT_FEATURES`, `COMBAT_FEATURES_CP_FEATURES` | `CombatFeaturesParams` |
+| [`combatovwt`](#combatfeatures-and-combatovwt) | `COMBAT_OVWT`, `COMBAT_OVWT_CP_FEATURES` | `CombatOvwtParams` |
 
 The `*_CP_FEATURES` processes are the embeddings pipeline's CellProfiler-feature track.
 The full function documentation is in the [API reference](api.md#stages-stages-extra).
@@ -504,6 +506,60 @@ uv run python -m fisseq_common.stages.finalize \
     'feature_type_files=out/feature_select_batchwise/batch1/aggregates/*.parquet' \
     block_list_file=out/feature_select_batchwise/batch1/blocklist.parquet \
     filtered_keys_file=out/normalization/batch1/filtered_keys.parquet
+```
+
+## combatfeatures and combatovwt
+
+The only stages that run across experiments: each takes one table per experiment, stacks them
+(adding `meta_experiment`; columns not in every table are dropped, with a warning) and
+ComBat-corrects them together (`fisseq_common.combat`, on
+[neuroCombat](https://github.com/Jfortin1/neuroCombat): parametric empirical Bayes). The design
+is the experiment plus the **variant as a covariate**, so each variant's effect is kept and
+only each experiment's location and scale are removed, estimated from the variants experiments
+share. The output is one table per run, one row per (variant, experiment), sorted by variant
+then experiment, with the corrected values in place under their own names.
+
+neuroCombat takes no missing values (one NaN turns every corrected value NaN), so before
+correcting, each logged as a warning:
+
+1. rows whose values are all null are dropped (NaN and ±inf count as null);
+2. variants left in only one experiment are dropped;
+3. value columns still holding a null are dropped from the output.
+
+- `combatfeatures` (COMBAT_FEATURES) reads the [aggregate](#aggregate) stage's outputs, one
+  `aggregates/<method>.parquet` per method per experiment (every feature, z-scored to the
+  synonymous variants, before any blocklist). Each experiment's methods are joined on the
+  variant (inner) into one wide table, and every non-`meta_` column is corrected. Published to
+  `combat/features.parquet`. Those aggregates are the feature-selection chain's stage 1, so it
+  runs only with `params.run_feature_selection` (the CellProfiler track's twin reads
+  `AGGREGATE_FEATURE_TYPE_CP_FEATURES`, which always runs).
+- `combatovwt` (COMBAT_OVWT) corrects the OvWT `results.parquet` scores (`scores`, default the
+  three AUROCs) jointly, drops `auroc_folds` and keeps the `meta_` counts. Published to
+  `combat/ovwt_scores.parquet`. AUROCs aren't clipped, so a corrected one can leave [0, 1].
+
+The CellProfiler track's twins publish to `combat_cp_features/`. Both pipelines gate the step
+with `params.run_combat` and skip it with fewer than two experiments; `params.combat_mean_only`
+corrects only the location.
+
+| Field | Default | Description |
+| ----- | ------- | ----------- |
+| `input_files` | **required** | The tables: one per experiment and method (`combatfeatures`), one per experiment (`combatovwt`). |
+| `batch_names` | **required** | Each file's experiment, in the same order (repeated per method). |
+| `label_column` | `"meta_aa_changes"` | The variant column (the covariate). |
+| `batch_column` | `"meta_experiment"` | The output's experiment column. |
+| `mean_only` | `false` | Correct only each experiment's location. |
+| `scores` (`combatovwt`) | the three AUROCs | Score columns to correct; missing ones are skipped. |
+
+neuroCombat fits the regression one feature at a time and is parallel only through numpy's
+BLAS (`threadEnv` pins it to the task's cpus); with ~1,900 variants as covariates a full run
+takes a while, so give these tasks cpus. With few experiments, ComBat's scale estimate is
+biased toward the pooled scale (each variant's own fit absorbs part of a noisy experiment's
+noise); it improves as experiments are added.
+
+```bash
+uv run python -m fisseq_common.stages.combatfeatures output_dir=./out \
+    'input_files=[T1_R1/aggregates/median.parquet,T1_R1/aggregates/KS.parquet,T2_R1/aggregates/median.parquet,T2_R1/aggregates/KS.parquet]' \
+    'batch_names=[T1_R1,T1_R1,T2_R1,T2_R1]'
 ```
 
 ## The two method lists

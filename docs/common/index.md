@@ -14,11 +14,12 @@ The base install needs only polars, pyarrow and numpy:
 | `fisseq_common.schema` | `meta_*` column names, `FEATURE_SELECTOR` / `EMBEDDING_SELECTOR` / `META_SELECTOR`, `META_CELL_INDEX_COL`, `AGGREGATOR_NAMES` |
 | `fisseq_common.variant` | `classify_variant` and its polars version, `variant_type_expr` / `control_expr` |
 | `fisseq_common.normalizer` | `Normalizer`: control-fitted z-scoring |
-| `fisseq_common.layout` | where each pipeline publishes its per-experiment outputs (`DataPipelineLayout`, `EmbeddingsPipelineLayout`, `detect`) |
+| `fisseq_common.layout` | where each pipeline publishes its outputs (`DataPipelineLayout`, `EmbeddingsPipelineLayout`, `detect`) |
 | `fisseq_common.global_aggregation` | cross-experiment aggregation: the blocklist vote, median pooling, OvWT z-score-then-median, the reduced PCA view |
+| `fisseq_common.combat` | ComBat across experiments with the variant as a covariate (`combat`, `combat_frame`); needs the `combat` extra (neuroCombat, pandas), imported only when it runs |
 | `fisseq_common.utils` | `batches`, `log`, `metadata`, `splits`, `vectors` |
 
-The `stages` extra (scikit-learn, xgboost, hydra, scipy) adds `fisseq_common.stages`: every
+The `stages` extra (scikit-learn, xgboost, hydra, scipy, and the `combat` extra) adds `fisseq_common.stages`: every
 stage both pipelines run, whole. Each module holds the algorithm, its Hydra structured config and
 its entry point, `python -m fisseq_common.stages.<stage>`; the pipelines have no wrapper modules
 of their own. What differs between the pipelines is a config field, set in each pipeline's
@@ -35,6 +36,8 @@ of their own. What differs between the pipelines is a config field, set in each 
 | `stages.blocklist` | BLOCKLIST_BATCHWISE | `minimum_correlation` | `minimum_correlation` |
 | `stages.combineblocklists` | COMBINE_BLOCKLISTS_BATCHWISE | — | — |
 | `stages.finalize` | FINALIZE_FEATURE_SELECT_BATCHWISE | — | — |
+| `stages.combatfeatures` | COMBAT_FEATURES (+ COMBAT_FEATURES_CP_FEATURES) | — | — |
+| `stages.combatovwt` | COMBAT_OVWT (+ COMBAT_OVWT_CP_FEATURES) | — | — |
 
 `stages.config` holds the config base classes, `CellsInput` (the three files a stage rebuilds
 the normalized cells from, plus `join_keys` and `feature_selector`), `row_keys` and

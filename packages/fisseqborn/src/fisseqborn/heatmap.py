@@ -1,104 +1,25 @@
 """Matrix heatmaps."""
 
 from collections.abc import Sequence
-from typing import Any, Literal, Self
+from typing import Any, Self
 
-import numpy as np
 import pandas as pd
 import polars as pl
 import seaborn as sns
 from matplotlib.axes import Axes
-from scipy import stats
 
 from . import _data
 from ._base import Plot
+from .metrics import Metric, MetricMatrix
 
 
 def _natural_sorted(values: Sequence[Any]) -> list[Any]:
     return sorted(values, key=_data._natural_key)
 
 
-_CORR_LABELS = {
-    "pearson": "Pearson r",
-    "spearman": "Spearman ρ",
-    "cosine": "Cosine similarity",
-}
-
-
-def correlation_label(method: str, squared: bool = False) -> str:
-    """Colorbar label for a correlation ``method``, e.g. ``"Spearman ρ²"``."""
-    return _CORR_LABELS[method] + ("²" if squared else "")
-
-
 def with_cbar_label(kw: dict[str, Any], label: str) -> dict[str, Any]:
     """``kw`` with ``label`` as the default colorbar label; a caller's ``cbar_kws`` wins."""
     return {**kw, "cbar_kws": {"label": label, **(kw.get("cbar_kws") or {})}}
-
-
-def pairwise_correlation(
-    mat: np.ndarray,
-    method: Literal["pearson", "spearman", "cosine"] = "pearson",
-    min_shared: int = 10,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Correlation (or cosine similarity) between the columns of ``mat``, each pair computed
-    over the rows where both columns are finite.
-
-    Spearman ranks within each pair's shared rows, matching `scipy.stats.spearmanr` on that
-    pair. Cells with fewer than ``min_shared`` shared rows, or zero variance, are NaN.
-
-    Returns ``(corr, n_shared)``, both ``(n_cols, n_cols)``.
-    """
-    finite = np.isfinite(mat)
-    n_cols = mat.shape[1]
-    corr = np.full((n_cols, n_cols), np.nan)
-    n_shared = (finite.T.astype(int) @ finite.astype(int)).astype(int)
-    for i in range(n_cols):
-        for j in range(i, n_cols):
-            if n_shared[i, j] >= min_shared:
-                ok = finite[:, i] & finite[:, j]
-                corr[i, j] = corr[j, i] = _pair_correlation(
-                    mat[ok, i], mat[ok, j], method
-                )
-    return corr, n_shared
-
-
-def cross_correlation(
-    a: np.ndarray,
-    b: np.ndarray,
-    method: Literal["pearson", "spearman", "cosine"] = "pearson",
-    min_shared: int = 10,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Correlation (or cosine similarity) between each column of ``a`` and each column of
-    ``b`` (same rows), each pair computed over the rows where both columns are finite.
-
-    The same rules as `pairwise_correlation` apply; ``cross_correlation(m, m)`` equals
-    ``pairwise_correlation(m)``.
-
-    Returns ``(corr, n_shared)``, both ``(a.shape[1], b.shape[1])``.
-    """
-    if a.shape[0] != b.shape[0]:
-        raise ValueError(
-            f"a and b need the same rows, got {a.shape[0]} and {b.shape[0]}"
-        )
-    finite_a, finite_b = np.isfinite(a), np.isfinite(b)
-    corr = np.full((a.shape[1], b.shape[1]), np.nan)
-    n_shared = (finite_a.T.astype(int) @ finite_b.astype(int)).astype(int)
-    for i in range(a.shape[1]):
-        for j in range(b.shape[1]):
-            if n_shared[i, j] >= min_shared:
-                ok = finite_a[:, i] & finite_b[:, j]
-                corr[i, j] = _pair_correlation(a[ok, i], b[ok, j], method)
-    return corr, n_shared
-
-
-def _pair_correlation(x: np.ndarray, y: np.ndarray, method: str) -> float:
-    """Correlation of two finite vectors; NaN when either has zero variance."""
-    if method == "spearman":
-        x, y = stats.rankdata(x), stats.rankdata(y)
-    if method != "cosine":
-        x, y = x - x.mean(), y - y.mean()
-    denom = np.sqrt((x @ x) * (y @ y))
-    return float(np.clip((x @ y) / denom, -1.0, 1.0)) if denom > 0 else np.nan
 
 
 class Heatmap(Plot):
@@ -194,71 +115,80 @@ class Heatmap(Plot):
         }
 
     @classmethod
+    def from_matrix(
+        cls, matrix: MetricMatrix, *, index: str | None = None, **kw: Any
+    ) -> Self:
+        """Heatmap of a `MetricMatrix`, computed (e.g. `Metric.pairwise`,
+        `Profiles.distances`) or loaded (`MetricMatrix.from_array`, `MetricMatrix.load`).
+
+        The rows and columns keep the matrix's order. The color scale defaults to the
+        metric's (`Metric.default_scale`: ``vlag`` from -1 to 1 for a similarity,
+        ``Blues`` from 0 to 1 for a squared one, ``Blues_r`` from 0 for a distance), the
+        colorbar is labeled with it, and cells are annotated when the matrix is at most
+        20 × 20. The matrix's ``n_shared`` (if any) becomes the plot's ``n_shared``.
+        ``index`` names the label column (default: the matrix's ``key`` or ``"label"``).
+        """
+        index = index or matrix.key or "label"
+        wide = matrix.to_frame(index).with_columns(pl.col(index).cast(pl.String))
+        rows = wide.get_column(index).to_list()
+        columns = [c for c in wide.columns if c != index]
+        kw = with_cbar_label(
+            {
+                **matrix.metric.default_scale,
+                "annot": max(matrix.shape) <= 20,
+                "row_order": rows,
+                "col_order": columns,
+                **kw,
+            },
+            matrix.metric.label,
+        )
+        plot = cls(wide, index=index, columns=columns, **kw)
+        if matrix.n_shared is not None:
+            plot.n_shared = pd.DataFrame(matrix.n_shared, index=rows, columns=columns)
+        return plot
+
+    @classmethod
     def correlation(
         cls,
         data: pl.DataFrame,
         columns: Sequence[str] | None = None,
         *,
         y_columns: Sequence[str] | None = None,
-        method: Literal["pearson", "spearman", "cosine"] = "pearson",
-        squared: bool = False,
+        metric: str | Metric = "pearson",
         min_shared: int = 10,
         **kw: Any,
     ) -> Self:
-        """Heatmap of the pairwise correlation (or cosine similarity) between ``columns``
-        (default: all numeric columns). Each cell is computed over the rows where both of
-        its columns are finite, so sparse inputs (e.g. one column per batch, with batches
-        covering different tiles) still work; see `pairwise_correlation`.
+        """Heatmap of ``metric`` (see `fisseqborn.metrics`; default Pearson r) between
+        every pair of ``columns`` (default: all numeric columns). Each cell is computed
+        over the rows where both of its columns are finite, so sparse inputs (e.g. one
+        column per batch, with batches covering different tiles) still work; see
+        `Metric.pairwise`.
 
         Cells with fewer than ``min_shared`` shared rows are NaN, drawn in ``nan_color``.
         The shared-row counts are available as the plot's ``n_shared`` (a pandas DataFrame).
-        ``squared=True`` shows the squared correlation (e.g. Pearson r²) instead.
 
         ``y_columns`` puts different columns on the rows (y axis) than ``columns`` on the
         x axis, e.g. one score per batch against another score per batch. Each cell then
-        correlates its row's column with its column's column (`cross_correlation`), so the
+        compares its row's column with its column's column (`Metric.cross`), so the
         matrix isn't symmetric and its diagonal needn't be 1.
 
-        Defaults to ``cmap="vlag", vmin=-1, vmax=1, center=0, annot=True``, or
-        ``cmap="Blues", vmin=0, vmax=1, annot=True`` when ``squared``. The colorbar is
-        labeled with the quantity, e.g. ``"Pearson r²"``.
+        The color scale is the metric's (see `from_matrix`), with ``annot=True``; the
+        colorbar is labeled with the metric, e.g. ``"Pearson r²"``.
         """
         data = _data.as_frame(data)
         if columns is None:
             columns = [c for c in data.columns if _data.is_numeric(data, c)]
         _data.require_columns(data, *columns, *(y_columns or []))
-        columns = list(columns)
-
-        def as_matrix(cols: list[str]) -> np.ndarray:
-            return data.select(cols).cast(pl.Float64).fill_null(np.nan).to_numpy()
-
+        resolved = Metric.get(metric)
         if y_columns is None:
-            rows = columns
-            corr, n_shared = pairwise_correlation(
-                as_matrix(columns), method, min_shared
-            )
+            matrix = resolved.pairwise(data, list(columns), min_shared=min_shared)
         else:
-            rows = list(y_columns)
-            corr, n_shared = cross_correlation(
-                as_matrix(rows), as_matrix(columns), method, min_shared
+            matrix = resolved.cross(
+                data.select(y_columns), data.select(columns), min_shared=min_shared
             )
-        if squared:
-            corr = corr**2
-        wide = pl.DataFrame({"column": rows}).with_columns(
-            pl.Series(c, corr[:, i]) for i, c in enumerate(columns)
+        return cls.from_matrix(matrix, index="column", **{"annot": True, **kw}).set(
+            ylabel=""
         )
-        scale = (
-            {"cmap": "Blues", "vmin": 0, "vmax": 1}
-            if squared
-            else {"cmap": "vlag", "vmin": -1, "vmax": 1, "center": 0}
-        )
-        kw = with_cbar_label(
-            {**scale, "annot": True, "row_order": rows, "col_order": columns, **kw},
-            correlation_label(method, squared),
-        )
-        plot = cls(wide, index="column", columns=columns, **kw).set(ylabel="")
-        plot.n_shared = pd.DataFrame(n_shared, index=rows, columns=columns)
-        return plot
 
     def matrix(self) -> pd.DataFrame:
         """The matrix that will be drawn, as a pandas DataFrame."""

@@ -7,12 +7,16 @@ nextflow.enable.dsl = 2
 //                            +-> OVWT_BATCHWISE (per experiment, gated by
 //                            |     params.run_ovwt)
 //                            |
-//                            `-> bootstrap feature selection (per experiment,
-//                                  gated by params.run_feature_selection)
+//                            +-> bootstrap feature selection (per experiment,
+//                            |     gated by params.run_feature_selection)
+//                            |
+//                            `-> ComBat across experiments (gated by params.run_combat):
+//                                  stage-1 aggregates -> COMBAT_FEATURES (needs feature
+//                                  selection), OVWT_BATCHWISE -> COMBAT_OVWT, one table each
 //
-// Every output is per experiment. Cross-experiment aggregation (combining
-// blocklists, medians across experiments, AUROC re-centering) is left to the
-// downstream fisseqborn package, which reads these published outputs.
+// Every output but ComBat's is per experiment. Other cross-experiment aggregation (combining
+// blocklists, medians across experiments) is left to the downstream fisseqborn package,
+// which reads these published outputs.
 //
 // Experiments are declared as a list of maps under `experiments:` in
 // params.yaml (loaded with -params-file); there is no <pipeline_dir>/configs/
@@ -35,6 +39,9 @@ include { CORRELATE_FEATURES      as CORRELATE_FEATURES_BATCHWISE      } from '.
 include { BLOCKLIST               as BLOCKLIST_BATCHWISE               } from '../../fisseq-common/nextflow/modules/local/blocklist/main'
 include { COMBINE_BLOCKLISTS      as COMBINE_BLOCKLISTS_BATCHWISE      } from '../../fisseq-common/nextflow/modules/local/combine_blocklists/main'
 include { FINALIZE_FEATURE_SELECT as FINALIZE_FEATURE_SELECT_BATCHWISE } from '../../fisseq-common/nextflow/modules/local/finalize_feature_select/main'
+include { COMBAT_FEATURES                                              } from '../../fisseq-common/nextflow/modules/local/combat_features/main'
+include { COMBAT_OVWT                                                  } from '../../fisseq-common/nextflow/modules/local/combat_ovwt/main'
+include { gatherBatches                                                } from '../../fisseq-common/nextflow/modules/local/functions'
 
 // The only keys an `experiments:` entry may carry. Anything else is a typo
 // or an attempt to set a pipeline-wide param per experiment -- both are
@@ -197,6 +204,16 @@ workflow FisseqPipeline {
     }
     if (nFolds != null && nFolds < 2) {
         error "ERROR: params.ovwt_n_folds must be at least 2, got ${nFolds}."
+    }
+    // ComBat runs across experiments: with one experiment there is nothing to correct.
+    def runCombat = asBool(params.run_combat)
+    if (runCombat && params.experiments instanceof List && params.experiments.size() < 2) {
+        log.warn "params.run_combat is ignored: ComBat needs at least 2 experiments."
+        runCombat = false
+    }
+    if (runCombat && !asBool(params.run_feature_selection)) {
+        log.warn "COMBAT_FEATURES is skipped: it corrects the feature-selection chain's " +
+                 "aggregates, and params.run_feature_selection is false. COMBAT_OVWT still runs."
     }
 
     // Validate and resolve every experiment map once, here, at
@@ -399,5 +416,25 @@ workflow FisseqPipeline {
                 tuple(batch_stem, agg_files, pt_files ?: [], keys, combined_bl_file)
             }
         FINALIZE_FEATURE_SELECT_BATCHWISE(finalize_input_ch)
+    }
+
+    // Step 5: ComBat across experiments (params.run_combat), the one step that doesn't run
+    // per experiment. COMBAT_FEATURES corrects stage 1's aggregates (every method in
+    // params.feature_select_types, every feature, before the blocklist), so it needs the
+    // feature-selection chain; COMBAT_OVWT corrects the OvWT scores. Each writes one table
+    // stacked across experiments into combat/.
+    if (runCombat) {
+        if (asBool(params.run_feature_selection)) {
+            COMBAT_FEATURES(gatherBatches(
+                agg_ch.map { batch_stem, _feature_type, agg_file -> tuple(batch_stem, agg_file) },
+                'COMBAT_FEATURES'
+            ))
+        }
+        if (asBool(params.run_ovwt)) {
+            COMBAT_OVWT(gatherBatches(
+                OVWT_BATCHWISE.out.ovwt.map { batch_stem, results, _cell_scores, _models -> tuple(batch_stem, results) },
+                'COMBAT_OVWT'
+            ))
+        }
     }
 }

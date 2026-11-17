@@ -65,6 +65,60 @@ fig.savefig("vis/panel.png")
 
 `ClusterMap` is *figure-level*: it lays out its own figure, so it doesn't accept `ax=`.
 
+## Metrics
+
+Every comparison between vectors (heatmaps, batch correlations, clustering, UMAP, impact scores,
+correlation boxes) goes through `fisseqborn.metrics`, so the same names work everywhere:
+
+| Name | Value | As a distance |
+|---|---|---|
+| `"euclidean"` | Euclidean distance | itself |
+| `"cityblock"` | Manhattan distance | itself |
+| `"cosine_distance"` | 1 − cosine similarity | itself |
+| `"cosine"` | cosine similarity (uncentred) | 1 − cos |
+| `"pearson"` | Pearson r | 1 − r |
+| `"spearman"` | Spearman ρ | 1 − ρ |
+| `"cosine_squared"`, `"pearson_squared"`, `"spearman_squared"` | cos², r², ρ² | 1 − s² |
+
+Heatmaps show the value; clustering, UMAP and nearest-neighbor graphs use the distance. For example,
+`ClusterMap(df, metric="pearson")` clusters on 1 − r, and
+`BatchCorrelationHeatmap(..., metric="euclidean")` shows the Euclidean distance between batches.
+
+A name stands for a `Metric` object (`fb.metrics.Pearson(squared=True)` is `"pearson_squared"`).
+A `Metric` computes a `MetricMatrix`, which holds the values with the labels they belong to:
+
+```python
+from fisseqborn.metrics import Metric
+
+r = Metric.get("spearman").pairwise(df, ["T1_R1", "T1_R2"])  # between columns
+d = profiles.drop_nonfinite().distances("pearson")         # between variants, keyed by meta_aa_changes
+d.save("vis/pearson.parquet")                               # MetricMatrix.load reads it back
+```
+
+### Compute once, reuse
+
+`Profiles.umap`, `Profiles.cluster` and `ClusterMap` take a `MetricMatrix` as `metric=` instead of
+a name. They line it up with their rows by its key, so it is computed once:
+
+```python
+profiles = profiles.drop_nonfinite()
+d = profiles.distances("pearson")
+clustered = profiles.umap(metric=d).cluster(metric=d)
+fb.ClusterMap(clustered.df, metric=d)
+fb.Heatmap.from_matrix(d)
+```
+
+Squared metrics, and a `MetricMatrix`, go to UMAP and the Leiden neighbor graph as a full n × n
+distance matrix. The other metrics pass the (ranked / centred) profiles straight to the library.
+
+### Precomputed matrices
+
+Matrices from elsewhere become a `MetricMatrix` with `MetricMatrix.from_array(values, labels,
+kind="distance" | "similarity", label=..., key="meta_aa_changes")` or `MetricMatrix.from_frame(df,
+index=...)`. Give it a `key` (the column its labels are values of) to have consumers align it by
+label; without one it must have one row per row, in order. A precomputed similarity is taken to be
+at most 1, so its distance is 1 − s.
+
 ## Defaults
 
 `title=`, `figsize=` and `dpi=` work on every plot. Package-wide defaults live in `fb.config`:

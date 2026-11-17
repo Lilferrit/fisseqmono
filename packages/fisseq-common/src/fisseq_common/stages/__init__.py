@@ -12,7 +12,7 @@ import importlib.util
 
 _MISSING = [
     name
-    for name in ("hydra", "sklearn", "xgboost", "scipy")
+    for name in ("hydra", "sklearn", "xgboost", "scipy", "neuroCombat")
     if importlib.util.find_spec(name) is None
 ]
 if _MISSING:

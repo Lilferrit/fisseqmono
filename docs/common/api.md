@@ -10,6 +10,8 @@
 
 ::: fisseq_common.global_aggregation
 
+::: fisseq_common.combat
+
 ::: fisseq_common.utils.batches
 
 ::: fisseq_common.utils.metadata
@@ -43,3 +45,7 @@
 ::: fisseq_common.stages.combineblocklists
 
 ::: fisseq_common.stages.finalize
+
+::: fisseq_common.stages.combatfeatures
+
+::: fisseq_common.stages.combatovwt

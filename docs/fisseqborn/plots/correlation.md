@@ -3,7 +3,8 @@
 `CorrelationPlot` compares two numeric columns, for example replicate vs. replicate, filtered vs.
 unfiltered, or a score vs. cell count. It can add:
 
-- a correlation box (`stat="pearson"` or `"spearman"`, computed over rows where both values are finite)
+- a correlation box (`stat="pearson"`, `"spearman"` or any other [metric](../concepts.md#metrics),
+  computed over rows where both values are finite; Pearson and Spearman also show a p-value)
 - a fit line (`fit="linear"` or `"lowess"`)
 - the `y = x` line (`identity=True`)
 - counts of the points above and below that line (`count_sides=True`)

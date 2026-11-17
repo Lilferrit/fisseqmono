@@ -421,3 +421,29 @@ def test_palette_true_uses_fisseq_colors():
             to_rgb(fisseq.PALETTE[f]),
             atol=1e-6,
         )
+
+
+def test_row_order_with_metric(cluster_summary):
+    cols = [f"landmark_{i}" for i in range(4)]
+    groups = [FeatureGroup("Landmarks", cols)]
+    x = cluster_summary.select(cols).to_numpy()
+    expected = leaves_list(linkage(pdist(x, "correlation"), method="average")).tolist()
+    assert (
+        fb.ClusterMap(cluster_summary, groups=groups, metric="pearson").row_order()
+        == expected
+    )
+
+
+def test_row_order_with_metric_matrix(cluster_summary):
+    cols = [f"landmark_{i}" for i in range(4)]
+    groups = [FeatureGroup("Landmarks", cols, cluster_features=True)]
+    by_name = fb.ClusterMap(cluster_summary, groups=groups, metric="pearson")
+    d = fb.metrics.Pearson().between_rows(cluster_summary, cols, key="meta_cluster_idx")
+    by_matrix = fb.ClusterMap(
+        cluster_summary, groups=groups, metric=d.align(d.row_labels[::-1])
+    )
+    assert by_matrix.row_order() == by_name.row_order()
+    assert by_matrix.feature_metric == fb.metrics.Euclidean()
+    by_matrix.plot()
+    with pytest.raises(ValueError, match="standardize"):
+        fb.ClusterMap(cluster_summary, groups=groups, metric=d, standardize=True)

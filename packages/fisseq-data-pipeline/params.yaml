@@ -85,6 +85,7 @@ random_seed: 0
 # Pipeline-wide, not per-experiment.
 run_ovwt: true               # OVWT_BATCHWISE
 run_feature_selection: true  # the whole batchwise feature-selection chain
+run_combat: true             # COMBAT_FEATURES, COMBAT_OVWT
 
 # ── Label column, shared pipeline-wide ──────────────────────────────────────
 # Read by QC_FILTER, CORRELATE_FEATURES, FINALIZE_FEATURE_SELECT and
@@ -135,6 +136,22 @@ qc_variant_downsample_mode: "top"
 qc_downsample_amounts: null
 # classify_variant() categories eligible for pseudo-variant generation.
 qc_downsample_classes: ["Synonymous", "Single Missense"]
+
+# ── ComBat across experiments (COMBAT_FEATURES, COMBAT_OVWT) ────────────────
+# The one step that runs across experiments (ignored, with a warning, when there is only
+# one). ComBat (neuroCombat, parametric empirical Bayes) with the variant as a covariate:
+# each experiment's location and scale are removed and each variant's effect kept.
+# Variants measured in only one experiment are dropped, then rows with no value and
+# columns holding a null (each logged as a warning in the task log). Writes one table each,
+# stacked across experiments (one row per variant x experiment, meta_experiment naming the
+# experiment): combat/features.parquet and combat/ovwt_scores.parquet.
+#
+# COMBAT_FEATURES corrects the feature-selection chain's per-method aggregates
+# (feature_select_batchwise/<batch>/aggregates/: every method in feature_select_types,
+# every feature, before the blocklist), so it needs run_feature_selection; without it
+# only COMBAT_OVWT runs.
+# true = correct only each experiment's location, not its scale.
+combat_mean_only: false
 
 # ── OvWT distinguishability (OVWT_BATCHWISE) ────────────────────────────────
 # Per variant, k-fold cross-validated one-vs-wildtype scoring: every cell gets

@@ -170,6 +170,48 @@ class CellsInput:
     feature_selector: str = "features"
 
 
+@dataclasses.dataclass
+class CombatInput(AppConfig):
+    """
+    The inputs of a ComBat stage (``combatfeatures``, ``combatovwt``): per-variant tables
+    from every experiment, stacked and corrected together (:mod:`fisseq_common.combat`).
+
+    Attributes
+    ----------
+    input_files : list of str
+        The tables. ``combatfeatures`` takes several per experiment (one per aggregation
+        method), ``combatovwt`` exactly one. Required.
+    batch_names : list of str
+        Each file's experiment, in the order of ``input_files`` (repeated for an
+        experiment's several files). Required.
+    label_column : str
+        The variant column, ComBat's covariate. Defaults to ``"meta_aa_changes"``.
+    batch_column : str
+        The output column naming each row's experiment. Defaults to ``"meta_experiment"``.
+    mean_only : bool
+        Correct only each experiment's location, not its scale. Defaults to ``False``.
+    """
+
+    input_files: List[str] = MISSING
+    batch_names: List[str] = MISSING
+    label_column: str = "meta_aa_changes"
+    batch_column: str = "meta_experiment"
+    mean_only: bool = False
+
+
+def read_batches(cfg: CombatInput) -> dict[str, list[pl.DataFrame]]:
+    """``cfg.input_files`` grouped by experiment (in first-seen order), checking the two
+    lists line up."""
+    if len(cfg.input_files) != len(cfg.batch_names):
+        raise ValueError(
+            f"{len(cfg.input_files)} input_files but {len(cfg.batch_names)} batch_names"
+        )
+    batches: dict[str, list[pl.DataFrame]] = {}
+    for name, path in zip(cfg.batch_names, cfg.input_files):
+        batches.setdefault(str(name), []).append(pl.read_parquet(path))
+    return batches
+
+
 def prepare_output(cfg: Any, log_name: str) -> None:
     """Create ``cfg.output_dir`` (stored back as a string) and set up the stage's logging."""
     output_dir = pathlib.Path(cfg.output_dir)

@@ -15,6 +15,7 @@ import polars.selectors as cs
 
 from . import _cache, _data, _pipeline, _transforms
 from .dataset import Dataset
+from .metrics import Metric, MetricMatrix
 
 if TYPE_CHECKING:
     from .ovwt import OvwtScores
@@ -197,6 +198,28 @@ class Profiles(Dataset):
         )
 
     @classmethod
+    def from_combat(
+        cls,
+        pipeline_dir: "str | PathLike | _pipeline.Source",
+        *,
+        cache: "_cache.Cache" = False,
+        refresh: bool = False,
+        layout: "_pipeline.LayoutSpec" = None,
+        track: "_pipeline.Track" = "embeddings",
+        variant_col: str = "meta_aa_changes",
+        batch_col: str = "meta_experiment",
+    ) -> Self:
+        """Read the pipeline's ComBat-corrected profiles (``combat/features.parquet``; the
+        embeddings pipeline's CellProfiler track: ``combat_cp_features/``): one row per
+        (variant, batch), every feature corrected across batches by COMBAT_FEATURES.
+        ``pipeline_dir``, ``cache``, ``refresh``, ``layout`` and ``track`` are as in
+        `from_pipeline`. Chain `median_across_batches` for one row per variant.
+        """
+        src = _pipeline.source(pipeline_dir, cache, refresh, layout, track)
+        (path,) = src.files([src.layout.combat_features()])
+        return cls(_pipeline.scan(path), variant_col=variant_col, batch_col=batch_col)
+
+    @classmethod
     def from_global(cls, pipeline_dir: str | PathLike, channel: str, **kw: Any) -> Self:
         """Read ``global/<channel>/feature_select/aggregate.parquet`` from an older
         pipeline run (one row per variant, aggregated across batches).
@@ -280,6 +303,30 @@ class Profiles(Dataset):
             features = [c for c in features if c.endswith(suffixes)]
         return self.with_columns(
             _transforms.normalize_exprs(features, control_col=control_col, by=by)
+        )
+
+    def combat(self, *, mean_only: bool = False) -> Self:
+        """ComBat-correct the profile values across batches (`fisseq_common.combat`,
+        neuroCombat), with the variant as a covariate: each batch's location and scale are
+        removed and each variant's effect is kept. Needs one row per (variant, batch).
+
+        Variants measured in only one batch are dropped, then rows with no value at all and
+        then value columns still holding a null, NaN or inf; each step logs a warning.
+        Values are replaced in place; passthrough and ``meta_`` columns are untouched.
+        ``mean_only`` corrects only each batch's location. The pipeline runs the same
+        correction on every feature (`from_combat`).
+        """
+        from fisseq_common.combat import combat_frame
+
+        self._require(self.variant_col, self.batch_col)
+        return self._replace(
+            combat_frame(
+                self.df,
+                self.values,
+                label_column=self.variant_col,
+                batch_column=self.batch_col,
+                mean_only=mean_only,
+            )
         )
 
     def median_across_batches(
@@ -375,6 +422,17 @@ class Profiles(Dataset):
         )
         return self._replace(df.drop([c for c in bad.columns if bad[0, c]]))
 
+    def drop_nonfinite_rows(self) -> Self:
+        """Drop the rows whose profile values are all null, NaN or infinite (passthrough
+        columns don't count)."""
+        if not self.values:
+            return self
+        return self.filter(
+            pl.any_horizontal(
+                _transforms.finite(pl.col(c)).is_not_null() for c in self.values
+            )
+        )
+
     def feature_select(
         self,
         operations: Sequence[str] = (
@@ -445,11 +503,18 @@ class Profiles(Dataset):
     def impact_score(
         self,
         *,
+        metric: str | Metric = "cosine_distance",
         control_col: str = "meta_is_control",
         output_col: str = "meta_impact_score",
     ) -> Self:
-        """Add the impact score: the cosine distance between each profile and the median
-        control profile, halved so it runs from 0 (same direction) to 1 (opposite).
+        """Add the impact score: the distance between each profile and the median
+        control profile.
+
+        By default the cosine distance, halved so it runs from 0 (same direction) to 1
+        (opposite). Any `fisseqborn.metrics` metric works: a similarity ``s`` scores
+        ``1 - s``, and the score is divided by the largest distance the metric can give
+        (2 for cosine, Pearson and Spearman, 1 for their squares) so it lies in [0, 1];
+        Euclidean distance is left as is.
 
         Missing values are skipped per row and feature. Run `variant_type` first.
         """
@@ -457,11 +522,18 @@ class Profiles(Dataset):
             raise ValueError(
                 f"Column {control_col!r} not found; chain .variant_type() before .impact_score()"
             )
-        return self.with_columns(
-            _transforms.impact_score_expr(self.values, control_col=control_col).alias(
-                output_col
+        resolved = Metric.get(metric)
+        if _transforms.is_cosine(resolved):  # stays lazy
+            return self.with_columns(
+                _transforms.impact_score_expr(
+                    self.values, control_col=control_col
+                ).alias(output_col)
             )
+        df = self.df
+        scores = _transforms.impact_score_series(
+            df, self.values, control_col=control_col, metric=resolved, name=output_col
         )
+        return self._replace(df.with_columns(scores))
 
     # ----- embeddings -----------------------------------------------------------------
 
@@ -522,6 +594,7 @@ class Profiles(Dataset):
         self,
         variances: Sequence[float] = (0.7, 0.8, 0.9, 1.0),
         *,
+        metric: str | Metric = "cosine_distance",
         control_col: str = "meta_is_control",
         prefix: str = "meta_impact_score_",
     ) -> Self:
@@ -529,8 +602,9 @@ class Profiles(Dataset):
         cumulative-variance threshold.
 
         PCA is fitted once. For each ratio in ``variances``, the impact score (see
-        `impact_score`) is computed on the fewest components explaining that share of the
-        variance, as ``pca_reduce(variance=v).impact_score()`` would, and added as
+        `impact_score`, with ``metric``) is computed on the fewest components explaining
+        that share of the variance, as ``pca_reduce(variance=v).impact_score()`` would,
+        and added as
         ``<prefix><v>`` (e.g. ``meta_impact_score_0.9``). The features themselves are kept,
         and `pca_explained_variance` is set (``retained`` marks the largest threshold's
         components).
@@ -554,11 +628,18 @@ class Profiles(Dataset):
             pl.Series(name, scores[:, i]) for i, name in enumerate(pcs)
         )
         outputs = [f"{prefix}{v}" for v in variances]
-        impact = tmp.select(
-            _transforms.impact_score_expr(pcs[: ks[v]], control_col=control_col).alias(
-                out
-            )
-            for v, out in zip(variances, outputs)
+        resolved = Metric.get(metric)
+        impact = pl.DataFrame(
+            [
+                _transforms.impact_score_series(
+                    tmp,
+                    pcs[: ks[v]],
+                    control_col=control_col,
+                    metric=resolved,
+                    name=out,
+                )
+                for v, out in zip(variances, outputs)
+            ]
         )
         new = self._replace(df.drop(outputs, strict=False).hstack(impact))
         new.pca_explained_variance = _explained_variance(ratios, max(ks.values()), "X_")
@@ -575,19 +656,71 @@ class Profiles(Dataset):
         self.pca_loadings.write_parquet(path, **write_kw)
         return self
 
+    def distances(
+        self, metric: str | Metric = "pearson", *, key: str | None = None
+    ) -> MetricMatrix:
+        """``metric`` (see `fisseqborn.metrics`) between every pair of profiles, over
+        the profile values, as a `MetricMatrix` keyed by ``key`` (default the variant
+        column, so its values should be unique). Compute it once and pass it as
+        ``metric=`` to `umap`, `cluster` or `ClusterMap`, or draw it with
+        `Heatmap.from_matrix`:
+
+        >>> d = profiles.drop_nonfinite().distances("pearson")
+        >>> profiles.umap(metric=d).cluster(metric=d)
+        """
+        key = key or self.variant_col
+        df, x = self._matrix()
+        matrix = Metric.get(metric).between_rows(x)
+        return MetricMatrix(
+            matrix.values,
+            matrix.metric,
+            df.get_column(key).to_list(),
+            df.get_column(key).to_list(),
+            key=key,
+            symmetric=True,
+        )
+
+    def _metric_inputs(
+        self, metric: str | Metric | MetricMatrix
+    ) -> tuple[pl.DataFrame, np.ndarray, str]:
+        """``(df, inputs, name)`` for a library that takes a metric name: the profile
+        values (prepared, see `Metric.native`) and ``"euclidean"`` / ``"cosine"``, or the
+        full distance matrix and ``"precomputed"``."""
+        if isinstance(metric, MetricMatrix):
+            df = self.df
+            d = metric.for_rows(df).to_distance().values.copy()
+        else:
+            resolved = Metric.get(metric)
+            df, x = self._matrix()
+            native = resolved.native(x)
+            if native is not None:
+                return df, native[0], native[1]
+            d = resolved.between_rows(x).to_distance().values.copy()
+        np.fill_diagonal(d, 0.0)
+        if not np.isfinite(d).all():
+            raise ValueError(
+                "The distances contain NaN (e.g. a zero-variance profile under Pearson "
+                "/ Spearman); drop those profiles first"
+            )
+        return df, d, "precomputed"
+
     def umap(
         self,
         *,
         n_components: int = 2,
         n_neighbors: int = 30,
         min_dist: float = 0.1,
-        metric: str = "cosine",
+        metric: str | Metric | MetricMatrix = "cosine_distance",
         seed: int = 42,
         output_cols: Sequence[str] | None = None,
         **umap_kw: Any,
     ) -> Self:
         """Add an ``n_components``-dimensional UMAP embedding of the features, as
         ``output_cols`` (default ``meta_notebook_umap_1 .. meta_notebook_umap_<n>``).
+
+        ``metric`` is any `fisseqborn.metrics` metric (a similarity ``s`` embeds on
+        ``1 - s``), or a `MetricMatrix` from `distances` to reuse. Squared metrics and
+        matrices go to UMAP as a full precomputed distance matrix (n² memory).
         Needs ``fisseqborn[umap]``."""
         if output_cols is None:
             output_cols = [f"meta_notebook_umap_{i + 1}" for i in range(n_components)]
@@ -596,16 +729,16 @@ class Profiles(Dataset):
                 f"output_cols has {len(output_cols)} names but n_components={n_components}"
             )
         umap = _transforms.require_extra("umap", "umap")
-        df, x = self._matrix()
+        df, inputs, name = self._metric_inputs(metric)
         reducer = umap.UMAP(
             n_components=n_components,
             n_neighbors=n_neighbors,
             min_dist=min_dist,
-            metric=metric,
+            metric=name,
             random_state=seed,
             **umap_kw,
         )
-        coords = reducer.fit_transform(x)
+        coords = reducer.fit_transform(inputs)
         return self._replace(
             df.with_columns(
                 pl.Series(name, coords[:, i]) for i, name in enumerate(output_cols)
@@ -620,15 +753,22 @@ class Profiles(Dataset):
         resolution: float = 1.0,
         n_clusters: int | None = None,
         seed: int = 0,
+        metric: str | Metric | MetricMatrix = "euclidean",
         output_col: str = "meta_cluster_idx",
     ) -> Self:
         """Cluster the profiles and add the cluster ids as strings (``"0"``, ``"1"``, ...).
 
         ``"leiden"`` runs Leiden community detection on the ``n_neighbors``-nearest
-        neighbor graph at the given ``resolution`` and needs ``fisseqborn[cluster]``.
-        ``"kmeans"`` needs ``n_clusters``.
+        neighbor graph under ``metric`` (any `fisseqborn.metrics` metric, or a
+        `MetricMatrix` from `distances` to reuse) at the given ``resolution`` and needs
+        ``fisseqborn[cluster]``. ``"kmeans"`` needs ``n_clusters`` and is Euclidean only.
         """
-        df, x = self._matrix()
+        if isinstance(metric, MetricMatrix):
+            df, x = self.df, None
+            metric = metric.for_rows(df)
+        else:
+            metric = Metric.get(metric)
+            df, x = self._matrix()
         labels = _transforms.cluster_labels(
             x,
             method=method,
@@ -636,6 +776,8 @@ class Profiles(Dataset):
             resolution=resolution,
             n_clusters=n_clusters,
             seed=seed,
+            metric=metric,
+            data=df,
         )
         return self._replace(
             df.with_columns(pl.Series(output_col, labels.astype(str), dtype=pl.String))

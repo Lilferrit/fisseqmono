@@ -61,7 +61,7 @@ from fisseq_common.schema import (
     VARIANCE_EXPLAINED_COL,
 )
 
-from . import _cache, _pipeline, _transforms
+from . import _cache, _pipeline, _transforms, metrics
 from .blocklist import Blocklists
 from .profiles import Profiles, batch_aggregates
 
@@ -122,6 +122,8 @@ def write_global(
     corr_threshold: float = 0.9,
     impact_score: bool = False,
     umap: int = 0,
+    impact_metric: str = "cosine_distance",
+    umap_metric: str = "cosine_distance",
     metadata: bool = False,
     paired: Mapping[str, str] | None = None,
     pca: int | None = None,
@@ -159,7 +161,8 @@ def write_global(
     Off by default, applied to ``median_aggregate`` before the PCA: ``operations``
     (pycytominer `Profiles.feature_select`, e.g. `OPERATIONS`, with ``corr_threshold``),
     ``impact_score`` (a pre-PCA ``meta_impact_score`` column), ``umap`` (an ``N``-D UMAP,
-    ``meta_notebook_umap_*``), ``metadata`` (per-variant integer ``meta_`` counts summed
+    ``meta_notebook_umap_*``), with ``impact_metric`` / ``umap_metric`` (any
+    `fisseqborn.metrics` name; default cosine distance) for the two, ``metadata`` (per-variant integer ``meta_`` counts summed
     across experiments) and ``paired`` (take each companion column from the experiment
     holding its value's median, e.g. ``{"_median": "_KSnegLogP"}``).
 
@@ -214,6 +217,8 @@ def write_global(
             corr_threshold=corr_threshold,
             impact_score=impact_score,
             umap=umap,
+            impact_metric=impact_metric,
+            umap_metric=umap_metric,
             metadata=metadata,
             paired=paired,
             variant_col=variant_col,
@@ -242,6 +247,8 @@ def _write_track(
     corr_threshold: float,
     impact_score: bool,
     umap: int,
+    impact_metric: str,
+    umap_metric: str,
     metadata: bool,
     paired: Mapping[str, str] | None,
     variant_col: str,
@@ -283,6 +290,8 @@ def _write_track(
         corr_threshold=corr_threshold,
         impact_score=impact_score,
         umap=umap,
+        impact_metric=impact_metric,
+        umap_metric=umap_metric,
         meta_paths=meta_paths,
         variant_col=variant_col,
     )
@@ -440,6 +449,8 @@ def _extras(
     corr_threshold: float,
     impact_score: bool,
     umap: int,
+    impact_metric: str,
+    umap_metric: str,
     meta_paths: Mapping[str, pathlib.Path],
     variant_col: str,
 ) -> pl.DataFrame:
@@ -454,14 +465,16 @@ def _extras(
         median_df = median_df.select(variant_col, *selected.features)
     if impact_score:
         scored = (
-            Profiles(median_df, variant_col=variant_col).variant_type().impact_score()
+            Profiles(median_df, variant_col=variant_col)
+            .variant_type()
+            .impact_score(metric=impact_metric)
         )
         median_df = median_df.with_columns(scored.df.get_column("meta_impact_score"))
     if umap:
         embedded = (
             Profiles(median_df, variant_col=variant_col)
             .drop_nonfinite()
-            .umap(n_components=umap)
+            .umap(n_components=umap, metric=umap_metric)
         )
         median_df = median_df.with_columns(
             embedded.df.select(
@@ -671,6 +684,18 @@ def _parser() -> argparse.ArgumentParser:
         "--umap", type=int, default=0, metavar="N", help="add an N-D UMAP"
     )
     parser.add_argument(
+        "--impact-metric",
+        default="cosine_distance",
+        choices=metrics.names(),
+        help="metric of --impact-score (default: cosine_distance)",
+    )
+    parser.add_argument(
+        "--umap-metric",
+        default="cosine_distance",
+        choices=metrics.names(),
+        help="metric of --umap (default: cosine_distance)",
+    )
+    parser.add_argument(
         "--metadata",
         action="store_true",
         help="join each variant's integer meta_ counts, summed across batches",
@@ -733,6 +758,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         corr_threshold=args.corr_threshold,
         impact_score=args.impact_score,
         umap=args.umap,
+        impact_metric=args.impact_metric,
+        umap_metric=args.umap_metric,
         metadata=args.metadata,
         paired=paired,
         pca=args.pca,

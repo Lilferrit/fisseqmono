@@ -191,10 +191,12 @@ def test_opt_in_extras(pipeline_dir, tmp_path):
         paired={"_median": "_KSnegLogP"},
         operations=global_aggregate.OPERATIONS,
         impact_score=True,
+        impact_metric="pearson",
         metadata=True,
         ovwt=False,
     )
     median = pl.read_parquet(written["feature_select/median_aggregate"])
+    assert median["meta_impact_score"].drop_nulls().is_between(0, 1).all()
     assert {"meta_impact_score", "meta_num_cells", "meta_barcode_num_unique"} <= set(
         median.columns
     )

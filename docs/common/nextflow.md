@@ -4,7 +4,7 @@ The Nextflow process of every [shared stage](stages.md) has one copy, in fisseq-
 
 ```text
 packages/fisseq-common/nextflow/modules/local/
-  functions.nf                     threadEnv(), hydraList()
+  functions.nf                     threadEnv(), hydraList(), gatherBatches()
   qc_filter/main.nf                QC_FILTER
   filter/main.nf                   FILTER (each pipeline includes it as NORMALIZE)
   ovwt_batchwise/main.nf           OVWT_BATCHWISE
@@ -14,6 +14,8 @@ packages/fisseq-common/nextflow/modules/local/
   blocklist/main.nf                BLOCKLIST
   combine_blocklists/main.nf       COMBINE_BLOCKLISTS
   finalize_feature_select/main.nf  FINALIZE_FEATURE_SELECT
+  combat_features/main.nf          COMBAT_FEATURES
+  combat_ovwt/main.nf              COMBAT_OVWT
 ```
 
 fisseq-common has modules only, no workflow. Each pipeline's workflow includes them by a
@@ -30,9 +32,15 @@ include { AGGREGATE as AGGREGATE_HALF_BATCHWISE           } from '../../fisseq-c
 Both pipelines use the same names: `QC_FILTER`, `NORMALIZE`, `OVWT_BATCHWISE`,
 `AGGREGATE_FEATURE_TYPE_BATCHWISE`, `AGGREGATE_FEATURE_TYPE_PASSTHROUGH`,
 `GENERATE_SPLIT_BATCHWISE`, `AGGREGATE_HALF_BATCHWISE`, `CORRELATE_FEATURES_BATCHWISE`,
-`BLOCKLIST_BATCHWISE`, `COMBINE_BLOCKLISTS_BATCHWISE`, `FINALIZE_FEATURE_SELECT_BATCHWISE`. The
-embeddings pipeline adds `NORMALIZE_CP_FEATURES`, `AGGREGATE_FEATURE_TYPE_CP_FEATURES` and
-`OVWT_BATCHWISE_CP_FEATURES` for its CellProfiler track.
+`BLOCKLIST_BATCHWISE`, `COMBINE_BLOCKLISTS_BATCHWISE`, `FINALIZE_FEATURE_SELECT_BATCHWISE`,
+`COMBAT_FEATURES`, `COMBAT_OVWT`. The embeddings pipeline adds `NORMALIZE_CP_FEATURES`,
+`AGGREGATE_FEATURE_TYPE_CP_FEATURES`, `OVWT_BATCHWISE_CP_FEATURES`,
+`COMBAT_FEATURES_CP_FEATURES` and `COMBAT_OVWT_CP_FEATURES` for its CellProfiler track.
+
+COMBAT_FEATURES and COMBAT_OVWT are the only processes that take every experiment at once:
+`gatherBatches(ch, name)` turns a `(batch_stem, file)` channel (one file per experiment, or one
+per experiment and method) into one `(batch_stems, files)` tuple, sorted by batch then file
+name, and emits nothing (with a warning) when fewer than two experiments arrive. An experiment whose upstream task failed and was ignored is simply left out.
 
 ## What a module carries, and what a pipeline sets
 
