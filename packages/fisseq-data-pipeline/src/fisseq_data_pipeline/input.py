@@ -129,8 +129,10 @@ _cs.store(name="input_main", node=InputStageConfig)
 
 def non_finite_to_null(lf: pl.LazyFrame) -> pl.LazyFrame:
     """Replace NaN and ±inf with null in every float column."""
-    inf = float("inf")
-    return lf.with_columns(cs.float().replace([inf, -inf], None).fill_nan(None))
+    # Not cs.float().replace([inf, -inf], None): across a wide CellProfiler table,
+    # that exhausts memory where this streams in about the memory of leaving them alone.
+    floats = cs.float()
+    return lf.with_columns(pl.when(floats.is_finite()).then(floats).name.keep())
 
 
 def load_and_tag(path: str, infer_schema_length: int | None = 100) -> pl.LazyFrame:
