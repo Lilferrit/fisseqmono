@@ -1,5 +1,7 @@
 nextflow.enable.dsl = 2
 
+include { threadEnv } from '../../../fisseq-common/nextflow/modules/local/functions'
+
 // INPUT: wraps python -m fisseq_data_pipeline.input. Runs once per
 // `experiments:` entry of params.yaml, producing one input/-ready cell-level
 // Parquet file by loading and merging that experiment's input_paths.
@@ -37,6 +39,7 @@ process INPUT {
     def blocklistYaml = (feature_blocklist_file == null) ? 'null' : "'${feature_blocklist_file}'"
     def schemaScanRowsYaml = (csv_schema_scan_rows == null) ? 'null' : "${csv_schema_scan_rows}"
     """
+    ${threadEnv(task.cpus)}
     echo "Starting INPUT for ${name}"
     cat > resolved_config.yaml <<'EOF'
 input_paths: [${inputPathsYaml}]
