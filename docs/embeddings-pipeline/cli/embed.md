@@ -1,16 +1,24 @@
 # Cell Embeddings (`EMBED_CELLS`)
 
 `python -m fisseq_embeddings_pipeline.embed` (Nextflow process
-`EMBED_CELLS`, the pipeline's only GPU-bound stage) streams every cell in
-an experiment's per-well WebDataset shards (cut and packed by
-`BUILD_CELL_IMAGES`' nested `make_cell_shard`/`make_well_shards` rules --
-see [Cell Shards](tile_shard.md) and [Well Shards](well_shards.md)) through
-a pretrained Cell-DINO checkpoint (Meta's `dinov2`) and writes one row per
-cell to `embeddings.parquet`. Not gated by `QC_FILTER` -- this GPU pass
-runs once per experiment regardless of how many times QC thresholds get
-retuned afterward.
+`EMBED_CELLS`, the pipeline's only GPU-bound stage) streams every cell of
+one well's WebDataset shards (cut and packed by `BUILD_CELL_IMAGES`' nested
+`make_cell_shard`/`make_well_shards` rules -- see [Cell Shards](tile_shard.md)
+and [Well Shards](well_shards.md)) through a pretrained Cell-DINO checkpoint
+(Meta's `dinov2`) and writes one row per cell to `output`. Not gated by
+`QC_FILTER` -- this GPU pass runs once per experiment regardless of how many
+times QC thresholds get retuned afterward.
 
-The shards are every `*.tar.gz` in `BUILD_CELL_IMAGES`' `shards/`
+The workflow runs one `EMBED_CELLS` task per well, each writing
+`embeddings_<well>.parquet`, so a task killed partway (walltime, preemption)
+loses one well, and `-resume` reruns only that one. `CONCAT_EMBEDDINGS`
+(`python -m fisseq_embeddings_pipeline.concat_embeddings`) then stacks an
+experiment's wells, in natural well order, into its published
+`embeddings/<batch>/embeddings.parquet`; it runs only once every well of the
+experiment has embedded, so a failed well leaves the experiment with no
+embeddings rather than partial ones. The per-well tables aren't published.
+
+The shards are every `*.tar.gz` in the well's `shards/<well>/` directory
 (`shards_dir`), read in name order. Each sample's `meta.json` carries
 the cell's key, QC fields and variant class (see
 [Cell Shards](tile_shard.md#output)); this stage keeps the same seven
@@ -35,9 +43,10 @@ Extends the [common config fields](#common-config-fields) below.
 
 | Field | Default | Description |
 | ----- | ------- | ----------- |
-| `shards_dir` | `null` | `BUILD_CELL_IMAGES`' `shards/`: every `*.tar.gz` in it is one of this experiment's shards; a directory with none raises. What the pipeline sets. Exactly one of `shards_dir` / `shard_pattern` must be set. |
+| `shards_dir` | `null` | A directory of shards -- in the pipeline, one well's `shards/<well>/`: every `*.tar.gz` in it is read; a directory with none raises. What the pipeline sets. Exactly one of `shards_dir` / `shard_pattern` must be set. |
 | `shard_pattern` | `null` | A path/brace pattern for a set of shards instead, e.g. `"dataset-{000000..000042}.tar"`. A bare glob (`"dataset-*.tar"`) also works. |
 | `batch_stem` | **required** | This experiment's identifier, written into every row as `meta_batch` (the shards' `meta.json` doesn't carry it). |
+| `output` | `"embeddings.parquet"` | Output filename under `output_dir`. The pipeline writes `embeddings_<well>.parquet`. |
 | `checkpoint_path` | **required** | Path to the Cell-DINO checkpoint (`.pth`). |
 | `arch` | `"vit_large"` | Backbone architecture: `vit_small` / `vit_base` / `vit_large` / `vit_giant2`. |
 | `patch_size` | `16` | ViT patch size. |

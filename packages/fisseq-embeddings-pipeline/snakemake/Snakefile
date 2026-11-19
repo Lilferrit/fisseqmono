@@ -17,8 +17,8 @@ stitch_segmentation_section, from the files starcall keeps (the input
 images, the stitching composites, the segmentation-grid masks), so it
 never asks for starcall's temp() whole-tile raw_pt.tif / cells_mask.tif.
 make_well_shards then packs a well's tile shards, themselves temp(), into
-the well's gzipped shards of fisseq_shard_size cells each (one shard when
-it's unset). See docs/architecture.md decision 17.
+the well's gzipped shards of about fisseq_shard_max_bytes each on disk
+(one shard when it's unset). See docs/architecture.md decision 17.
 
 BUILD_CELL_IMAGES runs this file twice: first for fisseq_shards (every
 well's shards), then for fisseq_tiles_manifest. The manifest rule's input
@@ -246,10 +246,11 @@ rule make_cell_shard:
 
 
 rule make_well_shards:
-    """ One well's tile shards, packed into shards of {shard_size} cells
-    ('all': one shard), well_{n}_shard_{k}.tar.gz. How many there are
-    depends on the well's cells, hence a directory. The shard size is in
-    its name like {image} and {window}, so changing it repacks.
+    """ One well's tile shards, packed into gzipped shards of about
+    {shard_max} on disk ('<bytes>B'; 'all': one shard),
+    well_{n}_shard_{k}.tar.gz. How many there are depends on the well's
+    cells, hence a directory. The size is in its name like {image} and
+    {window}, so changing it repacks.
 
     The tile shards go to the packer through a file: a well has a few
     hundred of them.
@@ -263,26 +264,26 @@ rule make_well_shards:
             wildcards.window,
         ),
     output:
-        shards = directory(phenotyping_dir + '{grid}/{segmentation_type}_{image}_shards_{window}_{shard_size}'),
+        shards = directory(phenotyping_dir + '{grid}/{segmentation_type}_{image}_shards_{window}_{shard_max}'),
     log:
-        phenotyping_dir + '{grid}/{segmentation_type}_{image}_shards_{window}_{shard_size}.log',
+        phenotyping_dir + '{grid}/{segmentation_type}_{image}_shards_{window}_{shard_max}.log',
     wildcard_constraints:
         grid = r'[^/]+_grid\d+',
         segmentation_type = r'[^/]+',
         image = 'raw|corrected',
         window = r'\d+',
-        shard_size = r'\d+|all',
+        shard_max = r'\d+B|all',
     params:
         python = config.get('fisseq_python', 'python'),
         well = lambda wildcards: wildcards.grid.rsplit('_grid', 1)[0],
-        shard_size = lambda wildcards: 'null' if wildcards.shard_size == 'all' else wildcards.shard_size,
+        shard_max_bytes = lambda wildcards: 'null' if wildcards.shard_max == 'all' else wildcards.shard_max[:-1],
     shell:
         'tmp="$(mktemp -d)"; trap \'rm -rf "$tmp"\' EXIT; '
         'printf "%s\\n" {input:q} > "$tmp/tile_tars.txt"; '
         '{params.python} -m fisseq_embeddings_pipeline.well_shards '
         'output_dir="$tmp" hydra.run.dir="$tmp" hydra.output_subdir=null '
         'tile_tars_file="$tmp/tile_tars.txt" well={params.well:q} '
-        'shard_size={params.shard_size} shard_dir={output.shards:q} > {log:q} 2>&1'
+        'shard_max_bytes={params.shard_max_bytes} shard_dir={output.shards:q} > {log:q} 2>&1'
 
 
 def fisseq_wells():
@@ -301,7 +302,7 @@ def fisseq_shard_dirs():
         segmentation_type=config.get('fisseq_segmentation_type', 'cells'),
         image=config.get('fisseq_image', 'raw'),
         window=config['fisseq_window'],
-        shard_size=config.get('fisseq_shard_size'),
+        shard_max_bytes=config.get('fisseq_shard_max_bytes'),
     )
 
 

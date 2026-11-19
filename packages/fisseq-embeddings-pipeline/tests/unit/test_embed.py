@@ -670,6 +670,7 @@ def test_main_runs_end_to_end_via_cli(tmp_path: Path):
             f"output_dir={output_dir}",
             f"shards_dir={shard_dir}",
             "batch_stem=batch1",
+            "output=embeddings_well1.parquet",
             f"checkpoint_path={checkpoint_path}",
             "arch=vit_small",
             f"crop_size={CROP}",
@@ -687,7 +688,9 @@ def test_main_runs_end_to_end_via_cli(tmp_path: Path):
     )
 
     assert result.returncode == 0, result.stderr
-    out = pl.read_parquet(output_dir / "embeddings.parquet")
+    # The pipeline names each well's output; nothing else is written.
+    assert not (output_dir / "embeddings.parquet").exists()
+    out = pl.read_parquet(output_dir / "embeddings_well1.parquet")
     assert out.height == 4
     assert "emb_0000" in out.columns
     assert "emb_0383" in out.columns  # vit_small embed_dim=384
@@ -699,6 +702,11 @@ def test_main_runs_end_to_end_via_cli(tmp_path: Path):
     assert out["meta_barcode"].to_list() == ["bc0", "bc1", "bc2", "bc3"]
     # A missing genotype value stays null -- see architecture decision 19.
     assert out["meta_aa_changes"].to_list() == ["WT", "WT", None, "WT"]
+
+
+def test_output_defaults_to_embeddings_parquet():
+    cfg = EmbedCellsConfig(batch_stem="b", checkpoint_path="c", shards_dir="s")
+    assert cfg.output == "embeddings.parquet"
 
 
 def test_main_is_hydra_entry_point():

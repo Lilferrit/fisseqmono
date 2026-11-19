@@ -36,20 +36,23 @@ src/fisseq_embeddings_pipeline/
   tile_shard.py                   make_cell_shard's crop (phase 2, inside the nested snakemake);
                                   each sample's meta.json is the cell's CELL_META_SCHEMA row
   well_shards.py                  make_well_shards rule body: a well's temp() tile shards packed
-                                  into well_{n}_shard_{k}.tar.gz, shard_size cells each
+                                  into well_{n}_shard_{k}.tar.gz, ~shard_max_size (1GB) on disk each
   build_cell_images_table.py      BUILD_CELL_IMAGES phase 3 (cell_table.parquet,
-                                  shards/ hard-linked out of starcall's tree, so the published
-                                  cell_images/<batch>/ is the whole dataset);
+                                  shards/<well>/ hard-linked out of starcall's tree -- one
+                                  WebDataset per well -- so the published cell_images/<batch>/ is
+                                  the whole dataset);
                                   tile_cell_meta builds both the table's meta_* columns and meta.json
   cell_metadata.py                BUILD_CELL_METADATA (QC_FILTER's input)
-  embed.py                        EMBED_CELLS (Cell-DINO)
+  embed.py                        EMBED_CELLS (Cell-DINO), one task per well
+  concat_embeddings.py            CONCAT_EMBEDDINGS: an experiment's per-well embeddings stacked
+                                  into embeddings.parquet (only once every well has embedded)
   cp_features.py                  BUILD_CP_FEATURES (CellProfiler track's cell table)
   utils/cell_table.py             CELL_META_SCHEMA (table + meta.json) and the meta_* projection
                                   (CELL_METADATA_SCHEMA) BUILD_CELL_METADATA/BUILD_CP_FEATURES/
                                   EMBED_CELLS write
   vendor/dinov2/                  vendored dinov2 subset
 modules/local/                    PLAN_EXPERIMENTS, BUILD_CELL_IMAGES, BUILD_CELL_METADATA,
-                                  EMBED_CELLS, BUILD_CP_FEATURES
+                                  EMBED_CELLS, CONCAT_EMBEDDINGS, BUILD_CP_FEATURES
 conf/modules.config               ext.args / ext.seed / publishDir of the shared modules
 snakemake/Snakefile               BUILD_CELL_IMAGES' nested run (starcall + make_cell_shard,
                                   which stitches each tile in memory with starcall's own
@@ -131,7 +134,9 @@ rebuild the image, and run `tests/integration --container`.
   `fisseq_common.layout.EmbeddingsPipelineLayout` — `tests/unit/test_publish_layout.py`
   checks). All wired together in `workflows/embeddings.nf`. Each carries
   `errorStrategy 'ignore'`, a `process_*` label, `container "${params.container_image}"`, a
-  `publishDir ..., mode: params.publish_mode` into `pipeline_dir`, and a `script:` of
+  `publishDir ..., mode: params.publish_mode` into `pipeline_dir` (except `EMBED_CELLS`,
+  whose per-well tables stay in `work/` for `-resume`; `CONCAT_EMBEDDINGS` publishes the
+  stacked one), and a `script:` of
   `${threadEnv(task.cpus)}` (fisseq-common's `functions.nf`) plus one `python -m` invocation
   with `output_dir=.` and a trailing `random_seed=...` — see `EMBED_CELLS` for the
   worked example, and `BUILD_CELL_IMAGES` for the one genuine exception (a nested starcall

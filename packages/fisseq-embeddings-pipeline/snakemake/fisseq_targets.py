@@ -12,7 +12,7 @@ whether or not it exists yet -- the nested snakemake is what creates them.
 
 A well's shards are one snakemake ``directory()`` output (``make_well_shards``)
 next to its tiles, ``{well}_grid{grid_size}/{segmentation_type}_{image}_shards_
-{window}_{shard_size}``, holding ``well_{n}_shard_{k}.tar.gz`` (``fisseq_embeddings_pipeline.well_shards``). How many it
+{window}_{shard_max}``, holding ``well_{n}_shard_{k}.tar.gz`` (``fisseq_embeddings_pipeline.well_shards``). How many it
 holds depends on the well's cell count, so the manifest rule lists them once
 they exist (:func:`shard_rows`).
 """
@@ -84,18 +84,20 @@ def tile_rows(
     return rows
 
 
-def shard_size_name(shard_size):
-    """``shard_size`` as it appears in a well's shard directory name:
-    ``"all"`` for ``None`` (one shard per well)."""
-    return "all" if shard_size is None else str(int(shard_size))
+def shard_max_name(shard_max_bytes):
+    """``shard_max_bytes`` as it appears in a well's shard directory name:
+    ``"<bytes>B"``, or ``"all"`` for ``None`` (one shard per well). The
+    ``B`` keeps these apart from the cell-count-sized directories
+    (``..._2000``) earlier versions left in starcall's tree."""
+    return "all" if shard_max_bytes is None else "{}B".format(int(shard_max_bytes))
 
 
 def well_shard_dirs(
-    phenotyping_dir, wells, grid_size, segmentation_type, image, window, shard_size
+    phenotyping_dir, wells, grid_size, segmentation_type, image, window, shard_max_bytes
 ):
     """Each well's shard directory, as ``{"well", "shard_dir"}`` rows.
 
-    ``image`` (``"raw"``/``"corrected"``), ``window`` and ``shard_size`` are
+    ``image`` (``"raw"``/``"corrected"``), ``window`` and ``shard_max_bytes`` are
     all in the name, so changing one requests new shards rather than
     reusing stale ones.
     """
@@ -110,7 +112,7 @@ def well_shard_dirs(
                 segmentation_type,
                 image,
                 window,
-                shard_size_name(shard_size),
+                shard_max_name(shard_max_bytes),
             ),
         }
         for well in wells

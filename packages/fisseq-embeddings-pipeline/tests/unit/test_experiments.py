@@ -16,6 +16,7 @@ from fisseq_embeddings_pipeline.config.experiments import (
     cell_table_overrides,
     hydra_overrides,
     main,
+    parse_size,
     plan_experiments,
     validate_config,
 )
@@ -351,17 +352,29 @@ def test_cell_table_overrides_drops_starcall_and_non_stage_keys():
     assert cell_images_overrides(entry, {})["wt_label"] == "silent"
 
 
-def test_shard_size_routes_to_cell_images():
-    """shard_size names each well's shard directory, like window."""
-    assert cell_images_overrides({"batch_stem": "e"}, {"shard_size": 2000}) == {
-        "shard_size": 2000
+def test_shard_max_size_routes_to_cell_images_in_bytes():
+    """shard_max_size names each well's shard directory, like window; it
+    reaches BUILD_CELL_IMAGES as shard_max_bytes."""
+    assert cell_images_overrides({"batch_stem": "e"}, {"shard_max_size": "1GB"}) == {
+        "shard_max_bytes": 1_000_000_000
     }
-    entry = {"batch_stem": "expt1", "shard_size": 500}
-    assert cell_images_overrides(entry, {"shard_size": 2000})["shard_size"] == 500
-    assert "shard_size" not in cell_images_overrides(
-        {"batch_stem": "e"}, {"shard_size": None}
+    entry = {"batch_stem": "expt1", "shard_max_size": "512MiB"}
+    assert (
+        cell_images_overrides(entry, {"shard_max_size": "1GB"})["shard_max_bytes"]
+        == 512 * 1024**2
     )
-    assert "shard_size" not in cell_table_overrides(entry)
+    assert "shard_max_bytes" not in cell_images_overrides(
+        {"batch_stem": "e"}, {"shard_max_size": None}
+    )
+    assert "shard_max_size" not in cell_table_overrides(entry)
+
+
+def test_an_entrys_null_shard_max_size_overrides_the_global_one():
+    """null on an entry: that experiment gets one shard per well."""
+    entry = {"batch_stem": "e", "shard_max_size": None}
+    overrides = cell_images_overrides(entry, {"shard_max_size": "1GB"})
+    assert overrides["shard_max_bytes"] is None
+    assert hydra_overrides(overrides) == "shard_max_bytes=null"
 
 
 def test_window_routes_to_cell_images():
@@ -466,22 +479,70 @@ def test_publish_mode_rejects_anything_else(mode):
         validate_config(_config(publish_mode=mode))
 
 
-@pytest.mark.parametrize("shard_size", [None, 1, 2000, "2000"])
-def test_shard_size_accepts_null_or_positive_int(shard_size):
-    validate_config(_config(shard_size=shard_size))
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, None),
+        ("null", None),
+        ("", None),
+        (1, 1),
+        (2000, 2000),
+        ("2000", 2000),
+        ("1GB", 1_000_000_000),
+        ("1 gb", 1_000_000_000),
+        ("500MB", 500_000_000),
+        ("1.5GB", 1_500_000_000),
+        ("512MiB", 512 * 1024**2),
+        ("1GiB", 1024**3),
+        ("10KB", 10_000),
+        ("64B", 64),
+    ],
+)
+def test_parse_size(value, expected):
+    assert parse_size(value) == expected
 
 
-@pytest.mark.parametrize("shard_size", [0, -5, 1.5, "big", True])
-def test_shard_size_rejects_anything_else(shard_size):
-    with pytest.raises(ValueError, match="shard_size must be"):
-        validate_config(_config(shard_size=shard_size))
+@pytest.mark.parametrize("value", [0, -5, "0GB", 1.5, "big", "1GBs", "1 G", True, [1]])
+def test_parse_size_rejects_anything_else(value):
+    with pytest.raises(ValueError, match="shard_max_size must be"):
+        parse_size(value, "shard_max_size")
 
 
-def test_shard_size_is_checked_per_experiment_too():
+@pytest.mark.parametrize("value", [None, "1GB", 2000])
+def test_shard_max_size_accepts_null_or_a_size(value):
+    validate_config(_config(shard_max_size=value))
+
+
+def test_shard_max_size_is_checked_globally():
+    with pytest.raises(ValueError, match="shard_max_size must be"):
+        validate_config(_config(shard_max_size="huge"))
+
+
+def test_shard_max_size_is_checked_per_experiment_too():
     config = _config()
-    config["experiments"][0]["shard_size"] = 0
-    with pytest.raises(ValueError, match=r"experiments\[0\]\.shard_size must be"):
+    config["experiments"][0]["shard_max_size"] = 0
+    with pytest.raises(ValueError, match=r"experiments\[0\]\.shard_max_size must be"):
         validate_config(config)
+
+
+def test_removed_shard_size_warns_and_routes_nowhere(caplog):
+    """shard_size counted cells; read as bytes it would make tiny shards, so
+    it's ignored (with a warning) rather than renamed."""
+    config = _config(shard_size=2000)
+    config["experiments"][0]["shard_size"] = 500
+    with caplog.at_level("WARNING"):
+        (plan,) = plan_experiments(config)
+    assert "shard_size is ignored" in caplog.text
+    assert "experiments[0].shard_size is ignored" in caplog.text
+    assert "shard_max_size" in caplog.text
+    assert "shard" not in plan["cell_images_args"]
+    assert "shard" not in plan["cell_table_args"]
+
+
+def test_unset_shard_size_doesnt_warn(caplog):
+    with caplog.at_level("WARNING"):
+        validate_config(_config(shard_size=None))
+    assert "shard_size" not in caplog.text
 
 
 # ── plan_experiments / main ────────────────────────────────────────────────

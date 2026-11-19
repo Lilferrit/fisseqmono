@@ -64,7 +64,8 @@ today, since `BUILD_CELL_IMAGES` already renames the genotype columns to
 pipeline-wide default (`params.window`) filled into an entry's
 `BUILD_CELL_IMAGES`-bound overrides when the entry doesn't set its own --
 it's the crop size each tile's shard is cut at, and it names the shard
-target. `shard_size` (cells per WebDataset shard) and
+target. `shard_max_size` (a WebDataset shard's size on disk; it reaches
+`BUILD_CELL_IMAGES` as `shard_max_bytes`) and
 `cellprofiler_pipeline`/`cellprofiler_cycle` work the same way. An
 entry's own value always wins.
 
@@ -75,12 +76,15 @@ PLAN_EXPERIMENTS  (validates params; one plan per experiment)
     │
     ▼
 BUILD_CELL_IMAGES  (nested starcall snakemake, incl. make_cell_shard/make_well_shards:
-    │               gzipped WebDataset shards per well; cell_table.parquet + shards/)
+    │               one gzipped WebDataset per well; cell_table.parquet + shards/<well>/)
     │
     ├──► BUILD_CELL_METADATA ──► QC_FILTER   (shared by BOTH tracks; see below)
     │                                │
     ▼                                │
-EMBED_CELLS                          │
+EMBED_CELLS  (one task per well)     │
+    │                                │
+    ▼                                │
+CONCAT_EMBEDDINGS  (the wells, stacked)
     │                                │
     ▼                                │
 NORMALIZE  ◄─────────────────────────┘  (filtered_keys + WT-fitted normalizer)
@@ -123,10 +127,19 @@ tracks fan out: see
 pipeline's, including `qc_n_variants` and the pseudo-variant downsampling
 (`qc_downsample_amounts`); both are off by default.
 
-`EMBED_CELLS` streams every well's WebDataset shards (cut and packed
+`EMBED_CELLS` streams one well's WebDataset shards per task (cut and packed
 inside `BUILD_CELL_IMAGES`' nested snakemake by `make_cell_shard` and
 `make_well_shards` -- see [Cell Shards](cli/tile_shard.md) and
-[Well Shards](cli/well_shards.md)) and has no dependency on `QC_FILTER` --
+[Well Shards](cli/well_shards.md)), so a task killed partway (walltime,
+preemption) loses one well and `-resume` reruns only that one. Each task
+carries its experiment's well count, and `groupKey` releases an
+experiment's per-well tables to `CONCAT_EMBEDDINGS` as soon as the last
+one lands; `CONCAT_EMBEDDINGS` stacks them into the published
+`embeddings.parquet`. A failed well leaves its experiment's group short,
+and `groupTuple` drops short groups, so that experiment gets no
+embeddings (and no cellDINO track) rather than a partial table; the
+per-well tables are never published. `EMBED_CELLS` has no dependency on
+`QC_FILTER` --
 the whole point of building the shards up front is that this expensive
 GPU pass runs once per experiment regardless of how many times QC
 thresholds get retuned afterward. Each shard sample's `meta.json` carries
@@ -277,7 +290,7 @@ Docker, `-B` under Apptainer):
   the snakemake cache dir, and `starcall_profile` if set. Plus `--nv` /
   `--gpus all` when `starcall_gpu` is true.
 - **`EMBED_CELLS`** -- `cell_dino_checkpoint` only: the shards are
-  staged inputs (`BUILD_CELL_IMAGES`' `shards/`). Plus `--nv` /
+  staged inputs (one well's `shards/<well>/`). Plus `--nv` /
   `--gpus all` unless `cell_dino_device` is `cpu`.
 
 Every path is bound at its own unchanged absolute location (`src:src`).
@@ -490,21 +503,22 @@ See [Shared Nextflow modules](../common/nextflow.md).
 ## Modules
 
 This pipeline's own modules (`PLAN_EXPERIMENTS`, `BUILD_CELL_IMAGES`, `BUILD_CELL_METADATA`,
-`EMBED_CELLS`, `BUILD_CP_FEATURES`) follow the same shape as the shared ones:
+`EMBED_CELLS`, `CONCAT_EMBEDDINGS`, `BUILD_CP_FEATURES`) follow the same shape as the shared
+ones:
 
 ```groovy
 include { threadEnv } from '../../../../fisseq-common/nextflow/modules/local/functions'
 
-process EMBED_CELLS {
+process CONCAT_EMBEDDINGS {
     errorStrategy 'ignore'
-    label 'process_gpu'
+    label 'process_low'
     container "${params.container_image}"
     publishDir { "${params.pipeline_dir}/embeddings/${batch_stem}" }, mode: params.publish_mode
     ...
     script:
     """
     ${threadEnv(task.cpus)}
-    python -m fisseq_embeddings_pipeline.embed \\
+    python -m fisseq_embeddings_pipeline.concat_embeddings \\
         output_dir=. \\
         ... \\
         random_seed=${params.random_seed}
@@ -518,8 +532,10 @@ process EMBED_CELLS {
 - **`publishDir ..., mode: params.publish_mode`** into `pipeline_dir`: hard links by
   default (`link`), so a published file takes no second copy on disk and still
   survives `work/` being deleted; `copy` when `work/` is on another filesystem
-  (see [Configuration](configuration.md#fields)). `BUILD_CELL_IMAGES` publishes
-  `cell_table.parquet` and `shards/`; its scratch files
+  (see [Configuration](configuration.md#fields)). `EMBED_CELLS` publishes nothing:
+  its per-well tables stay in `work/` (for `-resume`) and `CONCAT_EMBEDDINGS` publishes
+  the stacked one. `BUILD_CELL_IMAGES` publishes
+  `cell_table.parquet` and `shards/<well>/`; its scratch files
   (`snakemake_config.yaml`, `tiles_manifest.csv`, `shards_manifest.csv`, the
   jobscript) stay in its work directory.
 - **`threadEnv(task.cpus)`** (fisseq-common's `functions.nf`) exports
@@ -556,7 +572,7 @@ The paths are `fisseq_common.layout.EmbeddingsPipelineLayout`'s. Everything from
 <pipeline_dir>/
   cell_images/<batch>/
     cell_table.parquet                    # the ONE self-sufficient cell table: key + QC meta_* columns + meta_variant_class (+ CellProfiler columns if cp_features)
-    shards/                               # well_<n>_shard_<k>.tar.gz, hard links to starcall's (below)
+    shards/<well>/                        # one WebDataset per well: well_<n>_shard_<k>.tar.gz, hard links to starcall's (below)
   cell_metadata/<batch>/
     metadata.parquet                      # QC_FILTER's input: meta_batch + the table's key and QC columns
   qc_filter/<batch>/
@@ -604,11 +620,11 @@ true` (see [CellProfiler-feature track](#cellprofiler-feature-track)
 above).
 
 The WebDataset shards -- per well,
-`<well>_grid<N>/<segmentation_type>_{raw|corrected}_shards_<window>_<shard_size|all>/well_<n>_shard_<k>.tar.gz`,
-`shard_size` cells each, all cells, unfiltered -- are written under
+`<well>_grid<N>/<segmentation_type>_{raw|corrected}_shards_<window>_{<bytes>B|all}/well_<n>_shard_<k>.tar.gz`,
+about `shard_max_size` each on disk, all cells, unfiltered -- are written under
 starcall's `phenotyping_dir`, next to that well's tiles, where snakemake's
 own mtime check reuses them on a rerun, and hard-linked into
-`cell_images/<batch>/shards/` above, which is what `EMBED_CELLS` reads. The per-tile shards they're packed from are
+`cell_images/<batch>/shards/<well>/` above, which is what each well's `EMBED_CELLS` task reads. The per-tile shards they're packed from are
 `temp()` outputs and not targets, so snakemake deletes them once the well
 is packed; the tile image and mask those are cut from are stitched in the
 job and never written under `phenotyping_dir` -- see

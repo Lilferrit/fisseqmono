@@ -63,6 +63,7 @@ import yaml
 
 from fisseq_common.stages.config import EMBEDDINGS_JOIN_KEYS as JOIN_KEYS
 from fisseq_common.stages.config import row_keys
+from fisseq_embeddings_pipeline.config.experiments import parse_size
 from fisseq_embeddings_pipeline.tile_shard import TileShardConfig, write_tile_shard
 from fisseq_embeddings_pipeline.utils.cell_table import (
     CELL_META_SCHEMA,
@@ -85,6 +86,14 @@ _FEATURE_SELECT_TYPES = yaml.safe_load((_PROJECT_ROOT / "params.yaml").read_text
     "feature_select_types"
 ]
 _PASSTHROUGH_TYPE = "KSnegLogP"
+
+# params.yaml's default shard_max_size, in bytes: it names each well's shard
+# directory in starcall's tree (cells_raw_shards_<window>_<bytes>B), so the
+# fixture packs its shards where the nested snakemake will look for them.
+_SHARD_MAX_BYTES = parse_size(
+    yaml.safe_load((_PROJECT_ROOT / "params.yaml").read_text())["shard_max_size"]
+)
+_SHARD_DIR_SUFFIX = "all" if _SHARD_MAX_BYTES is None else f"{_SHARD_MAX_BYTES}B"
 _SYNONYMOUS = ["A1A", "A2A"]
 
 # Small enough to run fast on CPU; large enough for a 2x2 patch grid at
@@ -188,7 +197,7 @@ shard_dirs = targets.well_shard_dirs(
     segmentation_type=config["fisseq_segmentation_type"],
     image=config["fisseq_image"],
     window=config["fisseq_window"],
-    shard_size=config["fisseq_shard_size"],
+    shard_max_bytes=config["fisseq_shard_max_bytes"],
 )
 rows = targets.tile_rows(
     phenotyping_dir=config["phenotyping_dir"],
@@ -290,8 +299,9 @@ def _write_starcall_tile(
     pipeline now correctly follows (see build_cell_images_table.py's
     index-value join). The tile's shard is cut from a synthetic whole-tile
     image and mask the way make_cell_shard would, then packed into the
-    well's one shard (the default, shard_size null) the way
-    make_well_shards would -- so a well of this fixture has one tile."""
+    well's shards (params.yaml's default shard_max_size; one shard at this
+    size) the way make_well_shards would -- so a well of this fixture has
+    one tile."""
     grid_dir = f"{well}_grid{grid_size}"
     pheno_tile_dir = phenotyping_dir / grid_dir / tile
     seq_tile_dir = sequencing_dir / grid_dir / tile
@@ -349,8 +359,12 @@ def _write_starcall_tile(
     write_well_shards(
         [str(scratch / f"cells_raw_shard_{_WINDOW}.tar")],
         well,
-        None,
-        str(phenotyping_dir / grid_dir / f"cells_raw_shards_{_WINDOW}_all"),
+        _SHARD_MAX_BYTES,
+        str(
+            phenotyping_dir
+            / grid_dir
+            / f"cells_raw_shards_{_WINDOW}_{_SHARD_DIR_SUFFIX}"
+        ),
     )
 
     if write_cellprofiler_csv:
@@ -371,6 +385,7 @@ def _write_synthetic_experiment(
     grid_from_project_config: bool = False,
     omit_data_dirs: bool = False,
     project_config_dir_names: dict | None = None,
+    wells: Sequence[str] = ("well1",),
 ) -> Path:
     """Write a tiny synthetic starcall-workflow-shaped tree (phenotyping_dir
     + sequencing_dir) under exp_dir, a stub `snakemake` executable, and a
@@ -409,7 +424,11 @@ def _write_synthetic_experiment(
     `cellprofiler_pipeline` globals instead, exercising
     workflows/embeddings.nf's per-experiment fallback-to-global-default
     wiring end to end (an entry's own value, if present, would still win
-    -- see workflows/embeddings.nf)."""
+    -- see workflows/embeddings.nf).
+
+    wells: each well gets the same one tile of cells (a cell's identity
+    includes its well, so they stay distinct). The default, one well, is
+    what the reference outputs were captured from."""
     project_config_dir_names = project_config_dir_names or {}
     starcall_workflow_dir = exp_dir / "starcall-workflow"
 
@@ -430,7 +449,7 @@ def _write_synthetic_experiment(
     )
     project_config = {k: f"{v}/" for k, v in project_config_dir_names.items()}
     if grid_from_project_config:
-        project_config.update(wells=["well1"], sequencing_grid_size=1)
+        project_config.update(wells=list(wells), sequencing_grid_size=1)
     if project_config:
         (starcall_workflow_dir / "config.yaml").write_text(
             yaml.safe_dump(project_config)
@@ -454,25 +473,26 @@ def _write_synthetic_experiment(
                 cell_id += 1
 
     cell_ids = list(range(cell_id))
-    _write_starcall_tile(
-        phenotyping_dir,
-        sequencing_dir,
-        "well1",
-        1,
-        "tile00x00y",
-        cell_ids,
-        centers,
-        barcodes,
-        aa_changes,
-        write_cellprofiler_csv=True,
-    )
+    for well in wells:
+        _write_starcall_tile(
+            phenotyping_dir,
+            sequencing_dir,
+            well,
+            1,
+            "tile00x00y",
+            cell_ids,
+            centers,
+            barcodes,
+            aa_changes,
+            write_cellprofiler_csv=True,
+        )
 
     batch_config = {
         "starcall_workflow_dir": str(starcall_workflow_dir),
         "cp_features": True,
     }
     if not grid_from_project_config:
-        batch_config.update(wells=["well1"])
+        batch_config.update(wells=list(wells))
     for key, value in (
         ("phenotyping_dir", phenotyping_dir),
         ("segmentation_dir", segmentation_dir),
@@ -591,13 +611,18 @@ def test_cell_images_produced(pipeline_outputs):
     n_cells = sum(n_b * n_c for _, n_b, n_c in _VARIANTS.values())
     assert cell_table.height == n_cells
     assert cell_table.columns == [*CELL_META_SCHEMA, "Cells_AreaShape_Area"]
-    # The shards are published under shards/: hard links to the ones
-    # snakemake left in starcall's tree, so they take no space twice.
-    (published,) = (cell_images_dir / "shards").iterdir()
+    # The shards are published under shards/<well>/, one WebDataset per well:
+    # hard links to the ones snakemake left in starcall's tree, so they take no
+    # space twice.
+    (well_dir,) = (cell_images_dir / "shards").iterdir()
+    assert well_dir.name == "well1"
+    (published,) = well_dir.iterdir()
     assert published.name == "well_1_shard_000000.tar.gz"
     (starcall,) = [
         p
-        for p in exp_dir.rglob(f"cells_raw_shards_{_WINDOW}_all/{published.name}")
+        for p in exp_dir.rglob(
+            f"cells_raw_shards_{_WINDOW}_{_SHARD_DIR_SUFFIX}/{published.name}"
+        )
         if cell_images_dir not in p.parents
     ]
     assert published.stat().st_ino == starcall.stat().st_ino
@@ -822,7 +847,7 @@ def test_shard_meta_json_matches_the_cell_table(pipeline_outputs):
     exp_dir, _ = pipeline_outputs
     cell_images_dir = exp_dir / "cell_images" / "batch1"
     cell_table = pl.read_parquet(cell_images_dir / "cell_table.parquet")
-    (shard,) = (cell_images_dir / "shards").iterdir()
+    (shard,) = (cell_images_dir / "shards" / "well1").iterdir()
     metas = [
         json.loads(sample["meta.json"])
         for sample in wds.WebDataset(str(shard), shardshuffle=False)
@@ -851,6 +876,104 @@ def test_embeddings_produced_with_joined_metadata(pipeline_outputs):
     assert embeddings.columns[: len(meta_cols)] == meta_cols
     assert embeddings.select(meta_cols).sort(JOIN_KEYS).equals(metadata.sort(JOIN_KEYS))
     assert not (exp_dir / "dataset").exists()
+
+
+@pytest.fixture(scope="module")
+def two_experiment_outputs(tmp_path_factory):
+    """Two experiments, the first with two wells: EMBED_CELLS' per-well fan-out
+    and CONCAT_EMBEDDINGS, and ComBat across experiments (which needs two).
+    batch2's tile image is seeded differently, so the experiments differ."""
+    global _make_tile_image
+    exp_dir = tmp_path_factory.mktemp("nf_two_experiments")
+    _write_synthetic_experiment(exp_dir, wells=("well1", "well2"))
+    original = _make_tile_image
+
+    def _other_image(channels: int) -> np.ndarray:
+        rng = np.random.default_rng(1)
+        return rng.integers(
+            0, 255, size=(1, channels, _TILE_SIZE, _TILE_SIZE), dtype=np.uint16
+        )
+
+    other = exp_dir / "experiment2"
+    other.mkdir()
+    try:
+        _make_tile_image = _other_image
+        _write_synthetic_experiment(other)
+    finally:
+        _make_tile_image = original
+    params_path = exp_dir / "params.yaml"
+    params = yaml.safe_load(params_path.read_text())
+    (entry,) = yaml.safe_load((other / "params.yaml").read_text())["experiments"]
+    params["experiments"].append({**entry, "batch_stem": "batch2"})
+    params_path.write_text(yaml.safe_dump(params))
+
+    checkpoint_path = tmp_path_factory.mktemp("weights_two") / "checkpoint.pth"
+    _write_tiny_checkpoint(checkpoint_path)
+    result = _run_nextflow(exp_dir, checkpoint_path)
+    assert result.returncode == 0, result.stdout + result.stderr
+    return exp_dir, result
+
+
+def _submitted(exp_dir: Path, process: str) -> list[str]:
+    """The tags of every ``process`` task submitted, from the run's
+    ``.nextflow.log`` (``Submitted process > <workflow>:NAME (tag)``)."""
+    lines = (exp_dir / ".nextflow.log").read_text().splitlines()
+    return sorted(
+        line.rsplit("(", 1)[1].rstrip(")")
+        for line in lines
+        if "Submitted process >" in line and f":{process} (" in line
+    )
+
+
+def test_each_well_publishes_its_own_webdataset(two_experiment_outputs):
+    exp_dir, _ = two_experiment_outputs
+    shards = exp_dir / "cell_images" / "batch1" / "shards"
+    assert sorted(p.name for p in shards.iterdir()) == ["well1", "well2"]
+    assert [p.name for p in (shards / "well2").iterdir()] == [
+        "well_2_shard_000000.tar.gz"
+    ]
+
+
+def test_embed_cells_runs_once_per_well(two_experiment_outputs):
+    """One EMBED_CELLS task per well, and one CONCAT_EMBEDDINGS per experiment."""
+    exp_dir, _ = two_experiment_outputs
+    assert _submitted(exp_dir, "EMBED_CELLS") == [
+        "batch1 well1",
+        "batch1 well2",
+        "batch2 well1",
+    ]
+    assert _submitted(exp_dir, "CONCAT_EMBEDDINGS") == ["batch1", "batch2"]
+
+
+def test_concat_embeddings_stacks_every_well(two_experiment_outputs):
+    """batch1's embeddings.parquet holds both wells' cells, and only the
+    stacked table is published -- never the per-well parts."""
+    exp_dir, _ = two_experiment_outputs
+    n_cells = sum(n_b * n_c for _, n_b, n_c in _VARIANTS.values())
+    published = exp_dir / "embeddings" / "batch1"
+    assert [p.name for p in published.glob("*.parquet")] == ["embeddings.parquet"]
+    embeddings = pl.read_parquet(published / "embeddings.parquet")
+    assert embeddings.height == 2 * n_cells
+    assert embeddings["meta_well"].value_counts().sort("meta_well").to_dicts() == [
+        {"meta_well": "well1", "count": n_cells},
+        {"meta_well": "well2", "count": n_cells},
+    ]
+    metadata = pl.read_parquet(
+        exp_dir / "cell_metadata" / "batch1" / "metadata.parquet"
+    )
+    meta_cols = list(CELL_METADATA_SCHEMA)
+    assert embeddings.select(meta_cols).sort(JOIN_KEYS).equals(metadata.sort(JOIN_KEYS))
+
+
+@pytest.mark.parametrize("track_dir", ["combat", "combat_cp_features"])
+def test_combat_runs_across_experiments(two_experiment_outputs, track_dir):
+    """run_combat (on by default): each track's aggregates and OvWT scores,
+    ComBat-corrected across the two experiments into one table each."""
+    exp_dir, _ = two_experiment_outputs
+    for name in ("features.parquet", "ovwt_scores.parquet"):
+        table = pl.read_parquet(exp_dir / track_dir / name)
+        assert table.height > 0, name
+        assert sorted(table["meta_experiment"].unique()) == ["batch1", "batch2"]
 
 
 def _feature_select_dir(exp_dir: Path) -> Path:
@@ -1637,7 +1760,7 @@ def test_real_starcall_local(real_starcall_local_run):
     _assert_cells_embedded(pipeline_dir, result)
 
     grid_dir = swd / "phenotyping" / f"{_MINI_WELL}_grid1"
-    shard_dir = grid_dir / f"cells_raw_shards_{_WINDOW}_all"
+    shard_dir = grid_dir / f"cells_raw_shards_{_WINDOW}_{_SHARD_DIR_SUFFIX}"
     assert [p.name for p in shard_dir.iterdir()] == [
         f"well_{_MINI_WELL.removeprefix('well')}_shard_000000.tar.gz"
     ]
@@ -1719,7 +1842,9 @@ def test_shard_matches_starcall_stitched_tile(
         for path in starcall_tifs:
             path.unlink(missing_ok=True)
 
-    (packed,) = (grid_dir / f"cells_raw_shards_{_WINDOW}_all").glob("*.tar.gz")
+    (packed,) = (grid_dir / f"cells_raw_shards_{_WINDOW}_{_SHARD_DIR_SUFFIX}").glob(
+        "*.tar.gz"
+    )
     expected = list(wds.WebDataset(str(expected_tar), shardshuffle=False).decode())
     actual = list(wds.WebDataset(str(packed), shardshuffle=False).decode())
     assert len(actual) == len(expected) > 0
@@ -1776,7 +1901,7 @@ def test_real_starcall_profile_mode(
     # -- make_cell_shard and make_well_shards included.
     grid_dir = swd / "phenotyping" / f"{_MINI_WELL}_grid1"
     tile_dir = grid_dir / _MINI_TILE
-    shard_dir = grid_dir / f"cells_raw_shards_{_WINDOW}_all"
+    shard_dir = grid_dir / f"cells_raw_shards_{_WINDOW}_{_SHARD_DIR_SUFFIX}"
     (tile_dir / "cells.csv").unlink(missing_ok=True)
     shutil.rmtree(shard_dir, ignore_errors=True)
 

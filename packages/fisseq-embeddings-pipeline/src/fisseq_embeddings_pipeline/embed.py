@@ -1,14 +1,16 @@
 """EMBED_CELLS.
 
 Hydra entry point (`python -m fisseq_embeddings_pipeline.embed`), backing
-the pipeline's only GPU-bound stage. Streams every cell in an experiment's
-per-well WebDataset shards (written by the nested snakemake's
-``make_well_shards`` rule -- see ``well_shards.py`` -- and published by
-BUILD_CELL_IMAGES under ``cell_images/<batch>/shards/``) through a pretrained Cell-DINO
-checkpoint (Meta's dinov2) and writes one row per cell to
-embeddings.parquet. Not gated by QC_FILTER: this GPU pass runs once per
-experiment regardless of how many times QC thresholds get retuned
-afterward.
+the pipeline's only GPU-bound stage. Streams every cell of one well's
+WebDataset shards (written by the nested snakemake's ``make_well_shards``
+rule -- see ``well_shards.py`` -- and published by BUILD_CELL_IMAGES under
+``cell_images/<batch>/shards/<well>/``) through a pretrained Cell-DINO
+checkpoint (Meta's dinov2) and writes one row per cell to ``output``. The
+pipeline runs it once per well, so a task killed partway loses one well,
+not the experiment; CONCAT_EMBEDDINGS (``concat_embeddings.py``) stacks
+the wells into the experiment's embeddings.parquet. Not gated by
+QC_FILTER: this GPU pass runs once per experiment regardless of how many
+times QC thresholds get retuned afterward.
 
 Each sample's ``meta.json`` carries the cell's key, QC fields and variant
 class (``tile_shard.py``); ``embeddings.parquet`` gets the same seven
@@ -113,8 +115,8 @@ class EmbedCellsConfig(AppConfig):
     Attributes
     ----------
     shards_dir : str or None
-        BUILD_CELL_IMAGES' ``shards/`` directory: every ``*.tar.gz`` in it is
-        one of this experiment's shards, read in name order. Exactly one of
+        A directory of shards -- in the pipeline, one well's: every
+        ``*.tar.gz`` in it is read, in name order. Exactly one of
         ``shards_dir`` and ``shard_pattern`` must be set; the pipeline uses
         this one.
     shard_pattern : str or None
@@ -125,6 +127,10 @@ class EmbedCellsConfig(AppConfig):
     batch_stem : str
         This experiment's identifier, written into every row as
         ``meta_batch`` (the shards' ``meta.json`` doesn't carry it).
+    output : str
+        Output parquet filename (relative to ``output_dir``). Defaults to
+        ``"embeddings.parquet"``; the pipeline names each well's
+        ``embeddings_<well>.parquet``.
     checkpoint_path : str
         Path to the Cell-DINO checkpoint (``.pth``). The real, verified-
         compatible checkpoint this repo has on disk is
@@ -181,6 +187,7 @@ class EmbedCellsConfig(AppConfig):
     shards_dir: Optional[str] = None
     shard_pattern: Optional[str] = None
     batch_stem: str = MISSING
+    output: str = "embeddings.parquet"
     checkpoint_path: str = MISSING
     arch: str = "vit_large"
     patch_size: int = 16
@@ -575,7 +582,7 @@ def main(cfg: DictConfig) -> None:
        stderr counts cells embedded.
     4. Keep each cell's ``meta.json`` fields as its ``meta_*`` columns
        (``cell_metadata_exprs``, adding ``meta_batch``) and write
-       ``embeddings.parquet``.
+       ``output``.
 
     Configuration
     -------------
@@ -634,8 +641,8 @@ def main(cfg: DictConfig) -> None:
         )
     else:
         out = pl.DataFrame(schema=CELL_METADATA_SCHEMA)
-    logging.info("Writing embeddings.parquet (%d cells)", n_cells)
-    out.write_parquet(output_dir / "embeddings.parquet")
+    logging.info("Writing %s (%d cells)", embed_cfg.output, n_cells)
+    out.write_parquet(output_dir / embed_cfg.output)
     logging.info("Done")
 
 

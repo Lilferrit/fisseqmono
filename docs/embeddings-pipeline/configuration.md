@@ -32,7 +32,7 @@ these stages:
 - **`BUILD_CELL_IMAGES`** (starcall-workflow-facing, always runs):
   `starcall_workflow_dir`, `phenotyping_dir`, `segmentation_dir`,
   `sequencing_dir`, `wells`, `segmentation_type`,
-  `use_corrected`, `window`, `shard_size`, `sequencing_reads_params`,
+  `use_corrected`, `window`, `shard_max_size`, `sequencing_reads_params`,
   `barcode_col_name`/`aa_changes_col_name`/`edit_distance_col_name`, `wt_label` (the
   aa-changes value of the experiment's wildtype cells, e.g. `"silent"`, relabelled `"WT"`;
   default `"WT"`). This is the ONLY
@@ -69,8 +69,9 @@ these stages:
   is the side length each cell is cropped at, centred on its bbox
   midpoint, by the per-tile `make_cell_shard` rule (see
   [Cell Shards](cli/tile_shard.md)); it's part of the shard's filename,
-  so changing it requests new shards. `shard_size` is how many cells go in
-  each of a well's `well_{n}_shard_{k}.tar.gz` shards (`null`: one per
+  so changing it requests new shards. `shard_max_size` is how big each of
+  a well's gzipped `well_{n}_shard_{k}.tar.gz` shards grows on disk before
+  the next one starts (`1GB`, `500MB`, `512MiB`, or bytes; `null`: one per
   well; see [Well Shards](cli/well_shards.md)), and is likewise part of
   the shard directory's name. The three `*_col_name` overrides name the
   reads tables' genotype columns (default `upBarcode`/`aaChanges`/
@@ -95,7 +96,7 @@ these stages:
 
 Four fields that are logically per-experiment but in practice are almost
 always the same across every experiment in a run -- `window`,
-`shard_size`, `cellprofiler_pipeline`, `cellprofiler_cycle` -- each have
+`shard_max_size`, `cellprofiler_pipeline`, `cellprofiler_cycle` -- each have
 their own pipeline-wide default below, used for any experiment entry that
 doesn't set its own value for that key; an entry's own value always wins
 over the global default. All four route to `BUILD_CELL_IMAGES` only.
@@ -109,7 +110,7 @@ over the global default. All four route to `BUILD_CELL_IMAGES` only.
 | `cell_dino_checkpoint` | *(required)* | `EMBED_CELLS` |
 | `experiments` | `[]` (required non-empty) | `BUILD_CELL_IMAGES` and `BUILD_CELL_METADATA` (always), and `BUILD_CP_FEATURES` for any entry setting `cp_features: true` (list of per-experiment maps, each requiring `batch_stem`; see above) |
 | `window` | `224` | `BUILD_CELL_IMAGES` (the crop size each tile's shard is cut at; global default for any `experiments` entry that omits `window` -- an entry's own `window` wins. Must match `cell_dino_crop_size`) |
-| `shard_size` | `null` | `BUILD_CELL_IMAGES` (cells per WebDataset shard, counted per well: shards are `well_{n}_shard_{k}.tar.gz`; `null` = one shard per well. Global default for any `experiments` entry that omits `shard_size` -- an entry's own wins. Changing it repacks every well, recutting each tile; see [Well Shards](cli/well_shards.md)) |
+| `shard_max_size` | `1GB` | `BUILD_CELL_IMAGES` (a WebDataset shard's size on disk, compressed: each well is its own WebDataset, `cell_images/<batch>/shards/<well>/well_{n}_shard_{k}.tar.gz`, and a shard closes after the cell that takes it past this size. `500MB`/`1GB` are powers of 1000, `512MiB`/`1GiB` powers of 1024, a bare integer is bytes; `null` = one shard per well. 1GB is WebDataset's own `ShardWriter` default; ImageNet WebDatasets use ~100MB-1GB. Global default for any `experiments` entry that omits `shard_max_size` -- an entry's own wins, `null` included. Changing it repacks every well, recutting each tile; see [Well Shards](cli/well_shards.md). Replaces `shard_size`, a cell count, which is now ignored with a warning) |
 | `cellprofiler_pipeline` | `null` (required, here or per `cp_features: true` entry, once any experiment sets `cp_features: true`) | `BUILD_CELL_IMAGES` (global default for any `cp_features: true` entry that omits `cellprofiler_pipeline`) |
 | `cellprofiler_cycle` | `""` | `BUILD_CELL_IMAGES` (global default for any `cp_features: true` entry that omits `cellprofiler_cycle`) |
 | `snakemake_cores` | `4` | `BUILD_CELL_IMAGES` (`--cores` for its nested starcall `snakemake`). **Local mode only** -- not passed with `starcall_profile`, whose profile owns the job budget |
@@ -181,6 +182,12 @@ output but ComBat's is per experiment, and `fisseqborn-global <pipeline_dir> --o
 package) aggregates across experiments, with `--min-batches` and
 `--cumulative-variance-explained`. An old `params.yaml` that still sets them runs, with a
 warning that they are ignored.
+
+`shard_size` (cells per shard), global or on an `experiments` entry, was replaced by
+`shard_max_size` (a size on disk). It isn't a rename: the same number read as bytes would make
+tiny shards, so an old `params.yaml` that still sets it runs, with a warning that it is
+ignored (`REMOVED_PARAMS`/`REMOVED_EXPERIMENT_FIELDS` in `config/experiments.py`), and the
+default `shard_max_size` applies.
 
 `filter_label_column` is shared pipeline-wide so overriding it changes the
 variant label column everywhere at once, rather than each stage needing

@@ -52,6 +52,10 @@ _EMBEDDINGS_OUTPUT_DIRS = (
     "normalization_cp_features",
     "feature_select_batchwise_cp_features",
     "ovwt_batchwise_cp_features",
+    # Per run, not per experiment: ComBat across the experiments (embeddings_two only;
+    # with one experiment it is skipped).
+    "combat",
+    "combat_cp_features",
 )
 
 

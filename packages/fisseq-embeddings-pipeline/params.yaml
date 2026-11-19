@@ -22,7 +22,7 @@ experiments: []
 # - BUILD_CELL_IMAGES (starcall-workflow-facing, always runs):
 #   starcall_workflow_dir, phenotyping_dir, segmentation_dir,
 #   sequencing_dir, wells, segmentation_type, use_corrected,
-#   window, shard_size, sequencing_reads_params, and the reads tables'
+#   window, shard_max_size, sequencing_reads_params, and the reads tables'
 #   genotype column names barcode_col_name/aa_changes_col_name/
 #   edit_distance_col_name (default upBarcode/aaChanges/editDistance),
 #   which it renames to meta_barcode/meta_aa_changes/meta_edit_distance in
@@ -118,9 +118,9 @@ experiments: []
 #     window: 180                  # per-experiment override of the global default
 #     # cp_features omitted -- cellDINO-only for this experiment
 
-# ── Shared per-experiment defaults (window / shard_size / cellprofiler_pipeline / cellprofiler_cycle) ──
+# ── Shared per-experiment defaults (window / shard_max_size / cellprofiler_pipeline / cellprofiler_cycle) ──
 # `window` (BUILD_CELL_IMAGES: the crop size each tile's shard is cut at),
-# `shard_size` (BUILD_CELL_IMAGES: cells per WebDataset shard) and
+# `shard_max_size` (BUILD_CELL_IMAGES: a WebDataset shard's size on disk) and
 # `cellprofiler_pipeline`/`cellprofiler_cycle` (CpFeaturesConfig-facing,
 # consumed by BUILD_CELL_IMAGES) are logically per-experiment fields (see
 # "Per-experiment configs" above), but in practice are almost always the
@@ -130,7 +130,14 @@ experiments: []
 # that doesn't set its own value for that key, and an entry that *does* set
 # its own value always wins over the global default here.
 window: 224                    # crop size in pixels -- must match cell_dino_crop_size below
-shard_size: null               # cells per WebDataset shard, counted per well (well_{n}_shard_{k}.tar.gz); null = one shard per well
+# Each well is its own WebDataset (cell_images/<batch>/shards/<well>/), packed
+# into gzipped shards of about shard_max_size on disk: 500MB/1GB (powers of 1000),
+# 512MiB/1GiB (powers of 1024), or an integer number of bytes; null = one shard per
+# well. A shard closes after the cell that takes it past the size, so it can run over
+# by one cell. 1GB is WebDataset's own ShardWriter default (ImageNet WebDatasets use
+# ~100MB-1GB). Changing it repacks every well's shards on the next run. (It replaces
+# shard_size, a cell count, which is now ignored with a warning.)
+shard_max_size: 1GB
 cellprofiler_pipeline: null    # the CellProfiler .cppipe pipeline's basename -- required (here, or per `cp_features: true` entry) once any experiment sets cp_features: true
 cellprofiler_cycle: ""         # "" (no cycle) unless starcall-workflow ran cellprofiler per-cycle
 

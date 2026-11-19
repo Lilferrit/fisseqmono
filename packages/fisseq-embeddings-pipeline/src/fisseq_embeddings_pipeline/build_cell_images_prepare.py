@@ -102,10 +102,12 @@ class BuildCellImagesPrepareConfig(AppConfig):
         Crop size each cell is cut at, in the shards' directory name -- see
         ``tile_shard.TileShardConfig``. Must match the Cell-DINO
         checkpoint's expected input (`cell_dino_crop_size`).
-    shard_size : int or None
-        Cells per WebDataset shard, each well's shards counted separately
-        (see ``well_shards.WellShardsConfig``); also in the shards'
-        directory name. ``None`` (the default) gives each well one shard.
+    shard_max_bytes : int or None
+        A WebDataset shard's size on disk, in bytes, each well's shards
+        packed separately (see ``well_shards.WellShardsConfig``); also in
+        the shards' directory name. ``None`` (the default) gives each well
+        one shard. The pipeline's ``shard_max_size``, converted to bytes by
+        ``config.experiments.parse_size``.
     barcode_col_name, aa_changes_col_name, edit_distance_col_name : str
         Which columns of each tile's reads table are the barcode, amino-acid
         changes and edit distance (starcall's aux tables name them per
@@ -163,7 +165,7 @@ class BuildCellImagesPrepareConfig(AppConfig):
     segmentation_type: str = "cells"
     use_corrected: bool = False
     window: int = MISSING
-    shard_size: Optional[int] = None
+    shard_max_bytes: Optional[int] = None
     barcode_col_name: str = "upBarcode"
     aa_changes_col_name: str = "aaChanges"
     edit_distance_col_name: str = "editDistance"
@@ -279,7 +281,7 @@ def snakemake_config(
             "fisseq_segmentation_type": cfg.segmentation_type,
             "fisseq_image": "corrected" if cfg.use_corrected else "raw",
             "fisseq_window": cfg.window,
-            "fisseq_shard_size": cfg.shard_size,
+            "fisseq_shard_max_bytes": cfg.shard_max_bytes,
             "fisseq_barcode_col": cfg.barcode_col_name,
             "fisseq_aa_changes_col": cfg.aa_changes_col_name,
             "fisseq_edit_distance_col": cfg.edit_distance_col_name,

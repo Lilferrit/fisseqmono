@@ -47,7 +47,7 @@ def test_shard_filename_uses_the_well_number_zero_padded():
     assert shard_filename("A1", 2) == "well_A1_shard_000002.tar.gz"
 
 
-def test_no_shard_size_packs_the_whole_well_into_one_shard(tmp_path: Path):
+def test_no_shard_max_bytes_packs_the_whole_well_into_one_shard(tmp_path: Path):
     tile_tars = _tiles(tmp_path, [2, 0, 3])
 
     paths, n_cells = write_well_shards(tile_tars, "well1", None, str(tmp_path / "out"))
@@ -63,24 +63,73 @@ def test_no_shard_size_packs_the_whole_well_into_one_shard(tmp_path: Path):
     ]
 
 
-def test_shard_size_splits_across_tiles_in_order(tmp_path: Path):
-    """Shards fill to shard_size cells regardless of tile boundaries; the
-    last one holds the remainder."""
-    tile_tars = _tiles(tmp_path, [3, 2, 2])
+def _noisy_tiles(tmp_path: Path, counts: list[int]) -> list[str]:
+    """Tile shards whose crops don't compress, so each sample adds a
+    predictable ~32 KiB to a shard on disk."""
+    rng = np.random.default_rng(0)
+    tars = []
+    for t, n_cells in enumerate(counts):
+        tile = f"tile{t:02}x00y"
+        path = tmp_path / f"noisy{t:02}.tar"
+        with wds.TarWriter(str(path)) as sink:
+            for i in range(n_cells):
+                sink.write(
+                    {
+                        "__key__": f"well1_{tile}_{i}",
+                        "crop.npy": rng.integers(
+                            0, 2**16, (4, 64, 64), dtype=np.uint16
+                        ),
+                        "mask.npy": np.ones((64, 64), dtype=np.uint8),
+                        "meta.json": {"meta_well": "well1", "meta_tile": tile},
+                    }
+                )
+        tars.append(str(path))
+    return tars
 
-    paths, _ = write_well_shards(tile_tars, "well1", 3, str(tmp_path / "out"))
 
+def test_shard_max_bytes_splits_across_tiles_in_order(tmp_path: Path):
+    """A shard closes after the sample that takes it to shard_max_bytes on
+    disk, regardless of tile boundaries; samples stay in order."""
+    tile_tars = _noisy_tiles(tmp_path, [3, 2, 2])
+
+    paths, n_cells = write_well_shards(
+        tile_tars, "well1", 70_000, str(tmp_path / "out")
+    )
+
+    assert n_cells == 7
     assert [Path(p).name for p in paths] == [
         "well_1_shard_000000.tar.gz",
         "well_1_shard_000001.tar.gz",
         "well_1_shard_000002.tar.gz",
     ]
+    # ~32 KiB per sample: the third sample takes a shard past 70 kB.
     assert [len(_keys(p)) for p in paths] == [3, 3, 1]
-    assert _keys(paths[1]) == [
-        "well1_tile01x00y_0",
-        "well1_tile01x00y_1",
-        "well1_tile02x00y_0",
+    assert [k for p in paths for k in _keys(p)] == [
+        f"well1_tile{t:02}x00y_{i}" for t, n in enumerate([3, 2, 2]) for i in range(n)
     ]
+
+
+def test_shards_stay_near_shard_max_bytes(tmp_path: Path):
+    """Every shard but the last reaches the limit, and overshoots it by at
+    most one sample plus what gzip had buffered (GzipFile's 32 KiB, zlib's
+    own)."""
+    tile_tars = _noisy_tiles(tmp_path, [20])
+    limit = 200_000
+
+    paths, _ = write_well_shards(tile_tars, "well1", limit, str(tmp_path / "out"))
+
+    sizes = [Path(p).stat().st_size for p in paths]
+    assert len(sizes) > 1
+    for size in sizes[:-1]:
+        assert limit <= size < limit + 80_000
+    assert sizes[-1] < limit + 80_000
+
+
+def test_a_sample_bigger_than_shard_max_bytes_gets_its_own_shard(tmp_path: Path):
+    paths, _ = write_well_shards(
+        _noisy_tiles(tmp_path, [2]), "well1", 1, str(tmp_path / "out")
+    )
+    assert [len(_keys(p)) for p in paths] == [1, 1]
 
 
 def test_shards_are_gzipped(tmp_path: Path):
@@ -111,17 +160,18 @@ def test_empty_well_still_gets_one_empty_shard(tmp_path: Path):
     assert _keys(paths[0]) == []
 
 
-@pytest.mark.parametrize("shard_size", [0, -1])
-def test_rejects_a_non_positive_shard_size(tmp_path: Path, shard_size: int):
-    with pytest.raises(ValueError, match="shard_size"):
-        write_well_shards([], "well1", shard_size, str(tmp_path / "out"))
+@pytest.mark.parametrize("shard_max_bytes", [0, -1])
+def test_rejects_a_non_positive_shard_max_bytes(tmp_path: Path, shard_max_bytes: int):
+    with pytest.raises(ValueError, match="shard_max_bytes"):
+        write_well_shards([], "well1", shard_max_bytes, str(tmp_path / "out"))
 
 
 def test_embed_cells_reads_the_gzipped_shards(tmp_path: Path):
     """EMBED_CELLS' dataloader streams the packed shards as they are."""
     paths, _ = write_well_shards(
-        _tiles(tmp_path, [2, 1]), "well1", 2, str(tmp_path / "out")
+        _noisy_tiles(tmp_path, [2, 1]), "well1", 1, str(tmp_path / "out")
     )
+    assert len(paths) == 3
     cfg = EmbedCellsConfig(
         output_dir=str(tmp_path),
         shards_dir=str(tmp_path / "out"),
@@ -138,8 +188,8 @@ def test_embed_cells_reads_the_gzipped_shards(tmp_path: Path):
 
 def test_main_runs_via_cli(tmp_path: Path):
     tile_list = tmp_path / "tile_tars.txt"
-    tile_list.write_text("\n".join(_tiles(tmp_path, [2, 1])) + "\n")
-    shard_dir = tmp_path / "phenotyping" / "well1_grid2" / "cells_raw_shards_224_2"
+    tile_list.write_text("\n".join(_noisy_tiles(tmp_path, [2, 1])) + "\n")
+    shard_dir = tmp_path / "phenotyping" / "well1_grid2" / "cells_raw_shards_224_1B"
 
     result = subprocess.run(
         [
@@ -150,7 +200,7 @@ def test_main_runs_via_cli(tmp_path: Path):
             f"hydra.run.dir={tmp_path / 'log'}",
             f"tile_tars_file={tile_list}",
             "well=well1",
-            "shard_size=2",
+            "shard_max_bytes=1",
             f"shard_dir={shard_dir}",
         ],
         capture_output=True,
@@ -161,4 +211,5 @@ def test_main_runs_via_cli(tmp_path: Path):
     assert sorted(p.name for p in shard_dir.iterdir()) == [
         "well_1_shard_000000.tar.gz",
         "well_1_shard_000001.tar.gz",
+        "well_1_shard_000002.tar.gz",
     ]

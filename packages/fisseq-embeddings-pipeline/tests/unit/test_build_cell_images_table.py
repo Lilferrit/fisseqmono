@@ -376,14 +376,18 @@ def test_genotype_columns_come_from_the_snakemake_config():
 # ---------------------------------------------------------------------------
 
 
-def _starcall_shards(tmp_path):
-    shard_dir = tmp_path / "phenotyping" / "well1_grid5" / "cells_raw_shards_224_2000"
-    shard_dir.mkdir(parents=True)
+def _starcall_shards(tmp_path, wells=("well1",)):
     shards = []
-    for k in range(2):
-        tar = shard_dir / f"well_1_shard_{k:06}.tar.gz"
-        tar.write_bytes(b"shard %d" % k)
-        shards.append({"well": "well1", "shard_tar": str(tar)})
+    for well in wells:
+        n = well[len("well") :]
+        shard_dir = (
+            tmp_path / "phenotyping" / f"{well}_grid5" / "cells_raw_shards_224_all"
+        )
+        shard_dir.mkdir(parents=True)
+        for k in range(2):
+            tar = shard_dir / f"well_{n}_shard_{k:06}.tar.gz"
+            tar.write_bytes(b"%s shard %d" % (well.encode(), k))
+            shards.append({"well": well, "shard_tar": str(tar)})
     return shards
 
 
@@ -394,8 +398,8 @@ def test_link_shards_hard_links_and_records_relative_paths(tmp_path):
     linked = mod.link_shards(shards, out, "shards")
 
     assert linked == [
-        {"well": "well1", "shard_tar": "shards/well_1_shard_000000.tar.gz"},
-        {"well": "well1", "shard_tar": "shards/well_1_shard_000001.tar.gz"},
+        {"well": "well1", "shard_tar": "shards/well1/well_1_shard_000000.tar.gz"},
+        {"well": "well1", "shard_tar": "shards/well1/well_1_shard_000001.tar.gz"},
     ]
     for shard, row in zip(shards, linked):
         assert (out / row["shard_tar"]).stat().st_ino == os.stat(
@@ -414,7 +418,23 @@ def test_link_shards_replaces_a_stale_link(tmp_path):
 
     mod.link_shards(shards, out, "shards")
 
-    assert (out / "shards" / source.name).read_bytes() == b"recut"
+    assert (out / "shards" / "well1" / source.name).read_bytes() == b"recut"
+
+
+def test_link_shards_gives_each_well_its_own_directory(tmp_path):
+    """One WebDataset per well: EMBED_CELLS embeds each in its own task."""
+    out = tmp_path / "task"
+
+    mod.link_shards(_starcall_shards(tmp_path, ("well1", "well2")), out, "shards")
+
+    assert sorted(
+        str(p.relative_to(out / "shards")) for p in (out / "shards").rglob("*.tar.gz")
+    ) == [
+        "well1/well_1_shard_000000.tar.gz",
+        "well1/well_1_shard_000001.tar.gz",
+        "well2/well_2_shard_000000.tar.gz",
+        "well2/well_2_shard_000001.tar.gz",
+    ]
 
 
 def test_link_shards_copies_across_filesystems(tmp_path, monkeypatch, caplog):

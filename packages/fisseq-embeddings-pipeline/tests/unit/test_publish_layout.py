@@ -77,7 +77,7 @@ OWN_MODULES = pathlib.Path(__file__).parents[2] / "modules" / "local"
     [
         ("build_cell_metadata", EMB.metadata(B)),
         ("build_cp_features", CP.features(B)),
-        ("embed_cells", EMB.features(B)),
+        ("concat_embeddings", EMB.features(B)),
     ],
 )
 def test_own_module_publish_path_matches_layout(module, path):
@@ -86,8 +86,15 @@ def test_own_module_publish_path_matches_layout(module, path):
     assert publish is not None and publish.group(1) == posixpath.dirname(path)
 
 
+def test_embed_cells_publishes_nothing():
+    """EMBED_CELLS' per-well tables stay in work/: CONCAT_EMBEDDINGS publishes
+    the experiment's stacked table, and the parts would only double it."""
+    text = (OWN_MODULES / "embed_cells" / "main.nf").read_text()
+    assert "publishDir" not in text
+
+
 def test_build_cell_images_publishes_the_dataset_where_the_layout_says():
-    """cell_table.parquet and every shard under shards/."""
+    """cell_table.parquet and every shard under shards/<well>/."""
     stem = "${plan.batch_stem}"
     text = (OWN_MODULES / "build_cell_images" / "main.nf").read_text()
     publish = re.search(
@@ -101,5 +108,8 @@ def test_build_cell_images_publishes_the_dataset_where_the_layout_says():
         assert posixpath.dirname(path) == publish_dir
     assert pattern.split(",") == [
         posixpath.basename(EMB.cell_table(stem)),
-        posixpath.basename(EMB.shard_dir(stem)) + "/*",
+        posixpath.basename(EMB.shard_dir(stem)) + "/**",
     ]
+    well_dir = EMB.well_shard_dir(stem, "well1")
+    assert posixpath.dirname(well_dir) == EMB.shard_dir(stem)
+    assert 'path("shards/*/*.tar.gz"' in text

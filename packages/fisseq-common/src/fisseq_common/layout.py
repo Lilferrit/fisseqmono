@@ -254,8 +254,14 @@ class EmbeddingsPipelineLayout(PipelineLayout):
         return f"cell_images/{batch}/cell_table.parquet"
 
     def shard_dir(self, batch: str) -> str:
-        """BUILD_CELL_IMAGES' WebDataset shards (``well_{n}_shard_{k:06}.tar.gz``)."""
+        """BUILD_CELL_IMAGES' WebDataset shards: one directory per well
+        (:meth:`well_shard_dir`)."""
         return f"cell_images/{batch}/shards"
+
+    def well_shard_dir(self, batch: str, well: str) -> str:
+        """One well's WebDataset (``well_{n}_shard_{k:06}.tar.gz``), which
+        EMBED_CELLS embeds in its own task."""
+        return f"{self.shard_dir(batch)}/{well}"
 
     def metadata(self, batch: str) -> str:
         """BUILD_CELL_METADATA's per-cell ``meta_*`` table (QC_FILTER's input)."""
