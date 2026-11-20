@@ -42,7 +42,7 @@ Extends the [common config fields](#common-config-fields) below.
 | `manifest` | `"tiles_manifest.csv"` | Tile manifest CSV (under `output_dir`), written by the `fisseq_tiles_manifest` rule. |
 | `shards_manifest` | `"shards_manifest.csv"` | Shard manifest CSV (under `output_dir`), written by the same rule. |
 | `output` | `"cell_table.parquet"` | Output parquet filename (under `output_dir`). |
-| `shards_dir` | `"shards"` | Directory (under `output_dir`) the shards are linked into. |
+| `shards_dir` | `"shards"` | Directory (under `output_dir`) the shards are linked into, one subdirectory per well. |
 | `snakemake_config` | `"snakemake_config.yaml"` | The nested snakemake's `--configfile` (under `output_dir`), written by phase 1; its `fisseq_barcode_col`/`fisseq_aa_changes_col`/`fisseq_edit_distance_col` keys name the reads tables' genotype columns. |
 
 ## Output files
@@ -64,10 +64,11 @@ Written to `output_dir`:
   index set differs from the segmentation table's, or that lacks one of the
   three genotype columns, raises, as does a CellProfiler CSV whose row count
   differs.
-- `shards/` (`shards_dir`) -- every shard in the shard manifest, hard-linked
-  out of `phenotyping_dir` under its own name (copied instead where a hard
-  link can't be made, with a warning). starcall's copies stay as
-  snakemake's cache.
+- `shards/<well>/` (`shards_dir`) -- every shard in the shard manifest,
+  hard-linked out of `phenotyping_dir` under its own name, one directory --
+  one WebDataset -- per well, which `EMBED_CELLS` embeds in its own task
+  (copied instead where a hard link can't be made, with a warning).
+  starcall's copies stay as snakemake's cache.
 
 ## Example
 

@@ -9,7 +9,7 @@
 // cellDINO track's per-tile shards are cut inside BUILD_CELL_IMAGES' own
 // nested snakemake (make_cell_shard), not by a stage here.
 //
-//   cellDINO:  EMBED_CELLS -> NORMALIZE ->
+//   cellDINO:  EMBED_CELLS (one task per well) -> CONCAT_EMBEDDINGS -> NORMALIZE ->
 //              {OVWT_BATCHWISE, feature selection}
 //   CP track:  BUILD_CP_FEATURES -> NORMALIZE_CP_FEATURES ->
 //              {AGGREGATE_FEATURE_TYPE_CP_FEATURES, OVWT_BATCHWISE_CP_FEATURES}
@@ -33,6 +33,7 @@ include { PLAN_EXPERIMENTS } from '../modules/local/plan_experiments/main.nf'
 include { BUILD_CELL_IMAGES } from '../modules/local/build_cell_images/main.nf'
 include { BUILD_CELL_METADATA } from '../modules/local/build_cell_metadata/main.nf'
 include { EMBED_CELLS } from '../modules/local/embed_cells/main.nf'
+include { CONCAT_EMBEDDINGS } from '../modules/local/concat_embeddings/main.nf'
 include { BUILD_CP_FEATURES } from '../modules/local/build_cp_features/main.nf'
 include { QC_FILTER } from '../../fisseq-common/nextflow/modules/local/qc_filter/main.nf'
 include { FILTER as NORMALIZE } from '../../fisseq-common/nextflow/modules/local/filter/main.nf'
@@ -94,7 +95,7 @@ workflow EmbeddingsPipeline {
     plans = PLAN_EXPERIMENTS(params_json).plans
         .flatMap { f -> new groovy.json.JsonSlurperClassic().parseText(f.text) }
 
-    cell_images = BUILD_CELL_IMAGES(plans)  // (batch_stem, cell_table, shard files)
+    cell_images = BUILD_CELL_IMAGES(plans)  // (batch_stem, cell_table, every well's shard files)
     cell_tables = cell_images.map { stem, cell_table, _shard_files -> tuple(stem, cell_table) }
 
     metadata = BUILD_CELL_METADATA(
@@ -105,8 +106,24 @@ workflow EmbeddingsPipeline {
     qc_passed = qc.map { stem, filtered, _barcode_counts, _variants -> tuple(stem, filtered) }
 
     // ── cellDINO track ───────────────────────────────────────────────────
-    embeddings = EMBED_CELLS(
-        cell_images.map { stem, _cell_table, shard_files -> tuple(stem, shard_files) }
+    // One EMBED_CELLS task per well (its shards sit in shards/<well>/), so a task killed
+    // partway loses one well and -resume reruns only that one. Each carries its
+    // experiment's well count, so groupKey can release an experiment's wells to
+    // CONCAT_EMBEDDINGS as soon as the last one lands, without waiting for every
+    // experiment. A failed well leaves its group short, and groupTuple drops short groups:
+    // that experiment gets no embeddings.parquet rather than a partial one.
+    well_shards = cell_images.flatMap { stem, _cell_table, shard_files ->
+        def by_well = shard_files.groupBy { f -> f.parent.name }
+        by_well.collect { well, files ->
+            tuple(stem, by_well.size(), well, files.sort { f -> f.name })
+        }
+    }
+    well_embeddings = EMBED_CELLS(well_shards)  // (batch_stem, n_wells, well, table)
+    embeddings = CONCAT_EMBEDDINGS(
+        well_embeddings
+            .map { stem, n_wells, _well, table -> tuple(groupKey(stem, n_wells), table) }
+            .groupTuple()
+            .map { key, tables -> tuple(key.toString(), tables) }
     )
 
     // embeddings_only stops the cellDINO track here and skips the CP track:

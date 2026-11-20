@@ -33,7 +33,7 @@ for `tiles_manifest.csv` in the task directory. `snakemake/Snakefile`'s
 `fisseq_tiles_manifest` rule makes it:
 its input function (`snakemake/fisseq_targets.py`) lists every well's
 shard directory
-(`{well}_grid{N}/{segmentation_type}_{raw|corrected}_shards_{window}_{shard_size|all}/`,
+(`{well}_grid{N}/{segmentation_type}_{raw|corrected}_shards_{window}_{<bytes>B|all}/`,
 packed by `make_well_shards` from the tile shards `make_cell_shard` cuts
 -- see [Well Shards](well_shards.md) and [Cell Shards](tile_shard.md)),
 and for every tile of every well the segmentation cell table
@@ -93,7 +93,7 @@ Extends the [common config fields](#common-config-fields) below.
 | `segmentation_type` | `"cells"` | Segmentation type name, threaded into every tile filename. |
 | `use_corrected` | `false` | Stitch each shard's tile from starcall's background-corrected `corrected_tiles.tif` instead of the raw input images (mirroring starcall's own `get_phenotyping_pt`; fails at the pinned commit, see [Configuration](../configuration.md)); names the shard directory `..._corrected_shards_...` rather than `..._raw_shards_...`. |
 | `window` | **required** | Crop size each cell is cut at, in the shard directory name. Must match `cell_dino_crop_size`. Routed from the experiment's `window` (or the global default). |
-| `shard_size` | `null` | Cells per WebDataset shard, each well's counted separately; in the shard directory name (`all` for `null`). `null` gives each well one shard. Routed from the experiment's `shard_size` (or the global default). |
+| `shard_max_bytes` | `null` | A WebDataset shard's size on disk, in bytes, each well's packed separately; in the shard directory name (`<bytes>B`, `all` for `null`). `null` gives each well one shard. Routed from the experiment's `shard_max_size` (or the global default, `1GB`), converted to bytes by `PLAN_EXPERIMENTS`. Written as `fisseq_shard_max_bytes`. |
 | `barcode_col_name` | `"upBarcode"` | The reads tables' barcode column (starcall's aux tables name it per experiment), renamed `meta_barcode` in the shards' `meta.json` and `cell_table.parquet`. Written as `fisseq_barcode_col`. |
 | `aa_changes_col_name` | `"aaChanges"` | Likewise the amino-acid-changes column, renamed `meta_aa_changes` (`fisseq_aa_changes_col`). |
 | `edit_distance_col_name` | `"editDistance"` | Likewise the edit-distance column, renamed `meta_edit_distance` (`fisseq_edit_distance_col`). |

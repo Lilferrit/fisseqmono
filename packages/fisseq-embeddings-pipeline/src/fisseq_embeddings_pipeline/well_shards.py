@@ -5,17 +5,21 @@ once per well by the ``make_well_shards`` rule this repo adds on top of
 starcall-workflow's own Snakefile (``snakemake/Snakefile``). Packs the
 well's per-tile shards (``tile_shard.py``, one ``make_cell_shard`` job per
 tile, ``temp()`` so snakemake deletes them once this has run) into
-gzipped shards of ``shard_size`` cells each, named
+gzipped shards of about ``shard_max_bytes`` each on disk, named
 ``well_{n}_shard_{k:06}.tar.gz`` (:func:`shard_filename`) --
-or, with ``shard_size`` unset, one shard holding the whole well. See
+or, with ``shard_max_bytes`` unset, one shard holding the whole well. See
 ``docs/architecture.md`` decision 17.
 
 Samples are copied tar member by tar member, never decoded, in tile order
 and then each tile's own order, so a sample's key and contents are exactly
-what ``tile_shard.py`` wrote. A sample never straddles two shards.
+what ``tile_shard.py`` wrote. A sample never straddles two shards, so a
+shard closes once its compressed size reaches ``shard_max_bytes``: it can
+run over by up to one sample, plus the few tens of KiB gzip still
+buffers.
 """
 
 import dataclasses
+import gzip
 import io
 import logging
 import pathlib
@@ -53,16 +57,17 @@ class WellShardsConfig(AppConfig):
         in the order their cells are written.
     well : str
         The well's name (``well3``), which names its shards.
-    shard_size : int or None
-        Cells per shard; the last shard holds the remainder. ``None`` (the
-        default) writes the whole well into one shard.
+    shard_max_bytes : int or None
+        A shard's size on disk (compressed) before the next one starts; the
+        last shard holds the remainder. ``None`` (the default) writes the
+        whole well into one shard. The pipeline's ``shard_max_size``.
     shard_dir : str
         Directory to write the shards into.
     """
 
     tile_tars_file: str = MISSING
     well: str = MISSING
-    shard_size: Optional[int] = None
+    shard_max_bytes: Optional[int] = None
     shard_dir: str = MISSING
 
 
@@ -92,13 +97,46 @@ def _samples(tar_path: str) -> Iterator[_Sample]:
             yield sample
 
 
+class _ShardSink:
+    """One gzipped tar shard being written. :attr:`size` is the compressed
+    bytes written to disk so far, not counting what gzip still buffers."""
+
+    def __init__(self, path: pathlib.Path) -> None:
+        self._raw = open(path, "wb")
+        try:
+            self._gz = gzip.GzipFile(
+                filename="", mode="wb", fileobj=self._raw, compresslevel=_COMPRESSLEVEL
+            )
+            self._tar = tarfile.open(fileobj=self._gz, mode="w")
+        except BaseException:
+            self._raw.close()
+            raise
+
+    @property
+    def size(self) -> int:
+        return self._raw.tell()
+
+    def add(self, sample: _Sample) -> None:
+        for member, data in sample:
+            self._tar.addfile(member, io.BytesIO(data))
+
+    def close(self) -> None:
+        try:
+            self._tar.close()
+            self._gz.close()
+        finally:
+            self._raw.close()
+
+
 def write_well_shards(
-    tile_tars: List[str], well: str, shard_size: Optional[int], shard_dir: str
+    tile_tars: List[str], well: str, shard_max_bytes: Optional[int], shard_dir: str
 ) -> Tuple[List[str], int]:
     """Pack ``tile_tars``' samples into ``shard_dir``.
 
-    A well with no cells still gets one valid, empty shard, so every well
-    has at least one.
+    A shard closes after the sample that brings its compressed size to
+    ``shard_max_bytes`` or more; the next sample starts a new one. A well
+    with no cells still gets one valid, empty shard, so every well has at
+    least one.
 
     Returns
     -------
@@ -108,36 +146,35 @@ def write_well_shards(
     Raises
     ------
     ValueError
-        If ``shard_size`` is set and not positive.
+        If ``shard_max_bytes`` is set and not positive.
     """
-    if shard_size is not None and shard_size < 1:
-        raise ValueError(f"shard_size must be null or positive, got {shard_size}.")
+    if shard_max_bytes is not None and shard_max_bytes < 1:
+        raise ValueError(
+            f"shard_max_bytes must be null or positive, got {shard_max_bytes}."
+        )
     out_dir = pathlib.Path(shard_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     paths: List[str] = []
-    sink: Optional[tarfile.TarFile] = None
-    in_shard = 0
+    sink: Optional[_ShardSink] = None
     n_cells = 0
 
-    def next_shard() -> tarfile.TarFile:
+    def next_shard() -> _ShardSink:
         path = out_dir / shard_filename(well, len(paths))
         paths.append(str(path))
-        return tarfile.open(path, "w:gz", compresslevel=_COMPRESSLEVEL)
+        return _ShardSink(path)
 
     try:
         for tar_path in tile_tars:
             for sample in _samples(tar_path):
-                if sink is None or (shard_size is not None and in_shard == shard_size):
-                    if sink is not None:
-                        sink.close()
+                if sink is None:
                     sink = next_shard()
-                    in_shard = 0
-                for member, data in sample:
-                    sink.addfile(member, io.BytesIO(data))
-                in_shard += 1
+                sink.add(sample)
                 n_cells += 1
-        if sink is None:
+                if shard_max_bytes is not None and sink.size >= shard_max_bytes:
+                    sink.close()
+                    sink = None
+        if not paths:
             logging.info("No cells in %s; writing an empty shard", well)
             sink = next_shard()
     finally:
@@ -162,8 +199,8 @@ def main(cfg: DictConfig) -> None:
         python -m fisseq_embeddings_pipeline.well_shards \\
             output_dir=/tmp/log \\
             tile_tars_file=/tmp/log/tile_tars.txt \\
-            well=well1 shard_size=1000 \\
-            shard_dir=phenotyping/well1_grid4/cells_raw_shards_224_1000
+            well=well1 shard_max_bytes=1000000000 \\
+            shard_dir=phenotyping/well1_grid4/cells_raw_shards_224_1000000000B
     """
     shards_cfg: WellShardsConfig = OmegaConf.to_object(cfg)
 
@@ -175,7 +212,7 @@ def main(cfg: DictConfig) -> None:
     tile_tars = pathlib.Path(shards_cfg.tile_tars_file).read_text().splitlines()
     tile_tars = [p for p in tile_tars if p]
     paths, n_cells = write_well_shards(
-        tile_tars, shards_cfg.well, shards_cfg.shard_size, shards_cfg.shard_dir
+        tile_tars, shards_cfg.well, shards_cfg.shard_max_bytes, shards_cfg.shard_dir
     )
     logging.info(
         "Wrote %d shard(s) of %s (%d cell(s) from %d tile(s)) to %s",

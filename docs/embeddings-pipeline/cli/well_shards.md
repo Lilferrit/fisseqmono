@@ -3,7 +3,8 @@
 `python -m fisseq_embeddings_pipeline.well_shards` packs **one well's**
 tile shards (cut by [`make_cell_shard`](tile_shard.md)) into the gzipped
 **WebDataset** shards `EMBED_CELLS` streams from:
-`well_{n}_shard_{k:06}.tar.gz`, `shard_size` cells each.
+`well_{n}_shard_{k:06}.tar.gz`, about `shard_max_bytes` each on disk. Each
+well is its own WebDataset, embedded by its own `EMBED_CELLS` task.
 
 Like `make_cell_shard`, it is not a Nextflow process. It's the body of
 `rule make_well_shards` in `snakemake/Snakefile`, run inside
@@ -16,16 +17,18 @@ asks for every well's shard directory, first on their own (the
 
 ```text
 input:   {phenotyping_dir}{well}_grid{N}/tile{x}x{y}y/{segmentation_type}_{raw|corrected}_shard_{window}.tar  (every tile of the grid)
-output:  {phenotyping_dir}{well}_grid{N}/{segmentation_type}_{raw|corrected}_shards_{window}_{shard_size|all}/  (directory)
+output:  {phenotyping_dir}{well}_grid{N}/{segmentation_type}_{raw|corrected}_shards_{window}_{<bytes>B|all}/  (directory)
 log:     the same path, .log
 ```
 
 How many shards a well has depends on its cell count, so the output is a
-directory. `shard_size` is part of its name (`all` when it's `null`), like
-`raw`/`corrected` and `window`: changing any of them asks for a different
-directory instead of reusing stale shards. The tile shards are `temp()`,
-so snakemake deletes them once the well is packed. A rerun with a new
-`shard_size` cuts every tile again.
+directory. `shard_max_bytes` is part of its name (`1000000000B`; `all` when
+it's `null`), like `raw`/`corrected` and `window`: changing any of them asks
+for a different directory instead of reusing stale shards. The `B` keeps
+these apart from the cell-count-sized directories (`..._2000`) earlier
+versions left in starcall's tree, which can be deleted by hand. The tile
+shards are `temp()`, so snakemake deletes them once the well is packed. A
+rerun with a new `shard_max_bytes` cuts every tile again.
 
 The tile shards reach the module through a file (`tile_tars_file`), one
 path per line, because a 20 x 20 grid has 400 of them.
@@ -35,10 +38,13 @@ path per line, because a 20 x 20 grid has 400 of them.
 Samples are copied tar member by tar member, never decoded: tile by tile
 in grid order, then in each tile's own order. A sample is the run of
 consecutive members sharing a key (the name up to its first `.`,
-WebDataset's rule). Each shard holds `shard_size` samples except the last,
-which holds the rest; a sample never straddles two shards. With
-`shard_size` unset the whole well is one shard. A well with no cells still
-gets one valid, empty shard.
+WebDataset's rule). A shard closes after the sample that takes its
+compressed size on disk to `shard_max_bytes` or more, and the next sample
+starts a new one; the last holds the rest. A sample never straddles two
+shards, so a shard can run over by up to one sample, plus the few tens of
+KiB gzip still buffers -- negligible at the 1 GB default. With
+`shard_max_bytes` unset the whole well is one shard. A well with no cells
+still gets one valid, empty shard.
 
 `n` is the well's number (`well3` -> `well_3_shard_000000.tar.gz`); a
 well not named `well<n>` keeps its whole name. The six-digit shard number
@@ -57,7 +63,7 @@ Extends the [common config fields](#common-config-fields) below.
 | ----- | ------- | ----------- |
 | `tile_tars_file` | **required** | Text file listing the well's tile shards, one path per line, in the order their cells are written. |
 | `well` | **required** | The well's name, which names its shards. |
-| `shard_size` | `null` | Cells per shard. `null` writes the whole well into one shard. From the experiment's `shard_size` (falling back to `params.yaml`'s global default; see [Configuration](../configuration.md)). |
+| `shard_max_bytes` | `null` | A shard's size on disk (compressed), in bytes, before the next one starts. `null` writes the whole well into one shard. From the experiment's `shard_max_size` (falling back to `params.yaml`'s global default, `1GB`; see [Configuration](../configuration.md)). |
 | `shard_dir` | **required** | Directory to write the shards into. |
 
 ## Output
@@ -66,8 +72,8 @@ Extends the [common config fields](#common-config-fields) below.
 exactly what `make_cell_shard` wrote: keyed
 `"{well}_{tile}_{tile_cell_index}"`, carrying `crop.npy`, `mask.npy` and
 `meta.json`. `BUILD_CELL_IMAGES` hard-links every shard into
-`pipeline_dir`'s `cell_images/<batch>/shards/`; these stay as snakemake's
-cache.
+`pipeline_dir`'s `cell_images/<batch>/shards/<well>/`; these stay as
+snakemake's cache.
 
 ## Example
 
@@ -75,8 +81,8 @@ cache.
 uv run python -m fisseq_embeddings_pipeline.well_shards \
     output_dir=/tmp/log \
     tile_tars_file=/tmp/log/tile_tars.txt \
-    well=well1 shard_size=2000 \
-    shard_dir=phenotyping/well1_grid4/cells_raw_shards_224_2000
+    well=well1 shard_max_bytes=1000000000 \
+    shard_dir=phenotyping/well1_grid4/cells_raw_shards_224_1000000000B
 ```
 
 ## Common config fields

@@ -1,11 +1,15 @@
 {
   "scenario": "embeddings_two",
-  "commit": "5aa9965bec5f9611bc4373d875133a61016a9986+dirty",
+  "commit": "19e74492e58a99ae0fe5547d74322de07887e34b+dirty",
   "files": [
     "cell_images/batch1/cell_table.parquet",
     "cell_images/batch2/cell_table.parquet",
     "cell_metadata/batch1/metadata.parquet",
     "cell_metadata/batch2/metadata.parquet",
+    "combat/features.parquet",
+    "combat/ovwt_scores.parquet",
+    "combat_cp_features/features.parquet",
+    "combat_cp_features/ovwt_scores.parquet",
     "cp_features/batch1/cp_features.parquet",
     "cp_features/batch2/cp_features.parquet",
     "embeddings/batch1/embeddings.parquet",

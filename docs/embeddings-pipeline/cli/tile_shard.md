@@ -154,7 +154,7 @@ it.
 
 `make_well_shards` copies these samples unchanged into the well's
 gzipped shards, which `BUILD_CELL_IMAGES` publishes under
-`cell_images/<batch>/shards/`.
+`cell_images/<batch>/shards/<well>/`.
 
 ## Example
 

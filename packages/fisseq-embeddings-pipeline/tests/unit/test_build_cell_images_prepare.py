@@ -171,10 +171,10 @@ def test_snakemake_config_passes_the_wt_label():
     assert _config(wt_label="silent")["fisseq_wt_label"] == "silent"
 
 
-def test_snakemake_config_passes_shard_size_null_by_default():
+def test_snakemake_config_passes_shard_max_bytes_null_by_default():
     """null: one shard per well."""
-    assert _config()["fisseq_shard_size"] is None
-    assert _config(shard_size=2000)["fisseq_shard_size"] == 2000
+    assert _config()["fisseq_shard_max_bytes"] is None
+    assert _config(shard_max_bytes=10**9)["fisseq_shard_max_bytes"] == 10**9
 
 
 def test_snakemake_config_leaves_wells_to_starcall_when_unset():

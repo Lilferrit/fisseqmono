@@ -38,7 +38,7 @@ nav:
     - 'Cell Images, Phase 2: Well Shards (make_well_shards, inside BUILD_CELL_IMAGES)': embeddings-pipeline/cli/well_shards.md
     - 'Cell Images, Phase 3: Build Table (BUILD_CELL_IMAGES)': embeddings-pipeline/cli/build_cell_images_table.md
     - Cell Metadata (BUILD_CELL_METADATA): embeddings-pipeline/cli/cell_metadata.md
-    - Cell Embeddings (EMBED_CELLS): embeddings-pipeline/cli/embed.md
+    - Cell Embeddings (EMBED_CELLS, CONCAT_EMBEDDINGS): embeddings-pipeline/cli/embed.md
     - CellProfiler Feature Dataset (BUILD_CP_FEATURES): embeddings-pipeline/cli/cp_features.md
   - API Reference:
     - build_cell_images_prepare: embeddings-pipeline/api/build_cell_images_prepare.md
@@ -47,6 +47,7 @@ nav:
     - build_cell_images_table: embeddings-pipeline/api/build_cell_images_table.md
     - cell_metadata: embeddings-pipeline/api/cell_metadata.md
     - embed: embeddings-pipeline/api/embed.md
+    - concat_embeddings: embeddings-pipeline/api/concat_embeddings.md
     - cp_features: embeddings-pipeline/api/cp_features.md
     - config: embeddings-pipeline/api/config.md
     - utils: embeddings-pipeline/api/utils.md
@@ -83,6 +84,7 @@ nav:
   - 08 Per-well shards: diff-reports/08-well-shards.md
   - 09 Cell table parity: diff-reports/09-cell-table-parity.md
   - 10 Published shards: diff-reports/10-published-shards.md
+  - 11 Per-well embedding: diff-reports/11-per-well-embedding.md
 theme:
   name: material
   palette:

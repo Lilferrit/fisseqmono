@@ -26,18 +26,21 @@ The routing contract:
   have a pipeline-wide default in ``params.yaml``; an entry that doesn't
   set its own value inherits it. An entry's own value always wins.
   ``window`` is the crop size each tile's shard is cut at, so it routes to
-  ``BUILD_CELL_IMAGES`` -- it names the shard target. ``shard_size``
-  (cells per WebDataset shard) works the same way.
+  ``BUILD_CELL_IMAGES`` -- it names the shard target. ``shard_max_size``
+  (a WebDataset shard's size on disk, e.g. ``1GB``) works the same way;
+  it reaches ``BUILD_CELL_IMAGES`` as ``shard_max_bytes``, in bytes
+  (:func:`parse_size`).
 """
 
 import argparse
 import json
 import logging
+import re
 import sys
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 #: Keys routed to ``BUILD_CELL_IMAGES`` only -- the starcall-workflow-facing
-#: fields, the crop ``window`` and ``shard_size`` its shard targets are
+#: fields, the crop ``window`` and ``shard_max_size`` its shard targets are
 #: named by, the reads tables' genotype column names and wildtype label, and the three
 #: ``cp_features``-related ones it folds into ``cell_table.parquet``.
 CELL_IMAGES_FIELDS = frozenset(
@@ -50,7 +53,7 @@ CELL_IMAGES_FIELDS = frozenset(
         "segmentation_type",
         "use_corrected",
         "window",
-        "shard_size",
+        "shard_max_size",
         "sequencing_reads_params",
         "barcode_col_name",
         "aa_changes_col_name",
@@ -67,6 +70,13 @@ CELL_IMAGES_FIELDS = frozenset(
 #: ``cp_features`` is a track selector rather than a stage field.
 _NON_STAGE_FIELDS = frozenset({"batch_stem", "cp_features"})
 
+#: Why ``shard_size`` (cells per shard) is gone. Not a rename: the same
+#: number read as bytes would make tiny shards.
+_SHARD_SIZE_REMOVED = (
+    "shards are now sized on disk, not by cell count -- set shard_max_size "
+    "(e.g. 1GB) instead"
+)
+
 #: Per-experiment fields that no longer do anything, and why. Each is
 #: warned about and routed nowhere.
 REMOVED_EXPERIMENT_FIELDS = {
@@ -74,13 +84,20 @@ REMOVED_EXPERIMENT_FIELDS = {
         "the tile grid is the starcall project config.yaml's "
         "sequencing_grid_size (set it there)"
     ),
+    "shard_size": _SHARD_SIZE_REMOVED,
+}
+
+#: Global parameters that no longer do anything, and why. Each is warned
+#: about when set.
+REMOVED_PARAMS = {
+    "shard_size": _SHARD_SIZE_REMOVED,
 }
 
 #: Global ``params.yaml`` defaults an ``experiments:`` entry inherits when it
 #: doesn't set the key itself. See the module docstring.
 _CELL_IMAGES_FALLBACKS = (
     "window",
-    "shard_size",
+    "shard_max_size",
     "cellprofiler_pipeline",
     "cellprofiler_cycle",
 )
@@ -159,6 +176,7 @@ def validate_config(config: Mapping[str, Any]) -> List[Dict[str, Any]]:
     _validate_reproducibility(config)
     _warn_removed_global_params(config)
     _warn_renamed_params(config)
+    _warn_removed_params(config)
     _validate_ovwt(config)
     _validate_starcall_profile(config)
     _validate_starcall_retries(config)
@@ -304,6 +322,13 @@ RENAMED_PARAMS = {
 }
 
 
+def _warn_removed_params(config: Mapping[str, Any]) -> None:
+    """Warn about each set parameter of :data:`REMOVED_PARAMS`."""
+    for key, reason in REMOVED_PARAMS.items():
+        if config.get(key) is not None:
+            logging.warning("%s is ignored: %s.", key, reason)
+
+
 def _warn_renamed_params(config: Mapping[str, Any]) -> None:
     """Warn about each set parameter that now has fisseq-data-pipeline's name."""
     for key, new in RENAMED_PARAMS.items():
@@ -406,25 +431,63 @@ def _validate_publish_mode(config: Mapping[str, Any]) -> None:
         raise ValueError(f"publish_mode must be 'link' or 'copy', got {mode!r}.")
 
 
+_SIZE_UNITS = {
+    "b": 1,
+    "kb": 1000,
+    "mb": 1000**2,
+    "gb": 1000**3,
+    "tb": 1000**4,
+    "kib": 1024,
+    "mib": 1024**2,
+    "gib": 1024**3,
+    "tib": 1024**4,
+}
+_SIZE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([a-z]*)\s*$", re.IGNORECASE)
+
+
+def parse_size(value: Any, name: str = "size") -> Optional[int]:
+    """A size on disk in bytes: an integer (bytes), or a string with a unit
+    -- ``"500MB"``, ``"1GB"`` (powers of 1000) or ``"512MiB"``, ``"1GiB"``
+    (powers of 1024); no unit means bytes. ``None``, ``""`` and ``"null"``
+    (a command-line ``--shard_max_size null``) are ``None``.
+
+    Raises
+    ------
+    ValueError
+        If ``value`` is none of those, or isn't at least one byte.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be a size such as 1GB, got {value!r}.")
+    if isinstance(value, int):
+        size = value
+    elif isinstance(value, str):
+        if value.strip().lower() in ("", "null", "none"):
+            return None
+        match = _SIZE.match(value)
+        unit = (match.group(2).lower() or "b") if match else None
+        if unit not in _SIZE_UNITS:
+            raise ValueError(
+                f"{name} must be a size such as 500MB, 1GB or 512MiB, got {value!r}."
+            )
+        size = int(float(match.group(1)) * _SIZE_UNITS[unit])
+    else:
+        raise ValueError(f"{name} must be a size such as 1GB, got {value!r}.")
+    if size < 1:
+        raise ValueError(f"{name} must be at least one byte, got {value!r}.")
+    return size
+
+
 def _validate_shard_sizes(
     config: Mapping[str, Any], experiments: Sequence[Mapping[str, Any]]
 ) -> None:
-    """``shard_size``, global or an entry's own, is null (one shard per
-    well) or a positive cell count. A command-line ``--shard_size 1000`` can
-    arrive as the string ``"1000"``."""
-    sources = [("shard_size", config.get("shard_size"))] + [
-        (f"experiments[{i}].shard_size", entry.get("shard_size"))
-        for i, entry in enumerate(experiments)
-    ]
-    for name, value in sources:
-        if value is None:
-            continue
-        if isinstance(value, str) and value.isdigit():
-            value = int(value)
-        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-            raise ValueError(
-                f"{name} must be null or a positive integer, got {value!r}."
-            )
+    """``shard_max_size``, global or an entry's own, is null (one shard per
+    well) or a size :func:`parse_size` reads."""
+    parse_size(config.get("shard_max_size"), "shard_max_size")
+    for i, entry in enumerate(experiments):
+        if "shard_max_size" in entry:
+            parse_size(entry["shard_max_size"], f"experiments[{i}].shard_max_size")
 
 
 def _with_fallbacks(
@@ -444,12 +507,18 @@ def cell_images_overrides(
     """
     The ``BUILD_CELL_IMAGES``-bound Hydra overrides for one experiment.
 
-    :data:`CELL_IMAGES_FIELDS` only, with the ``window``/``shard_size``/
+    :data:`CELL_IMAGES_FIELDS` only, with the ``window``/``shard_max_size``/
     ``cellprofiler_pipeline``/``cellprofiler_cycle`` global fallbacks
-    applied.
+    applied. ``shard_max_size`` becomes ``shard_max_bytes``, in bytes
+    (an entry's own ``null`` stays null: one shard per well).
     """
     overrides = {k: v for k, v in entry.items() if k in CELL_IMAGES_FIELDS}
-    return _with_fallbacks(overrides, config, _CELL_IMAGES_FALLBACKS)
+    overrides = _with_fallbacks(overrides, config, _CELL_IMAGES_FALLBACKS)
+    if "shard_max_size" in overrides:
+        overrides["shard_max_bytes"] = parse_size(
+            overrides.pop("shard_max_size"), "shard_max_size"
+        )
+    return overrides
 
 
 def cell_table_overrides(entry: Mapping[str, Any]) -> Dict[str, Any]:
@@ -474,8 +543,9 @@ def hydra_overrides(mapping: Mapping[str, Any]) -> str:
 
     Lists become Hydra's bracket syntax, single-quoted so the shell
     doesn't split or glob them; booleans are lowercased to match YAML/Hydra
-    spelling (Python's ``True`` is not a valid Hydra boolean). Scalars are
-    passed through bare, matching the Groovy idiom this replaces.
+    spelling (Python's ``True`` is not a valid Hydra boolean), and ``None``
+    is ``null``. Scalars are passed through bare, matching the Groovy idiom
+    this replaces.
 
     Examples
     --------
@@ -489,6 +559,8 @@ def hydra_overrides(mapping: Mapping[str, Any]) -> str:
             parts.append(f"'{key}=[{joined}]'")
         elif isinstance(value, bool):
             parts.append(f"{key}={str(value).lower()}")
+        elif value is None:
+            parts.append(f"{key}=null")
         else:
             parts.append(f"{key}={value}")
     return " ".join(parts)

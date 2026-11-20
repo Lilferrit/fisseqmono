@@ -18,9 +18,10 @@ columns under their own names. BUILD_CELL_METADATA/BUILD_CP_FEATURES read
 only this table, never starcall-workflow's tree.
 
 Every well's shards are hard-linked out of starcall's tree into
-`shards_dir`, next to `output`: the published `cell_images/<batch>/` is the
-whole dataset, readable without starcall's tree. starcall's copies stay,
-as snakemake's cache.
+`shards_dir/<well>/`, next to `output`: each well is its own WebDataset,
+which EMBED_CELLS embeds in its own task, and the published
+`cell_images/<batch>/` is the whole dataset, readable without starcall's
+tree. starcall's copies stay, as snakemake's cache.
 
 The genotype column names come from `snakemake_config` (the nested run's
 `--configfile`), so the table and the shards are built with the same ones.
@@ -98,8 +99,9 @@ class BuildCellImagesTableConfig(AppConfig):
         Shard manifest CSV, written by the same rule (relative to
         `output_dir`). Defaults to ``"shards_manifest.csv"``.
     shards_dir : str
-        Directory (relative to `output_dir`) every shard is linked into --
-        see :func:`link_shards`. Defaults to ``"shards"``.
+        Directory (relative to `output_dir`) every shard is linked into,
+        one subdirectory per well -- see :func:`link_shards`. Defaults to
+        ``"shards"``.
     snakemake_config : str
         The nested snakemake's ``--configfile`` (relative to `output_dir`),
         written by build_cell_images_prepare; its ``fisseq_*_col`` keys
@@ -340,8 +342,8 @@ def link_shards(
 ) -> List[Dict[str, Any]]:
     """Hard-link each shard the nested snakemake's ``make_well_shards`` rule
     (``snakemake/Snakefile``) left under phenotyping_dir into
-    ``output_dir / shards_dir``, keeping its name (which carries the well
-    number, so wells don't collide).
+    ``output_dir / shards_dir / <well>``, keeping its name: one directory,
+    one WebDataset, per well.
 
     A hard link costs no disk, and snakemake replacing starcall's copy
     (a recut) leaves this one as it was. Across filesystems, where a hard
@@ -356,8 +358,9 @@ def link_shards(
     linked, copied = [], 0
     for shard in shards:
         source = pathlib.Path(shard["shard_tar"])
-        relative = f"{shards_dir}/{source.name}"
+        relative = f"{shards_dir}/{shard['well']}/{source.name}"
         target = output_dir / relative
+        target.parent.mkdir(exist_ok=True)
         target.unlink(missing_ok=True)
         try:
             os.link(source, target)

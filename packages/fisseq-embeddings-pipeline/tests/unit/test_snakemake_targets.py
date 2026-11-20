@@ -37,7 +37,7 @@ def _shard_dirs(**overrides):
         segmentation_type="cells",
         image="raw",
         window=224,
-        shard_size=None,
+        shard_max_bytes=None,
     )
     kwargs.update(overrides)
     return mod.well_shard_dirs(**kwargs)
@@ -88,11 +88,13 @@ def test_well_shard_dir_sits_next_to_the_tiles():
     ]
 
 
-def test_well_shard_dir_is_named_by_image_window_and_shard_size():
+def test_well_shard_dir_is_named_by_image_window_and_shard_max_bytes():
     """Changing any of them requests new shards instead of reusing stale
     ones."""
-    (row,) = _shard_dirs(image="corrected", window=180, shard_size=1000)
-    assert row["shard_dir"].endswith("/well1_grid1/cells_corrected_shards_180_1000")
+    (row,) = _shard_dirs(image="corrected", window=180, shard_max_bytes=10**9)
+    assert row["shard_dir"].endswith(
+        "/well1_grid1/cells_corrected_shards_180_1000000000B"
+    )
 
 
 def test_tile_shard_tars_are_every_tile_of_the_well_in_order():
